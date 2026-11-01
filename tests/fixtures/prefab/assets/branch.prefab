@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "base": {
+    "version": 1,
+    "entities": [
+      {
+        "id": "20000000-0000-4000-8000-000000000003",
+        "name": "嵌套挂点",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      }
+    ]
+  },
+  "instances": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "prefab": "10000000-0000-4000-8000-000000000003",
+      "parent": "20000000-0000-4000-8000-000000000003",
+      "overrides": [
+        {
+          "entity": "20000000-0000-4000-8000-000000000001",
+          "field": {
+            "component": 2,
+            "field": 3
+          },
+          "value": {
+            "type": "scalar",
+            "value": 0.25
+          }
+        }
+      ]
+    }
+  ]
+}

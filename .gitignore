@@ -1,0 +1,27 @@
+# 可再生构建、资产产品与分发包（仓库根目录）
+/target/
+/products/
+/dist/
+
+# 旧阶段归档与运行证据不进入版本控制
+/docs/history/
+/docs/evidence/
+
+# 资产构建锁与原子写入的临时文件；作者资产和 *.meta 需要入库
+.assetc.lock
+.build.lock
+.comet-*.tmp
+
+# 原生 GPU 捕获包
+*.gputrace/
+
+# Python 工具缓存
+__pycache__/
+*.py[cod]
+
+# 本机状态与代码索引
+.DS_Store
+/.idea/
+/.vscode/
+/.cache/
+/.codegraph/

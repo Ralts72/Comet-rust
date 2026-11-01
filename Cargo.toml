@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "engine/core", "engine/scene", "engine/asset/*", "engine/runtime",
+    "engine/render", "engine/application", "editor", "editor/core", "app",
+    "tools/asset/*", "tools/gpu",
+]
+default-members = [
+    "engine/core", "engine/scene", "engine/asset/*", "engine/runtime",
+    "engine/render", "engine/application", "editor/core", "tools/asset/*",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+sha2 = "0.10"
+glam = { version = "0.33", features = ["serde"] }
+egui = { version = "=0.37.0", default-features = false, features = ["default_fonts"] }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "x11"] }
+egui-winit = { version = "=0.37.0", default-features = false, features = ["x11"] }
+
+[profile.dev]
+debug = 2
+incremental = true
+
+[profile.dev.package."*"]
+# Keep workspace code debuggable without carrying dependency debug information.
+debug = 0
+
+[profile.release]
+opt-level = 3
+debug = 0
+strip = "symbols"
+lto = "thin"
+incremental = false

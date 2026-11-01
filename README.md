@@ -1,0 +1,84 @@
+# Comet Rust
+
+Comet 的独立 Rust 3D 引擎工程，沿用引擎、编辑器、游戏与工具的业务目录，用 Cargo workspace 管理模块依赖。旧 C++ 工程用于行为对照，新工程不链接其引擎或 C/C++ 第三方实现。
+
+当前支持静态 glTF/GLB 导入、多材质 PBR/阴影、场景编辑、撤销/重做、保存与独立游戏打包。图形使用原生 Metal/Vulkan；Metal 已实际运行，Vulkan 已进行 Linux 交叉编译检查，目标设备运行仍需验证。物理、导航、脚本、动画和音频尚未正式接入。
+
+## 开发与启动
+
+使用 `rust-toolchain.toml` 固定的 Rust 工具链、Edition 2024 和 `Cargo.lock`。启动与验证工具使用 Python 3 标准库。workspace 共用根 `target/`，编译并行配置在 `.cargo/config.toml`；macOS 需要 Xcode Command Line Tools 提供 SDK 与链接器。
+
+日常只保留两个按用途固定的启动脚本：
+
+```sh
+./editor.sh                    # Debug 增量编译并打开编辑器
+./run_game.sh                  # Release 编译、准备资源并运行游戏
+./editor.sh --help
+./editor.sh --project /path/to/project --scene main.scene
+./run_game.sh --products /path/to/products --scene 40000000-0000-4000-8000-000000000001
+```
+
+脚本只接收应用参数，程序和构建配置由用途固定。默认项目为 `demo/`，两端共用 CPU 产品 `target/products/demo/`。
+项目、产品、截图和报告的相对路径以调用时的目录为基准；作者场景文件名相对项目的 `assets/`。指定现成产品运行游戏时，跳过默认示例的导入和构建。
+公共启动实现位于 `tools/launch.py`；Cargo 定位实际产物，遵循 target 目录和构建目标配置。入口在必要时查找常见 rustup 安装路径，不修改全局环境。
+
+| 配置 | 用途与取舍 |
+| --- | --- |
+| Debug | 编辑开发；本仓库代码保留完整调试信息、断言、溢出检查与增量缓存，第三方依赖关闭调试信息 |
+| Release | 游戏运行与分发；优化等级 3、Thin LTO、剥离符号、关闭增量编译，保留默认并行 codegen 与 panic unwind |
+
+测试继承开发配置；配置统一在根 `Cargo.toml`，选项含义见 [Cargo Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)。`target/` 包含缓存、测试和验证输出，不作为发布包。修改配置不会自动回收旧缓存；需要回收时可使用 Cargo 的清理命令。
+
+作者资产及其 `.meta` 身份文件需要一起入库，包括 glTF 配套的 `.bin`、纹理和测试数据；`Cargo.lock` 也保留在版本控制中。
+自有作者格式使用 `.scene`、`.prefab`、`.mesh`、`.material`，内容仍为 JSON。默认场景为 `demo/assets/main.scene`；metadata 在完整源文件名后追加 `.meta`，例如 `main.scene.meta`、`showcase.gltf.meta`，重命名时随源文件一起移动并保留 UUID。
+可再生产品、截图、报告与诊断输出放在 `target/`，导出包可放在 `target/packages/` 或根 `dist/`。根 `target/`、`products/`、`dist/`，以及构建锁、原子写入临时文件、GPU 捕获包和 Python 缓存由 `.gitignore` 排除；运行证据保存在 `target/` 或 CI 附件，不放进文档目录或版本控制。
+
+## 源码归属
+
+| 路径 | 职责 |
+| --- | --- |
+| `engine/core` | 分类 UUID、摘要、原子文件发布 |
+| `engine/scene` | 组件、稳定字段 Schema、ECS 场景、层级、复制与 Prefab |
+| `engine/asset/data` | 网格、材质、纹理、场景产品与索引的 CPU 数据协议 |
+| `engine/asset/runtime` | 只读产品加载、校验、依赖闭包、版本切换与缓存 |
+| `engine/runtime` | 独立 Play 世界、时间、暂停与单步 |
+| `engine/application` | 窗口、输入、egui 接入与帧数据提取 |
+| `engine/render` | 帧协议、渲染线程、共享 Shader 和原生 Metal/Vulkan 后端 |
+| `editor/core` | 编辑文档、事务、历史与保存点 |
+| `editor/src` | 编辑器入口、会话与各功能面板 |
+| `app` | 独立游戏运行入口，包内资源相对可执行文件定位 |
+| `tools/asset/pipeline` | 源导入、产品构建、索引发布与打包库 |
+| `tools/asset/cli` | `comet-assetc` 命令行入口 |
+| `tools/gpu` | 原生 GPU 能力检查；Metal 多队列、显存别名与硬件光追，Vulkan 设备/队列检查 |
+| `demo/assets` | 默认示例的作者资源与身份文件 |
+| `tests/fixtures` | 按功能组织的 Prefab、glTF 测试项目 |
+
+每个库在自己的 `Cargo.toml` 声明依赖。只有实际需要隔离的职责独立成包；不为尚未实现的功能创建空目录。
+所有 workspace 包统一设置为不可发布，仅用于完整工程内部构建。
+第三方库由 Cargo 管理，具体用途、声明位置、已接入与待接入状态见[架构与依赖说明](docs/architecture.md#第三方依赖)。
+
+## 验证与资产工具
+
+```sh
+cargo test --workspace --locked
+python3 tools/verify.py                         # 格式、测试、Clippy、边界、依赖、构建和独立包验证
+python3 tools/verify.py --native --linux        # 真实 GPU/窗口、Release 游戏与 Linux 交叉检查
+cargo run -p comet-gpu-check --locked           # 原生 GPU 能力检查
+cargo run -p comet-assetc --locked -- prepare demo --output target/products/demo
+```
+
+默认 `cargo build/test` 面向引擎库、编辑文档和资产工具；`--workspace` 包含编辑器、游戏和 GPU 工具，均为按功能组织的当前模块。
+GitHub [CI](.github/workflows/ci.yml) 在 PR、`main/master` 推送及手动触发时执行 Linux 默认验证，并构建 Release 游戏与资产工具。日志、报告和源码快照保存为 7 天的运行附件；Metal、物理 GPU 与窗口验收使用本地命令，详见[开发与验证](docs/development.md)。
+文档按职责保留三份：[架构与依赖](docs/architecture.md)、[开发与验证](docs/development.md)、[功能迁移清单](docs/migration.md)。
+仓库协作规范见 [AGENTS.md](AGENTS.md)。
+
+## Git 与协作配置
+
+[.gitattributes](.gitattributes) 沿用旧仓库的 Git LFS 资产管理：模型二进制、纹理、字体和音频走 LFS；`.scene`、`.prefab`、`.mesh`、`.material`、`.meta` 和 `.gltf` 保留普通文本 diff，文本统一为 LF。需要安装 Git LFS；已有克隆可在仓库内执行：
+
+```sh
+git lfs install --local
+git lfs pull
+```
+
+CI checkout 会拉取 LFS 文件。第三方库由 Cargo 和 `Cargo.lock` 管理，没有 Git submodule 初始化步骤。[.editorconfig](.editorconfig) 统一编辑器的 UTF-8、LF 和缩进；本机 IDE 配置与缓存由 `.gitignore` 排除。

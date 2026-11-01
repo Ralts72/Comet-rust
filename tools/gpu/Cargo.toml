@@ -1,0 +1,19 @@
+[package]
+name = "comet-gpu-check"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSURL", "NSArray", "NSError", "NSObject"] }
+objc2-metal = { version = "=0.3.2", default-features = false, features = ["std", "MTLTypes", "objc2-core-foundation", "MTLDevice", "MTLCommandQueue", "MTLCommandBuffer", "MTLCommandEncoder", "MTLComputeCommandEncoder", "MTLBlitCommandEncoder", "MTLComputePipeline", "MTLLibrary", "MTLBuffer", "MTLResource", "MTLHeap", "MTLAllocation", "MTLAccelerationStructure", "MTLAccelerationStructureCommandEncoder", "MTLEvent", "MTLCaptureManager"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+ash = { version = "0.38", default-features = false, features = ["std", "loaded", "debug"] }

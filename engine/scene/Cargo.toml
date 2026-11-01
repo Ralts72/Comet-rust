@@ -1,0 +1,13 @@
+[package]
+name = "comet-scene"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+[dependencies]
+anyhow.workspace = true
+comet-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+bevy_ecs = { version = "=0.20.1", default-features = false, features = ["std"] }

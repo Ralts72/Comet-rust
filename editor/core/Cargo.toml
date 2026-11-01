@@ -1,0 +1,13 @@
+[package]
+name = "comet-editor-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+[dependencies]
+comet-core = { path = "../../engine/core" }
+comet-scene = { path = "../../engine/scene" }
+anyhow.workspace = true
+[dev-dependencies]
+tempfile = "3"
