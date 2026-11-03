@@ -9,4 +9,4 @@ mod icon;
 mod import;
 mod project;
 pub use build::{BuildReport, SourceMeta, prepare};
-pub use project::ProjectSettings;
+pub use project::{ProjectSettings, create_scene};

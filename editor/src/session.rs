@@ -12,7 +12,7 @@ use comet_scene::{
 };
 use std::path::PathBuf;
 pub struct Editor {
-    pub(crate) close: crate::close::CloseState,
+    pub(crate) documents: crate::documents::DocumentWorkflow,
     pub document: Document,
     pub play: Option<PlaySession>,
     pub selected: Option<EntityId>,
@@ -165,6 +165,38 @@ impl Editor {
         self.status = "作者场景已保存".into();
         Ok(())
     }
+    pub(crate) fn create_scene_source(&self, path: &std::path::Path) -> Result<PathBuf> {
+        comet_asset_pipeline::create_scene(&self.paths, path)
+    }
+    pub(crate) fn switch_scene(&mut self, path: PathBuf, assets: &mut AssetStore) -> Result<()> {
+        ensure!(!self.export.is_running(), "请等待导出完成，再切换场景");
+        let (mut candidate, mut candidate_assets) =
+            open(self.paths.root().to_owned(), self.products.clone(), path)?;
+        let snapshot = candidate.shared_snapshot(&mut candidate_assets)?;
+        comet_application::extract(&snapshot, &mut candidate_assets, None)?;
+        let status = format!(
+            "已打开场景：{}",
+            candidate
+                .source
+                .strip_prefix(self.paths.assets())?
+                .display()
+        );
+        self.stop();
+        self.export.select_scene(
+            candidate.export.entry_scene(),
+            candidate.export.choices.clone(),
+        );
+        self.document = candidate.document;
+        self.source = candidate.source;
+        self.project = candidate.project;
+        self.camera = Camera::default();
+        self.snapshot_cache = candidate.snapshot_cache;
+        self.last_snapshot = snapshot;
+        self.error = None;
+        self.status = status;
+        *assets = candidate_assets;
+        Ok(())
+    }
     fn begin_export(
         &mut self,
         assets: &mut AssetStore,
@@ -215,7 +247,7 @@ impl Application for Editor {
         self.request_editor_close()
     }
     fn close_ready(&self) -> bool {
-        self.close.approved
+        self.documents.approved
     }
     fn frame(
         &mut self,
@@ -225,19 +257,20 @@ impl Application for Editor {
     ) -> Result<ViewRequest> {
         self.export.poll(assets)?;
         self.target_generation = input.target_generation;
+        let previous_world = self.world();
         let previous_play = self.play.as_ref().map(PlaySession::world_id);
         let previous_position = self
             .play
             .as_ref()
             .and_then(PlaySession::player_character)
             .map(|c| c.position);
-        let active = input.active && !self.close.pending;
+        let active = input.active && !self.documents.is_blocking();
         if let Some(play) = &mut self.play {
             play.synchronize_host(active, input.activity_changed);
         }
         self.last_snapshot = self.shared_snapshot(assets)?;
         let mut view = None;
-        let busy = self.export.is_running() || self.close.pending;
+        let busy = self.export.is_running() || self.documents.is_blocking();
         ui.add_enabled_ui(!busy, |ui| {
             view = Some(crate::ui::show(self, ui, assets, active));
         });
@@ -245,7 +278,13 @@ impl Application for Editor {
         if !busy {
             self.project.show(ui.ctx(), &self.paths, assets);
         }
-        if !self.close.pending
+        if !self.documents.pending
+            && !self.export.is_running()
+            && let Some(action) = self.documents.show_browser(ui.ctx(), &self.export.choices)
+        {
+            self.request_document_action(action);
+        }
+        if !self.documents.is_blocking()
             && let Some(action) = self.export.show(ui.ctx())
             && let Err(error) = self.begin_export(assets, action)
         {
@@ -267,7 +306,7 @@ impl Application for Editor {
                 play.player_character().map(|c| c.position),
             );
         }
-        self.show_close(ui.ctx(), assets);
+        self.show_document_confirmation(ui.ctx(), assets);
         let snapshot = self.shared_snapshot(assets)?;
         self.last_snapshot = snapshot.clone();
         Ok(ViewRequest {
@@ -276,7 +315,11 @@ impl Application for Editor {
             viewport,
             camera: self.camera,
             selected: self.selected,
-            pick,
+            pick: if self.world() == previous_world {
+                pick
+            } else {
+                None
+            },
             shadows: self.shadows,
         })
     }
@@ -389,7 +432,7 @@ pub(crate) fn open(
     let export = crate::export::ExportController::new(&paths, &assets, metadata.id)?;
     let project = crate::project::ProjectPanel::new(&paths)?;
     let editor = Editor {
-        close: Default::default(),
+        documents: Default::default(),
         document,
         play: None,
         selected: None,

@@ -21,7 +21,7 @@ engine/
     src/backend/vulkan/  renderer.rs / device.rs / resources.rs / pipeline.rs / commands.rs / ui.rs
 editor/
   core/                  document.rs：编辑文档与历史
-  src/                   session.rs / export.rs / project.rs / close.rs / ui/
+  src/                   session.rs / documents.rs / scenes.rs / export.rs / project.rs / ui/
   resources/icons/       编辑器原版 PNG / ICNS / ICO 图标
 app/
   src/                   游戏入口
@@ -129,7 +129,9 @@ ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Pr
 
 Document 拥有 Edit 场景、Prefab 声明、历史与保存点。连续预览 commit 后成为一条历史；cancel 恢复。保存先原子发布作者文件，成功后移动保存点；失败保留 dirty 状态。作者文件保留声明和覆盖，不保存为失去关系的平铺实体。
 
-Application 将窗口关闭请求交给应用决定，应用可以延后关闭并在确认后通知宿主退出。Editor 的 close.rs 管理未保存确认：确认期间冻结 Play、禁用编辑和快捷键，取消保留预览；保存先停止 Play 并沿用原有事务与路径校验，失败保留窗口供重试。后台导出完成前不退出进程。App 默认允许直接关闭。
+Application 将窗口关闭请求交给应用决定，应用可以延后关闭并在确认后通知宿主退出。Editor 的 documents.rs 管理新建、打开与退出的统一未保存确认：选择或确认期间冻结 Play、禁用背景编辑和快捷键，取消保留预览；保存先停止 Play 并沿用原有事务与路径校验，失败保留窗口供重试。scenes.rs 扫描项目作者场景，供打开窗口与导出窗口共用。切换前准备独立 Editor/AssetStore 候选并完成展开与渲染提取校验，成功后才替换文档、资产与只读快照，停止旧 Play、清除选中状态并切换导出启动场景；失败保留当前文档。模板、导出目的地及已启动的独立游戏进程仍由当前 ExportController 管理。后台导出完成前禁止切换或退出。App 默认允许直接关闭。
+
+新场景源由资产 Pipeline 创建，复用项目锁和统一路径规则。先发布稳定身份 metadata，再使用 Core 的排他文件发布保存完整空场景，已有目标不会被覆盖。中断后保留的完整 metadata 可在重试时复用其 UUID；场景创建成功但后续加载失败时，保留已创建的作者文件供修复或再次打开，不自动删除。排他发布在 macOS/Linux 使用已有的原生不覆盖重命名，Windows 以 MoveFileExW 的零标志同时保护文件和目录。
 
 macOS 宿主在 winit 初始化前创建 Comet 的 NSApplication 子类，把菜单、Cmd-Q 和 Dock 的 terminate: 转成窗口 performClose:，继续经过 winit 原有 CloseRequested 与退出确认；保留 winit 的委托和事件分发，不直接终止 AppKit。原生接入归 Application 的 macos.rs。
 历史使用不可变 CPU 内容快照，undo/redo 共计最多 256 条，保存点与活动预览分别持有其状态。状态 ID 在成功变更时更新，is_dirty 为常数时间查询；返回原值的预览、取消和撤销回保存点不会误标脏。单条历史仍与场景体积相关，当前没有字节预算。

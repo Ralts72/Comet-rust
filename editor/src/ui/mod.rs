@@ -24,6 +24,12 @@ pub fn show(
                         .color(Color32::from_rgb(236, 185, 99)),
                 );
                 ui.separator();
+                if ui.button("新建场景").clicked() {
+                    editor.documents.open_browser(true);
+                }
+                if ui.button("打开场景").clicked() {
+                    editor.documents.open_browser(false);
+                }
                 if ui.button("项目设置").clicked() {
                     editor.project.open = true;
                 }
@@ -102,8 +108,17 @@ pub fn show(
         });
     egui::Panel::left("scene")
         .default_size(220.)
+        .min_size(180.)
         .show(root, |ui| {
             ui.heading("场景");
+            ui.label(
+                editor
+                    .source
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+            )
+            .on_hover_text(editor.source.display().to_string());
             ui.label(
                 egui::RichText::new(if editor.play.is_some() {
                     "运行场景"
@@ -217,16 +232,31 @@ pub fn show(
     if !root.is_enabled() {
         return Ok((viewport, pick, actions));
     }
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
+        editor.documents.open_browser(true);
+    }
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
+        editor.documents.open_browser(false);
+    }
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         let result = editor.cancel();
         editor.notice(result);
     }
-    if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
         let result = editor.save(assets);
         editor.notice(result);
     }
-    if editor.play.is_none() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
-        let redo = ctx.input(|i| i.modifiers.shift);
+    let redo = editor.play.is_none()
+        && ctx.input_mut(|i| {
+            i.consume_key(
+                egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+                egui::Key::Z,
+            )
+        });
+    let undo = editor.play.is_none()
+        && !redo
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z));
+    if redo || undo {
         let result = editor.commit().and_then(|_| {
             if redo {
                 editor.document.redo()

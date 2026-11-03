@@ -6,6 +6,142 @@ use comet_application::{Application, FrameContext, ViewRequest};
 use std::{fs, path::Path};
 
 #[test]
+fn command_shortcuts_use_event_modifiers_even_when_released_before_the_frame() -> Result<()> {
+    use comet_scene::{schema, schema::FieldValue};
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let id = editor
+        .snapshot(&mut assets)?
+        .entities
+        .iter()
+        .find(|e| e.name == "Amber cube")
+        .unwrap()
+        .id;
+    editor.edit(
+        id,
+        schema::TRANSLATION,
+        FieldValue::Vec3([2., 3., 4.]),
+        &mut assets,
+    )?;
+    let ctx = egui::Context::default();
+    comet_application::configure_ui(&ctx);
+    let events = |key, modifiers| {
+        vec![
+            egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            },
+            egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Default::default(),
+            },
+        ]
+    };
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        0,
+        events(egui::Key::S, egui::Modifiers::COMMAND),
+    );
+    assert!(!editor.document.is_dirty());
+    assert!(!editor.document.is_editing());
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        1,
+        events(egui::Key::Z, egui::Modifiers::COMMAND),
+    );
+    assert!(editor.document.is_dirty());
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        2,
+        events(
+            egui::Key::Z,
+            egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+        ),
+    );
+    assert!(!editor.document.is_dirty());
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        3,
+        events(egui::Key::N, egui::Modifiers::COMMAND),
+    );
+    assert!(editor.documents.is_blocking());
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        4,
+        events(egui::Key::Escape, egui::Modifiers::NONE),
+    );
+    assert!(!editor.documents.is_blocking());
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        5,
+        events(egui::Key::O, egui::Modifiers::COMMAND),
+    );
+    assert!(editor.documents.is_blocking());
+    Ok(())
+}
+
+#[test]
+fn cancelling_the_scene_browser_preserves_an_active_document_preview() -> Result<()> {
+    use comet_scene::{schema, schema::FieldValue};
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let id = editor
+        .snapshot(&mut assets)?
+        .entities
+        .iter()
+        .find(|e| e.name == "Amber cube")
+        .unwrap()
+        .id;
+    editor.edit(
+        id,
+        schema::TRANSLATION,
+        FieldValue::Vec3([2., 3., 4.]),
+        &mut assets,
+    )?;
+    let preview = editor.document.shared_source();
+    let saved = fs::read(&editor.source)?;
+    editor.documents.open_browser(true);
+    let ctx = egui::Context::default();
+    comet_application::configure_ui(&ctx);
+    frame(&ctx, &mut editor, &mut assets, 0, vec![]);
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        1,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
+    );
+    assert!(!editor.documents.is_blocking());
+    assert!(editor.document.is_editing());
+    assert_eq!(editor.document.shared_source(), preview);
+    assert_eq!(fs::read(&editor.source)?, saved);
+    assert!(!editor.close_ready());
+    Ok(())
+}
+
+#[test]
 fn close_modal_blocks_shortcuts_and_freezes_play_until_cancelled() -> Result<()> {
     use comet_scene::{schema, schema::FieldValue};
     let (_temp, mut editor, mut assets) = fixture()?;
@@ -104,7 +240,7 @@ fn close_modal_blocks_shortcuts_and_freezes_play_until_cancelled() -> Result<()>
             ],
         );
     }
-    assert!(!editor.close.pending);
+    assert!(!editor.documents.pending);
     assert!(!editor.close_ready());
     assert!(editor.document.is_dirty());
     assert!(editor.play.is_some());

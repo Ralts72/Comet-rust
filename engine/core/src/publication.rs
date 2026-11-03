@@ -50,7 +50,7 @@ impl Drop for DirectoryCandidate {
     }
 }
 #[cfg(unix)]
-fn rename_exclusive(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(super) fn rename_exclusive(source: &Path, destination: &Path) -> std::io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let source = CString::new(source.as_os_str().as_bytes())?;
     let destination = CString::new(destination.as_os_str().as_bytes())?;
@@ -82,7 +82,22 @@ fn rename_exclusive(source: &Path, destination: &Path) -> std::io::Result<()> {
     }
 }
 #[cfg(windows)]
-fn rename_exclusive(source: &Path, destination: &Path) -> std::io::Result<()> {
-    // Windows does not replace an existing directory through std::fs::rename.
-    fs::rename(source, destination)
+pub(super) fn rename_exclusive(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(source: *const u16, destination: *const u16, flags: u32) -> i32;
+    }
+    let source: Vec<_> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<_> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: both NUL-terminated paths live for the call. Zero flags forbids replacing files or directories.
+    if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) } != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
 }

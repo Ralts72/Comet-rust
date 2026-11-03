@@ -34,7 +34,7 @@ struct Input {
     metadata_hash: Option<String>,
     files: BTreeMap<PathBuf, String>,
 }
-fn lock(path: &Path, description: &str) -> Result<fs::File> {
+pub(super) fn lock(path: &Path, description: &str) -> Result<fs::File> {
     let file = fs::OpenOptions::new()
         .create(true)
         .truncate(false)

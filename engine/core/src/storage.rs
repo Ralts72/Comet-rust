@@ -44,3 +44,25 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     result.with_context(|| format!("publish {}", path.display()))
 }
+
+/// Publish a complete new file without replacing a destination created by another writer.
+pub fn atomic_create(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("new file requires a parent directory")?;
+    fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(".comet-{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        crate::publication::rename_exclusive(&temporary, path)?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&temporary);
+    result.with_context(|| format!("create new file {}", path.display()))
+}
