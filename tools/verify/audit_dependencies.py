@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 BANNED = {"cc", "cmake", "cxx-build", "bindgen", "shaderc-sys", "glslang-sys", "spirv-reflect", "spirv-reflect-sys", "mlua-sys", "imgui-sys", "rmlui-sys", "recastnavigation-sys", "vk-mem", "jolt-sys", "wgpu", "wgpu-core", "rune"}
 CRITICAL = {"bevy_ecs", "rapier3d", "rerecast", "landmass", "rhai", "egui", "egui-winit", "naga", "objc2-metal", "objc-sys", "ash", "winit"}
 

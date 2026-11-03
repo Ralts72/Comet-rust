@@ -10,7 +10,7 @@ comet-asset-data = { path = "../engine/asset/data" }
 comet-core = { path = "../engine/core" }
 comet-scene = { path = "../engine/scene" }
 comet-asset = { path = "../engine/asset/runtime" }
-comet-asset-pipeline = { path = "../tools/asset/pipeline" }
+comet-asset-pipeline = { path = "../engine/asset/pipeline" }
 comet-editor-core = { path = "core" }
 comet-runtime = { path = "../engine/runtime" }
 comet-application = { path = "../engine/application" }

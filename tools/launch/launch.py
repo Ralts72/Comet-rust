@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the matched Editor/Release Player pair used by start.sh."""
+"""Prepare the matched Editor/Release App pair used by start.sh."""
 import argparse
 import hashlib
 import json
@@ -13,7 +13,7 @@ import sys
 import tempfile
 import windows_icon
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEMO = ROOT / "demo"
 PRODUCTS = ROOT / "target/products/demo"
 PATH_OPTIONS = {"--project", "--products", "--capture", "--report", "--export-game"}
@@ -23,8 +23,8 @@ def application_arguments(arguments, parser):
     result, supplied = [], set()
     arguments = iter(arguments)
     for argument in arguments:
-        if argument == "--player-template":
-            parser.error("Player 模板由 start.sh 准备，不接受覆盖")
+        if argument == "--app-template":
+            parser.error("App 模板由 start.sh 准备，不接受覆盖")
         result.append(argument)
         if argument in PATH_OPTIONS or argument in ("--scene", "--include-scene"):
             value = next(arguments, None)
@@ -57,7 +57,7 @@ def file_digest(path):
 
 
 def source_fingerprint():
-    files = [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py", "tools/windows_icon.py")]
+    files = [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch/launch.py", "tools/launch/windows_icon.py")]
     files.extend((ROOT / ".cargo").glob("*.toml"))
     for directory in ("engine", "editor", "app", "tools/asset"):
         files.extend(p for p in (ROOT / directory).rglob("*") if p.is_file()
@@ -221,37 +221,37 @@ def prepare_programs():
     environment = dict(os.environ, COMET_BUILD_ID=build_id)
     print("Comet: 准备 Debug Editor…", flush=True)
     editor = build_program(cargo, "comet-editor", False, environment)
-    print("Comet: 准备 Release Player 模板…", flush=True)
-    player = build_program(cargo, "comet-player", True, environment)
+    print("Comet: 准备 Release App 模板…", flush=True)
+    app = build_program(cargo, "comet-app", True, environment)
     if source_fingerprint() != build_id:
         raise RuntimeError("准备程序期间源码发生变化，请重新运行 ./start.sh。")
-    info = json.loads(subprocess.check_output([str(player), "--template-info"], env=environment, text=True))
+    info = json.loads(subprocess.check_output([str(app), "--template-info"], env=environment, text=True))
     if info["debug"] or info["identity"]["build_id"] != build_id:
-        raise RuntimeError("Player 构建身份或 Release 配置不匹配。")
+        raise RuntimeError("App 构建身份或 Release 配置不匹配。")
     if sys.platform == "win32":
         editor = prepare_windows_program(editor, ROOT / "editor/resources/icons/editor.ico")
-        player = prepare_windows_program(player, ROOT / "app/resources/icons/app.ico")
-        prepared_info = json.loads(subprocess.check_output([str(player), "--template-info"], env=environment, text=True))
+        app = prepare_windows_program(app, ROOT / "app/resources/icons/app.ico")
+        prepared_info = json.loads(subprocess.check_output([str(app), "--template-info"], env=environment, text=True))
         if prepared_info != info:
-            raise RuntimeError("写入图标后的 Player 构建身份发生变化，请重新准备程序。")
+            raise RuntimeError("写入图标后的 App 构建身份发生变化，请重新准备程序。")
     else:
         editor = prepare_editor_app(editor)
     app_icon = ROOT / "app/resources/icons/app.icns"
     notice_sources = {"NotoSansSC-OFL.txt": ROOT / "engine/application/resources/fonts/OFL.txt"}
-    manifest = {"version": 3, "identity": info["identity"], "profile": "release", "player": player.name,
-                "player_sha256": file_digest(player), "editor_sha256": file_digest(editor),
+    manifest = {"version": 4, "identity": info["identity"], "profile": "release", "app": app.name,
+                "app_sha256": file_digest(app), "editor_sha256": file_digest(editor),
                 "app_icon_sha256": icns_digest(app_icon),
                 "notices": {name: file_digest(path) for name, path in notice_sources.items()}}
     encoded = json.dumps(manifest, sort_keys=True, indent=2) + "\n"
     snapshot_id = hashlib.sha256(encoded.encode()).hexdigest()
-    templates = ROOT / "target/player-templates"
+    templates = ROOT / "target/app-templates"
     templates.mkdir(parents=True, exist_ok=True)
     snapshot = templates / snapshot_id
     suffix = 0
     while snapshot.exists():
         try:
             valid = ((snapshot / "template.json").read_text() == encoded
-                     and file_digest(snapshot / player.name) == manifest["player_sha256"]
+                     and file_digest(snapshot / app.name) == manifest["app_sha256"]
                      and file_digest(snapshot / "icons/app.icns") == manifest["app_icon_sha256"]
                      and all(file_digest(snapshot / "licenses" / name) == expected for name, expected in manifest["notices"].items()))
         except OSError:
@@ -264,9 +264,9 @@ def prepare_programs():
         with tempfile.TemporaryDirectory(prefix=".comet-", suffix=".tmp", dir=templates) as directory:
             candidate = Path(directory) / "snapshot"
             candidate.mkdir()
-            shutil.copy2(player, candidate / player.name)
-            if file_digest(candidate / player.name) != manifest["player_sha256"]:
-                raise RuntimeError("复制期间 Player 产物发生变化，请重新运行 ./start.sh。")
+            shutil.copy2(app, candidate / app.name)
+            if file_digest(candidate / app.name) != manifest["app_sha256"]:
+                raise RuntimeError("复制期间 App 产物发生变化，请重新运行 ./start.sh。")
             (candidate / "licenses").mkdir()
             (candidate / "icons").mkdir()
             shutil.copyfile(app_icon, candidate / "icons/app.icns")
@@ -280,11 +280,11 @@ def prepare_programs():
             try:
                 candidate.rename(snapshot)
             except OSError:
-                if not snapshot.is_dir() or (snapshot / "template.json").read_text() != encoded or file_digest(snapshot / player.name) != manifest["player_sha256"] or file_digest(snapshot / "icons/app.icns") != manifest["app_icon_sha256"] or any(file_digest(snapshot / "licenses" / name) != expected for name, expected in manifest["notices"].items()):
+                if not snapshot.is_dir() or (snapshot / "template.json").read_text() != encoded or file_digest(snapshot / app.name) != manifest["app_sha256"] or file_digest(snapshot / "icons/app.icns") != manifest["app_icon_sha256"] or any(file_digest(snapshot / "licenses" / name) != expected for name, expected in manifest["notices"].items()):
                     raise
     if source_fingerprint() != build_id:
         raise RuntimeError("准备程序期间源码发生变化，请重新运行 ./start.sh。")
-    return {"editor": editor, "player": snapshot / player.name, "template": snapshot / "template.json", "build_id": build_id}
+    return {"editor": editor, "app": snapshot / app.name, "template": snapshot / "template.json", "build_id": build_id}
 
 
 def launch_editor(command):
@@ -295,8 +295,8 @@ def launch_editor(command):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="python tools/launch.py" if sys.platform == "win32" else "./start.sh", usage="%(prog)s [编辑器参数...]",
-                                     description="准备 Debug Editor 和匹配的 Release Player 模板，启动编辑器。",
+    parser = argparse.ArgumentParser(prog="python tools/launch/launch.py" if sys.platform == "win32" else "./start.sh", usage="%(prog)s [编辑器参数...]",
+                                     description="准备 Debug Editor 和匹配的 Release App 模板，启动编辑器。",
                                      epilog="--project <目录> --products <目录> --scene <assets 内的场景文件>", allow_abbrev=False)
     if sys.argv[1:] in (["--help"], ["-h"]):
         parser.print_help()
@@ -307,7 +307,7 @@ def main():
     for flag, path in (("--project", DEMO), ("--products", PRODUCTS)):
         if flag not in supplied:
             defaults.extend((flag, str(path)))
-    command = [str(programs["editor"]), "--player-template", str(programs["template"]), *defaults, *arguments]
+    command = [str(programs["editor"]), "--app-template", str(programs["template"]), *defaults, *arguments]
     launch_editor(command)
 
 

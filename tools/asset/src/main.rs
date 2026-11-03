@@ -31,25 +31,17 @@ fn main() -> Result<()> {
             comet_core::atomic_write(Path::new(output), &scene.to_json()?)?;
             println!("Expanded {} entities to {output}", scene.entities.len());
         }
-        [
-            "pack",
-            products,
-            scene,
-            "--player",
-            player,
-            "--output",
-            output,
-        ] => {
+        ["pack", products, scene, "--app", app, "--output", output] => {
             comet_asset_pipeline::package(
                 Path::new(products),
                 scene.parse()?,
-                Path::new(player),
+                Path::new(app),
                 Path::new(output),
             )?;
-            println!("Packaged Player and product closure in {output}");
+            println!("Packaged App and product closure in {output}");
         }
         _ => bail!(
-            "usage: comet-assetc prepare <project> --output <products> | inspect <products> <asset-uuid> | expand <products> <scene-uuid> --output <scene.json> | pack <products> <scene-uuid> --player <binary> --output <new-directory>"
+            "usage: comet-assetc prepare <project> --output <products> | inspect <products> <asset-uuid> | expand <products> <scene-uuid> --output <scene.json> | pack <products> <scene-uuid> --app <binary> --output <new-directory>"
         ),
     }
     Ok(())

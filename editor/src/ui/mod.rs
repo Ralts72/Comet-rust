@@ -24,6 +24,9 @@ pub fn show(
                         .color(Color32::from_rgb(236, 185, 99)),
                 );
                 ui.separator();
+                if ui.button("项目设置").clicked() {
+                    editor.project.open = true;
+                }
                 if ui
                     .add_enabled(editor.play.is_none(), egui::Button::new("保存"))
                     .clicked()
@@ -211,6 +214,9 @@ pub fn show(
             }
         });
     let ctx = root.ctx();
+    if !root.is_enabled() {
+        return Ok((viewport, pick, actions));
+    }
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         let result = editor.cancel();
         editor.notice(result);

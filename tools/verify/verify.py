@@ -12,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "target/verification"
 checks = {}
 
@@ -23,9 +23,9 @@ def report(status):
         if sys.platform != platform:
             unverified.append(f"{backend}: native build/link and GPU/window execution")
         else:
-            if checks.get("player-headless", {}).get("status") != "passed":
+            if checks.get("app-headless", {}).get("status") != "passed":
                 unverified.append(f"{backend}: offscreen GPU execution")
-            if checks.get("player-native", {}).get("status") != "passed":
+            if checks.get("app-native", {}).get("status") != "passed":
                 unverified.append(f"{backend}: native window execution")
     unverified.append("physical mouse drag (synthetic egui drag regression passes)")
     if sys.platform != "win32":
@@ -101,18 +101,18 @@ def freeze_sources():
 def check_target(name, target):
     run(f"{name}_check", ["cargo", "check", "--workspace", "--all-targets", "--target", target, "--locked"], timeout=900)
     run(f"{name}_clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--target", target, "--locked", "--", "-D", "warnings"], timeout=900)
-    run(f"{name}_boundaries", [sys.executable, "tools/check_boundaries.py", "--target", target])
-    run(f"{name}_audit", [sys.executable, "tools/audit_dependencies.py", "--target", target])
+    run(f"{name}_boundaries", [sys.executable, "tools/verify/check_boundaries.py", "--target", target])
+    run(f"{name}_audit", [sys.executable, "tools/verify/audit_dependencies.py", "--target", target])
 
 
 def start_command():
-    return [sys.executable, ROOT / "tools/launch.py"] if sys.platform == "win32" else [ROOT / "start.sh"]
+    return [sys.executable, ROOT / "tools/launch/launch.py"] if sys.platform == "win32" else [ROOT / "start.sh"]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", action="store_true", help="Run actual offscreen GPU frames")
-    parser.add_argument("--native", action="store_true", help="Also open and close native Editor/Player windows")
+    parser.add_argument("--native", action="store_true", help="Also open and close native Editor/App windows")
     parser.add_argument("--linux", action="store_true", help="Cross-check both apps and Vulkan for installed Linux target")
     parser.add_argument("--windows", action="store_true", help="Cross-check the workspace and Vulkan for installed Windows MSVC target; no linking or execution")
     args = parser.parse_args()
@@ -122,23 +122,24 @@ def main():
         run("format", ["cargo", "fmt", "--all", "--check"])
         run("tests", ["cargo", "test", "--workspace", "--locked"], timeout=900)
         run("clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"], timeout=900)
-        run("boundaries", [sys.executable, "tools/check_boundaries.py"])
-        run("dependency_audit", [sys.executable, "tools/audit_dependencies.py"])
-        run("python_tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools/tests"])
+        run("boundaries", [sys.executable, "tools/verify/check_boundaries.py"])
+        run("dependency_audit", [sys.executable, "tools/verify/audit_dependencies.py"])
+        run("python_tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools/launch/tests"])
         run("start_help", [*start_command(), "--help"])
         run("build_asset_tool", ["cargo", "build", "-p", "comet-assetc", "--locked", "--message-format=json-render-diagnostics"], timeout=900)
         assetc = executables(OUT / "build_asset_tool.log")["comet-assetc"]
         prepare_code = ("import sys,json;from pathlib import Path;"
-                        f"sys.path.insert(0,{str(ROOT / 'tools')!r});import launch;"
+                        f"sys.path.insert(0,{str(ROOT / 'tools/launch')!r});import launch;"
                         f"Path({str(OUT / 'programs.json')!r}).write_text(json.dumps(launch.prepare_programs(),default=str,indent=2))")
         run("program_templates", [sys.executable, "-c", prepare_code], timeout=900)
         programs = json.loads((OUT / "programs.json").read_text())
         editor, template = Path(programs["editor"]), Path(programs["template"])
         if sys.platform == "win32":
+            sys.path.insert(0, str(ROOT / "tools/launch"))
             import windows_icon
             windows_icon.verify_icon(editor, (ROOT / "editor/resources/icons/editor.ico").read_bytes())
-            windows_icon.verify_icon(Path(programs["player"]), (ROOT / "app/resources/icons/app.ico").read_bytes())
-            checks["windows_executable_icons"] = {"status": "passed", "scope": "native Windows resource readback for Editor and Release Player"}
+            windows_icon.verify_icon(Path(programs["app"]), (ROOT / "app/resources/icons/app.ico").read_bytes())
+            checks["windows_executable_icons"] = {"status": "passed", "scope": "native Windows resource readback for Editor and Release App"}
         editor_icon = ROOT / "editor/resources/icons/editor.icns"
         if sys.platform == "darwin":
             bundle = editor.parents[2]
@@ -150,6 +151,8 @@ def main():
         case = Path(tempfile.mkdtemp(prefix="verification-", dir=OUT))
         project, products = case / "project", case / "products"
         shutil.copytree(ROOT / "demo", project, ignore=shutil.ignore_patterns(".assetc.lock"))
+        # Use the blue Editor artwork to prove exports select project content instead of defaults.
+        shutil.copyfile(ROOT / "editor/resources/icons/editor.png", project / "assets/icons/game.png")
         scene = "40000000-0000-4000-8000-000000000001"
         extra = "70000000-0000-4000-8000-000000000001"
         (project / "assets/extra.scene").write_text(json.dumps({"version": 1, "base": {"version": 2, "entities": []}, "instances": []}))
@@ -158,14 +161,14 @@ def main():
         if args.gpu or args.native:
             for native in ([False, True] if args.native else [False]):
                 name = "editor-native" if native else "editor-headless"
-                command = (start_command() if native else [editor, "--player-template", template])
+                command = (start_command() if native else [editor, "--app-template", template])
                 command += ["--project", project, "--products", products, "--smoke", "--report", OUT / f"{name}.json", "--capture", OUT / f"{name}.png"]
                 if not native:
                     command.append("--headless")
                 run(name, command, cwd=case)
                 inspect_frames(name, native)
         built = case / ("package-build.app" if sys.platform == "darwin" else "package-build")
-        run("editor_export", [editor, "--player-template", template, "--project", project, "--products", products,
+        run("editor_export", [editor, "--app-template", template, "--project", project, "--products", products,
                               "--export-game", built, "--include-scene", extra, "--report", OUT / "editor-export.json"], cwd=case)
         exported = json.loads((OUT / "editor-export.json").read_text())
         assert exported["status"] == "passed"
@@ -177,25 +180,28 @@ def main():
         assert set(manifest["scenes"]) == {scene, extra} and manifest["entry_scene"] == scene
         assert manifest["runtime"]["build_id"] == programs["build_id"]
         template_manifest = json.loads(template.read_text())
-        assert template_manifest["version"] == 3
+        assert template_manifest["version"] == 4
         icon = built / manifest_relative.parent / "app.icns"
-        assert hashlib.sha256(icon.read_bytes()).hexdigest() == template_manifest["app_icon_sha256"]
-        assert icon.read_bytes() == (ROOT / "app/resources/icons/app.icns").read_bytes()
+        assert icon.read_bytes().startswith(b"icns")
+        assert icon.read_bytes() != (ROOT / "app/resources/icons/app.icns").read_bytes()
+        project_icon = built / manifest_relative.parent / "game-icon.png"
+        assert hashlib.sha256(project_icon.read_bytes()).hexdigest() == manifest["game_icon_sha256"]
+        assert hashlib.sha256(Path(programs["app"]).read_bytes()).hexdigest() == template_manifest["app_sha256"]
         if sys.platform == "darwin":
             plist = plistlib.loads((built / "Contents/Info.plist").read_bytes())
             assert plist["CFBundleIconFile"] == "app.icns"
-        checks["application_icons"] = {"status": "passed", "editor_icns_sha256": hashlib.sha256(editor_icon.read_bytes()).hexdigest(), "player_icns_sha256": template_manifest["app_icon_sha256"]}
+        checks["application_icons"] = {"status": "passed", "editor_icns_sha256": hashlib.sha256(editor_icon.read_bytes()).hexdigest(), "project_icns_sha256": hashlib.sha256(icon.read_bytes()).hexdigest(), "project_png_sha256": manifest["game_icon_sha256"], "template_unchanged": True}
         for name, expected in template_manifest["notices"].items():
             assert hashlib.sha256((built / manifest_relative.parent / "licenses" / name).read_bytes()).hexdigest() == expected
         original_manifest = (built / manifest_relative).read_bytes()
-        run("existing_export_rejected", [editor, "--player-template", template, "--project", project, "--products", products, "--export-game", built], expect_failure=True)
+        run("existing_export_rejected", [editor, "--app-template", template, "--project", project, "--products", products, "--export-game", built], expect_failure=True)
         assert (built / manifest_relative).read_bytes() == original_manifest
         bad_template = case / "mismatched-template.json"
         bad = json.loads(template.read_text())
         bad["identity"]["build_id"] = "0" * 64
         bad_template.write_text(json.dumps(bad))
         rejected_output = case / "must-not-publish"
-        run("template_mismatch_rejected", [editor, "--player-template", bad_template, "--project", project, "--products", products, "--export-game", rejected_output], expect_failure=True)
+        run("template_mismatch_rejected", [editor, "--app-template", bad_template, "--project", project, "--products", products, "--export-game", rejected_output], expect_failure=True)
         assert not rejected_output.exists() and "start.sh" in (OUT / "template_mismatch_rejected.log").read_text()
         relocated = case / ("relocated-game.app" if sys.platform == "darwin" else "relocated-game")
         built.rename(relocated)
@@ -204,16 +210,14 @@ def main():
         empty = case / "empty-cwd"
         empty.mkdir()
         run("standalone_products", [assetc, "inspect", relocated / products_relative, scene], cwd=empty)
-        player = relocated / executable_relative
-        if sys.platform == "win32":
-            windows_icon.verify_icon(player, (ROOT / "app/resources/icons/app.ico").read_bytes())
-        run("standalone_runtime_identity", [player, "--template-info"], cwd=empty)
+        app = relocated / executable_relative
+        run("standalone_runtime_identity", [app, "--template-info"], cwd=empty)
         identity = json.loads((OUT / "standalone_runtime_identity.log").read_text())
         assert identity["identity"] == manifest["runtime"] and not identity["debug"]
         if args.gpu or args.native:
             for native in ([False, True] if args.native else [False]):
-                name = "player-native" if native else "player-headless"
-                command = [player, "--smoke", "--report", OUT / f"{name}.json", "--capture", OUT / f"{name}.png"]
+                name = "app-native" if native else "app-headless"
+                command = [app, "--smoke", "--report", OUT / f"{name}.json", "--capture", OUT / f"{name}.png"]
                 if not native:
                     command.append("--headless")
                 run(name, command, cwd=empty)

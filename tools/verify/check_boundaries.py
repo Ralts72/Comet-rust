@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 EXPECTED = {
     "comet-core": set(),
     "comet-scene": {"comet-core"},
@@ -17,7 +17,7 @@ EXPECTED = {
     "comet-render": {"comet-core", "comet-scene", "comet-asset-data"},
     "comet-application": {"comet-core", "comet-scene", "comet-asset-data", "comet-asset", "comet-render"},
     "comet-editor": {"comet-asset-data", "comet-core", "comet-scene", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-runtime", "comet-application", "comet-render"},
-    "comet-player": {"comet-asset-data", "comet-core", "comet-asset", "comet-runtime", "comet-application"},
+    "comet-app": {"comet-asset-data", "comet-core", "comet-asset", "comet-runtime", "comet-application"},
     "comet-assetc": {"comet-core", "comet-asset", "comet-asset-pipeline"},
     "comet-gpu-check": set(),
 }
@@ -47,13 +47,13 @@ def audit(target=None):
         forbidden = {"wgpu", "wgpu-core", "cc", "cmake"}
         if name in DATA:
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "rune"}
-        if name not in {"comet-runtime", "comet-editor", "comet-player"}:
+        if name not in {"comet-runtime", "comet-editor", "comet-app"}:
             forbidden.add("rapier3d")
         if name == "comet-runtime":
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "comet-asset-pipeline", "comet-editor-core"}
         if name == "comet-render":
             forbidden |= {"winit", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-runtime", "comet-application"}
-        if name == "comet-player":
+        if name == "comet-app":
             forbidden |= {"comet-asset-pipeline", "comet-editor-core", "comet-editor", "gltf", "image"}
         if names & forbidden:
             raise RuntimeError(f"{name} reaches forbidden dependencies: {sorted(names & forbidden)}")

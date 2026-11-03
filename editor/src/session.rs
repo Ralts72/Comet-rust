@@ -12,6 +12,7 @@ use comet_scene::{
 };
 use std::path::PathBuf;
 pub struct Editor {
+    pub(crate) close: crate::close::CloseState,
     pub document: Document,
     pub play: Option<PlaySession>,
     pub selected: Option<EntityId>,
@@ -28,6 +29,7 @@ pub struct Editor {
     pub drag_origin: Option<[f32; 3]>,
     pub gpu_ms: f64,
     pub export: crate::export::ExportController,
+    pub project: crate::project::ProjectPanel,
 }
 struct SnapshotCache {
     world: WorldId,
@@ -175,7 +177,7 @@ impl Editor {
                 self.export
                     .template_error
                     .as_deref()
-                    .unwrap_or("缺少 Player 模板，请重新运行 ./start.sh 准备程序")
+                    .unwrap_or("缺少 App 模板，请重新运行 ./start.sh 准备程序")
             )
         })?;
         template.verify()?;
@@ -209,6 +211,12 @@ impl Editor {
     }
 }
 impl Application for Editor {
+    fn request_close(&mut self) -> bool {
+        self.request_editor_close()
+    }
+    fn close_ready(&self) -> bool {
+        self.close.approved
+    }
     fn frame(
         &mut self,
         ui: &mut egui::Ui,
@@ -223,24 +231,29 @@ impl Application for Editor {
             .as_ref()
             .and_then(PlaySession::player_character)
             .map(|c| c.position);
+        let active = input.active && !self.close.pending;
         if let Some(play) = &mut self.play {
-            play.synchronize_host(input.active, input.activity_changed);
+            play.synchronize_host(active, input.activity_changed);
         }
         self.last_snapshot = self.shared_snapshot(assets)?;
         let mut view = None;
-        let busy = self.export.is_running();
+        let busy = self.export.is_running() || self.close.pending;
         ui.add_enabled_ui(!busy, |ui| {
-            view = Some(crate::ui::show(self, ui, assets, input.active));
+            view = Some(crate::ui::show(self, ui, assets, active));
         });
         let (viewport, pick, actions) = view.context("editor UI")??;
-        if let Some(action) = self.export.show(ui.ctx())
+        if !busy {
+            self.project.show(ui.ctx(), &self.paths, assets);
+        }
+        if !self.close.pending
+            && let Some(action) = self.export.show(ui.ctx())
             && let Err(error) = self.begin_export(assets, action)
         {
             self.export.fail(format!("{error:#}"));
         }
         if let Some(play) = &mut self.play {
             if previous_play != Some(play.world_id()) {
-                play.synchronize_host(input.active, true);
+                play.synchronize_host(active, true);
             }
             let dt = if previous_play == Some(play.world_id()) {
                 input.dt
@@ -254,6 +267,7 @@ impl Application for Editor {
                 play.player_character().map(|c| c.position),
             );
         }
+        self.show_close(ui.ctx(), assets);
         let snapshot = self.shared_snapshot(assets)?;
         self.last_snapshot = snapshot.clone();
         Ok(ViewRequest {
@@ -283,7 +297,11 @@ impl Application for Editor {
 }
 pub fn run() -> Result<()> {
     let mut options = HostOptions::new("Comet · 场景编辑器");
-    options.icon = Some(include_bytes!("../resources/icons/editor.png"));
+    options.icon = Some(
+        include_bytes!("../resources/icons/editor.png")
+            .as_slice()
+            .into(),
+    );
     let mut project = PathBuf::from("demo");
     let mut products = PathBuf::from("target/products/demo");
     let mut source = PathBuf::from("main.scene");
@@ -298,10 +316,9 @@ pub fn run() -> Result<()> {
                     .context("--include-scene requires a scene UUID")?
                     .parse::<comet_core::AssetId>()?,
             ),
-            "--player-template" => {
+            "--app-template" => {
                 template = Some(PathBuf::from(
-                    args.next()
-                        .context("--player-template requires a manifest")?,
+                    args.next().context("--app-template requires a manifest")?,
                 ))
             }
             "--export-game" => {
@@ -328,7 +345,7 @@ pub fn run() -> Result<()> {
     }
     let (mut editor, mut assets) = open(project, products, source)?;
     if let Some(template) = template {
-        match comet_asset_pipeline::PlayerTemplate::open(&template, &std::env::current_exe()?) {
+        match comet_asset_pipeline::AppTemplate::open(&template, &std::env::current_exe()?) {
             Ok(template) => editor.export.template = Some(template),
             Err(error) => editor.export.template_error = Some(format!("{error:#}")),
         }
@@ -370,7 +387,9 @@ pub(crate) fn open(
     let metadata: comet_asset_pipeline::SourceMeta =
         serde_json::from_slice(&std::fs::read(format!("{}.meta", source.display()))?)?;
     let export = crate::export::ExportController::new(&paths, &assets, metadata.id)?;
+    let project = crate::project::ProjectPanel::new(&paths)?;
     let editor = Editor {
+        close: Default::default(),
         document,
         play: None,
         selected: None,
@@ -387,16 +406,17 @@ pub(crate) fn open(
         drag_origin: None,
         gpu_ms: 0.,
         export,
+        project,
     };
     Ok((editor, assets))
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use comet_render::{PickFeedback, ViewToken};
     use comet_scene::schema;
-    fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
+    pub(crate) fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
         let temp = tempfile::tempdir()?;
         let project = temp.path().join("project");
         std::fs::create_dir_all(project.join("assets"))?;

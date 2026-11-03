@@ -16,11 +16,12 @@ pub struct PackageRequest<'a> {
     pub index_revision: Option<&'a str>,
     pub entry_scene: AssetId,
     pub additional_scenes: &'a [AssetId],
-    pub player: &'a Path,
+    pub app: &'a Path,
     pub runtime: Option<RuntimeIdentity>,
-    pub player_digest: Option<&'a str>,
+    pub app_digest: Option<&'a str>,
     pub notices: &'a [crate::PackageFile],
     pub app_icon: Option<&'a crate::PackageFile>,
+    pub game_icon: Option<AssetId>,
     pub output: &'a Path,
 }
 #[derive(Clone, Debug)]
@@ -29,18 +30,19 @@ pub struct PackageOutput {
     pub executable: PathBuf,
     pub products: PathBuf,
 }
-/// Low-level packing for an already-built binary. Editor exports use a verified PlayerTemplate.
-pub fn package(products: &Path, scene: AssetId, player: &Path, output: &Path) -> Result<()> {
+/// Low-level packing for an already-built binary. Editor exports use a verified AppTemplate.
+pub fn package(products: &Path, scene: AssetId, app: &Path, output: &Path) -> Result<()> {
     package_scenes(PackageRequest {
         products,
         index_revision: None,
         entry_scene: scene,
         additional_scenes: &[],
-        player,
+        app,
         runtime: None,
-        player_digest: None,
+        app_digest: None,
         notices: &[],
         app_icon: None,
+        game_icon: None,
         output,
     })?;
     Ok(())
@@ -51,28 +53,32 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         index_revision,
         entry_scene,
         additional_scenes,
-        player,
+        app,
         runtime,
-        player_digest,
+        app_digest,
         notices,
         app_icon,
+        game_icon,
         output,
     } = request;
     ensure!(
-        player.is_file(),
-        "Player executable does not exist: {}",
-        player.display()
+        app.is_file(),
+        "App executable does not exist: {}",
+        app.display()
     );
     let output = resolve_destination(output)?;
     let products = products.canonicalize()?;
-    let player = player.canonicalize()?;
+    let app = app.canonicalize()?;
     ensure!(
         !output.starts_with(&products)
             && !products.starts_with(&output)
-            && !player.starts_with(&output),
+            && !app.starts_with(&output),
         "package destination overlaps its inputs"
     );
-    let store = AssetStore::open(&products)?;
+    let mut store = AssetStore::open(&products)?;
+    let game_icon = game_icon
+        .map(|id| crate::icon::GameIcon::load(&mut store, id))
+        .transpose()?;
     ensure!(
         index_revision.is_none_or(|revision| revision == store.revision()),
         "product index changed before export; retry"
@@ -131,15 +137,15 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
     )?;
     AssetStore::open(resources.join("products"))?;
     let executable = if cfg!(windows) {
-        "comet-player.exe"
+        "comet-app.exe"
     } else {
-        "comet-player"
+        "comet-app"
     };
-    fs::copy(&player, programs.join(executable))?;
-    if let Some(expected) = player_digest {
+    fs::copy(&app, programs.join(executable))?;
+    if let Some(expected) = app_digest {
         ensure!(
             comet_core::digest(&fs::read(programs.join(executable))?) == expected,
-            "Player changed while exporting; run ./start.sh"
+            "App changed while exporting; run ./start.sh"
         );
     }
     for notice in notices {
@@ -157,7 +163,12 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
             "program notice changed while packaging"
         );
     }
-    if let Some(icon) = app_icon {
+    if let Some(icon) = &game_icon {
+        atomic_write(&resources.join("game-icon.png"), &icon.png)?;
+        atomic_write(&resources.join("app.icns"), &icon.icns)?;
+        #[cfg(windows)]
+        icon.embed(&programs.join(executable))?;
+    } else if let Some(icon) = app_icon {
         let bytes = fs::read(&icon.path).context("read package icon")?;
         ensure!(
             comet_core::digest(&bytes) == icon.sha256,
@@ -177,6 +188,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         scenes: scenes.into_iter().collect(),
         executable: executable.into(),
         runtime,
+        game_icon_sha256: game_icon.as_ref().map(|icon| comet_core::digest(&icon.png)),
     };
     manifest.validate()?;
     atomic_write(
@@ -189,7 +201,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
             &output,
             entry_scene,
             executable,
-            app_icon.is_some(),
+            game_icon.is_some() || app_icon.is_some(),
         )?;
     }
     let root = candidate.publish()?;

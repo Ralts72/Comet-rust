@@ -15,7 +15,7 @@ use winit::{
 
 pub struct HostOptions {
     pub title: String,
-    pub icon: Option<&'static [u8]>,
+    pub icon: Option<std::borrow::Cow<'static, [u8]>>,
     pub smoke: bool,
     pub headless: bool,
     pub capture: Option<PathBuf>,
@@ -52,6 +52,13 @@ pub struct ViewRequest {
     pub shadows: bool,
 }
 pub trait Application {
+    /// Return false to keep the host alive while the application resolves a close request.
+    fn request_close(&mut self) -> bool {
+        true
+    }
+    fn close_ready(&self) -> bool {
+        false
+    }
     fn frame(
         &mut self,
         ui: &mut egui::Ui,
@@ -110,6 +117,8 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
             host.draw()?;
         }
     } else {
+        #[cfg(target_os = "macos")]
+        crate::macos::prepare()?;
         let event_loop = EventLoop::new()?;
         event_loop.run_app(&mut host)?;
     }
@@ -134,7 +143,12 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
 }
 impl<A: Application> Host<A> {
     fn setup(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
-        let icon = self.options.icon.map(crate::icon::decode).transpose()?;
+        let icon = self
+            .options
+            .icon
+            .as_deref()
+            .map(crate::icon::decode)
+            .transpose()?;
         let attributes = Window::default_attributes()
             .with_title(&self.options.title)
             .with_window_icon(icon.clone())
@@ -235,6 +249,10 @@ impl<A: Application> Host<A> {
             state.handle_platform_output(window, output.platform_output.clone());
         }
         let view = request.context("application did not produce a view")??;
+        if self.app.close_ready() {
+            self.closing = true;
+            return Ok(true);
+        }
         let ppp = output.pixels_per_point;
         let rect = view.viewport * ppp;
         let x = rect.min.x.clamp(0., size[0] as f32) as u32;
@@ -303,8 +321,12 @@ impl<A: Application> ApplicationHandler for Host<A> {
         }
         match event {
             WindowEvent::CloseRequested => {
-                self.closing = true;
-                event_loop.exit();
+                if self.app.request_close() {
+                    self.closing = true;
+                    event_loop.exit();
+                } else if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
             WindowEvent::RedrawRequested => match self.draw() {
                 Ok(true) => event_loop.exit(),

@@ -4,6 +4,113 @@ use egui::Pos2;
 use super::*;
 use comet_application::{Application, FrameContext, ViewRequest};
 use std::{fs, path::Path};
+
+#[test]
+fn close_modal_blocks_shortcuts_and_freezes_play_until_cancelled() -> Result<()> {
+    use comet_scene::{schema, schema::FieldValue};
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let id = editor
+        .snapshot(&mut assets)?
+        .entities
+        .iter()
+        .find(|entity| entity.name == "Amber cube")
+        .unwrap()
+        .id;
+    editor.edit(
+        id,
+        schema::TRANSLATION,
+        FieldValue::Vec3([2., 3., 4.]),
+        &mut assets,
+    )?;
+    editor.start(&mut assets)?;
+    let saved = fs::read(&editor.source)?;
+    let authoring = editor.document.shared_source();
+    let ctx = egui::Context::default();
+    comet_application::configure_ui(&ctx);
+    frame(&ctx, &mut editor, &mut assets, 0, vec![]);
+    let steps = editor.play.as_ref().unwrap().steps();
+    assert!(!editor.request_close());
+    frame_with_output(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        FrameContext {
+            number: 1,
+            dt: 1.,
+            active: true,
+            activity_changed: false,
+            target_generation: 1,
+            size: [1280, 800],
+            smoke: false,
+        },
+        vec![egui::Event::Key {
+            key: egui::Key::S,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+    );
+    let (_, output) = frame_with_output(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        FrameContext {
+            number: 2,
+            dt: 1.,
+            active: true,
+            activity_changed: false,
+            target_generation: 1,
+            size: [1280, 800],
+            smoke: false,
+        },
+        vec![],
+    );
+    fn find_cancel(shape: &egui::epaint::Shape) -> Option<Pos2> {
+        match shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text == "取消" => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(find_cancel),
+            _ => None,
+        }
+    }
+    let cancel = output
+        .shapes
+        .iter()
+        .find_map(|s| find_cancel(&s.shape))
+        .expect("close confirmation must show a cancel button");
+    assert_eq!(editor.play.as_ref().unwrap().steps(), steps);
+    assert_eq!(fs::read(&editor.source)?, saved);
+    assert!(
+        editor.error.is_none(),
+        "background save shortcut must not run during confirmation"
+    );
+    assert_eq!(editor.document.shared_source(), authoring);
+    for (number, pressed) in [(3, true), (4, false)] {
+        frame(
+            &ctx,
+            &mut editor,
+            &mut assets,
+            number,
+            vec![
+                egui::Event::PointerMoved(cancel),
+                egui::Event::PointerButton {
+                    pos: cancel,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+    assert!(!editor.close.pending);
+    assert!(!editor.close_ready());
+    assert!(editor.document.is_dirty());
+    assert!(editor.play.is_some());
+    assert_eq!(editor.document.shared_source(), authoring);
+    Ok(())
+}
 fn frame(
     ctx: &egui::Context,
     editor: &mut Editor,

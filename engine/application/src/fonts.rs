@@ -1,4 +1,4 @@
-//! Built-in fallback shared by Editor and Player, including exported standalone games.
+//! Built-in fallback shared by Editor and App, including exported standalone games.
 use std::sync::Arc;
 
 const CHINESE_FONT: &[u8] = include_bytes!("../resources/fonts/NotoSansSC-Bold.otf");

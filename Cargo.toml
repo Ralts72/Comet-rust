@@ -3,11 +3,11 @@ resolver = "3"
 members = [
     "engine/core", "engine/scene", "engine/asset/*", "engine/runtime",
     "engine/render", "engine/application", "editor", "editor/core", "app",
-    "tools/asset/*", "tools/gpu",
+    "tools/asset", "tools/gpu",
 ]
 default-members = [
     "engine/core", "engine/scene", "engine/asset/*", "engine/runtime",
-    "engine/render", "engine/application", "editor/core", "tools/asset/*",
+    "engine/render", "engine/application", "editor/core", "tools/asset",
 ]
 
 [workspace.package]

@@ -512,6 +512,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "comet-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "comet-application",
+ "comet-asset",
+ "comet-asset-data",
+ "comet-core",
+ "comet-runtime",
+ "egui",
+ "serde_json",
+]
+
+[[package]]
 name = "comet-application"
 version = "0.1.0"
 dependencies = [
@@ -523,6 +537,8 @@ dependencies = [
  "comet-scene",
  "egui",
  "egui-winit",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "png",
  "serde_json",
  "winit",
@@ -631,20 +647,6 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
- "serde_json",
-]
-
-[[package]]
-name = "comet-player"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "comet-application",
- "comet-asset",
- "comet-asset-data",
- "comet-core",
- "comet-runtime",
- "egui",
  "serde_json",
 ]
 

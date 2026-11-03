@@ -4,7 +4,7 @@ use comet_core::{AssetId, validate_digest};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const PACKAGE_VERSION: u32 = 2;
+pub const PACKAGE_VERSION: u32 = 3;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProtocolVersions {
@@ -45,31 +45,31 @@ impl RuntimeIdentity {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PlayerTemplateManifest {
+pub struct AppTemplateManifest {
     pub version: u32,
     pub identity: RuntimeIdentity,
     pub profile: String,
-    pub player: String,
-    pub player_sha256: String,
+    pub app: String,
+    pub app_sha256: String,
     pub editor_sha256: String,
     pub app_icon_sha256: String,
     pub notices: BTreeMap<String, String>,
 }
-impl PlayerTemplateManifest {
+impl AppTemplateManifest {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 3 && self.profile == "release",
-            "unsupported Player template"
+            self.version == 4 && self.profile == "release",
+            "unsupported App template"
         );
         validate_digest(&self.identity.build_id)?;
-        validate_digest(&self.player_sha256)?;
+        validate_digest(&self.app_sha256)?;
         validate_digest(&self.editor_sha256)?;
         validate_digest(&self.app_icon_sha256)?;
         ensure!(
             self.identity.protocols == ProtocolVersions::current(),
-            "Player template resource protocols do not match"
+            "App template resource protocols do not match"
         );
-        executable_name(&self.player)?;
+        executable_name(&self.app)?;
         for (name, hash) in &self.notices {
             executable_name(name)?;
             validate_digest(hash)?;
@@ -87,12 +87,13 @@ pub struct PackageManifest {
     /// Low-level asset-tool packing may use an externally supplied binary. Editor exports always
     /// supply the validated template identity.
     pub runtime: Option<RuntimeIdentity>,
+    pub game_icon_sha256: Option<String>,
 }
 impl PackageManifest {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.version == PACKAGE_VERSION,
-            "unsupported Player package version {}",
+            "unsupported App package version {}",
             self.version
         );
         let scenes: BTreeSet<_> = self.scenes.iter().copied().collect();
@@ -101,10 +102,13 @@ impl PackageManifest {
             "invalid package scene list"
         );
         executable_name(&self.executable)?;
+        if let Some(hash) = &self.game_icon_sha256 {
+            validate_digest(hash)?;
+        }
         if let Some(runtime) = &self.runtime {
             ensure!(
                 *runtime == RuntimeIdentity::current(),
-                "package and Player build identities do not match"
+                "package and App build identities do not match"
             );
         }
         Ok(())

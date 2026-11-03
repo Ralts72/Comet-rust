@@ -4,6 +4,8 @@ mod extract;
 mod fonts;
 mod icon;
 mod input;
+#[cfg(target_os = "macos")]
+mod macos;
 mod timing;
 pub use application::*;
 pub use comet_render::Camera;

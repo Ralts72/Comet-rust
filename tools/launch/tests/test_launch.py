@@ -46,7 +46,7 @@ class ProgramPreparation(unittest.TestCase):
     def test_build_identity_tracks_uncommitted_sources_and_lockfile_not_project_assets(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)):
             root = Path(directory)
-            for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py", "tools/windows_icon.py", "engine/core/src/lib.rs"):
+            for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch/launch.py", "tools/launch/windows_icon.py", "engine/core/src/lib.rs", "engine/asset/pipeline/src/lib.rs"):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("initial")
@@ -64,13 +64,16 @@ class ProgramPreparation(unittest.TestCase):
             before_font=launch.source_fingerprint();font.write_bytes(b"changed font data")
             self.assertNotEqual(before_font,launch.source_fingerprint())
             before_helper = launch.source_fingerprint()
-            (root / "tools/windows_icon.py").write_text("updated")
+            (root / "tools/launch/windows_icon.py").write_text("updated")
             self.assertNotEqual(before_helper, launch.source_fingerprint())
+            before_pipeline = launch.source_fingerprint()
+            (root / "engine/asset/pipeline/src/lib.rs").write_text("updated pipeline")
+            self.assertNotEqual(before_pipeline, launch.source_fingerprint())
 
     def test_snapshots_are_reused_preserved_and_repaired_without_overwriting_old_files(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)):
             root = Path(directory)
-            editor, player = root / "comet-editor", root / "comet-player"
+            editor, app = root / "comet-editor", root / "comet-app"
             notice=root / "engine/application/resources/fonts/OFL.txt"
             notice.parent.mkdir(parents=True);notice.write_text("font license")
             for name in ("app/resources/icons/app.icns", "editor/resources/icons/editor.icns"):
@@ -78,7 +81,7 @@ class ProgramPreparation(unittest.TestCase):
                 icon.parent.mkdir(parents=True)
                 icon.write_bytes(icns())
             editor.write_bytes(b"debug editor")
-            player.write_bytes(b"release player")
+            app.write_bytes(b"release app")
             build_id = "a" * 64
             info = json.dumps({"identity": {"build_id": build_id}, "debug": False})
             with patch.object(launch, "cargo_path", return_value="cargo"), \
@@ -87,22 +90,22 @@ class ProgramPreparation(unittest.TestCase):
                  patch.object(launch.subprocess, "check_output", return_value=info), \
                  patch.object(launch, "source_fingerprint", return_value=build_id), \
                  patch.object(launch, "prepare_windows_program", side_effect=lambda executable, icon: executable), \
-                 patch.object(launch, "build_program", side_effect=lambda cargo, package, release, environment: player if release else editor):
+                 patch.object(launch, "build_program", side_effect=lambda cargo, package, release, environment: app if release else editor):
                 first = launch.prepare_programs()
                 self.assertEqual(first["template"], launch.prepare_programs()["template"])
                 self.assertEqual((first["template"].parent / "licenses/NotoSansSC-OFL.txt").read_text(),"font license")
                 self.assertEqual((first["template"].parent / "icons/app.icns").read_bytes(), icns())
                 manifest = json.loads(first["template"].read_text())
-                self.assertEqual(manifest["version"], 3)
+                self.assertEqual(manifest["version"], 4)
                 self.assertEqual(manifest["editor_sha256"], launch.file_digest(first["editor"]))
-                player.write_bytes(b"another cargo build")
+                app.write_bytes(b"another cargo build")
                 second = launch.prepare_programs()
                 self.assertNotEqual(first["template"], second["template"])
-                self.assertEqual(first["player"].read_bytes(), b"release player")
-                second["player"].write_bytes(b"corrupted snapshot")
+                self.assertEqual(first["app"].read_bytes(), b"release app")
+                second["app"].write_bytes(b"corrupted snapshot")
                 repaired = launch.prepare_programs()
                 self.assertNotEqual(second["template"], repaired["template"])
-                self.assertEqual(repaired["player"].read_bytes(), b"another cargo build")
+                self.assertEqual(repaired["app"].read_bytes(), b"another cargo build")
                 self.assertEqual(repaired["template"], launch.prepare_programs()["template"])
                 (repaired["template"].parent / "icons/app.icns").write_bytes(icns(b"corrupted"))
                 fixed = launch.prepare_programs()
@@ -123,7 +126,7 @@ class ProgramPreparation(unittest.TestCase):
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original Cargo executable")
             icon = root / "editor.ico"
-            icon.write_bytes((Path(__file__).resolve().parents[2] / "editor/resources/icons/editor.ico").read_bytes())
+            icon.write_bytes((Path(__file__).resolve().parents[3] / "editor/resources/icons/editor.ico").read_bytes())
             first = launch.prepare_windows_program(executable, icon)
             self.assertEqual(executable.read_bytes(), b"original Cargo executable")
             self.assertNotEqual(first.read_bytes(), executable.read_bytes())

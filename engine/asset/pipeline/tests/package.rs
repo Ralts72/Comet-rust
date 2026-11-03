@@ -13,6 +13,96 @@ fn source(path: &Path, name: &str, bytes: Vec<u8>) -> Result<AssetId> {
     )?;
     Ok(id)
 }
+
+#[test]
+fn project_icons_are_persistent_portable_and_never_modify_the_app_template() -> Result<()> {
+    use comet_asset_pipeline::ProjectSettings;
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    let assets = project.join("assets");
+    fs::create_dir_all(&assets)?;
+    let scene = source(&assets, "main.scene", ContentSource::default().to_json()?)?;
+    let mut png = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut png, 32, 32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()?
+            .write_image_data(&[220, 10, 30, 255].repeat(32 * 32))?;
+    }
+    let icon = source(&assets, "game.png", png)?;
+    let products = temp.path().join("products");
+    comet_asset_pipeline::prepare(&project, &products)?;
+    let paths = comet_core::ProjectPaths::open(&project)?;
+    let mut store = AssetStore::open(&products)?;
+    assert_eq!(ProjectSettings::load(&paths)?, ProjectSettings::default());
+    let settings = ProjectSettings {
+        game_icon: Some(icon),
+        ..Default::default()
+    };
+    settings.save(&paths, &mut store)?;
+    assert_eq!(ProjectSettings::load(&paths)?, settings);
+    let invalid = ProjectSettings {
+        game_icon: Some(scene),
+        ..settings.clone()
+    };
+    assert!(invalid.save(&paths, &mut store).is_err());
+    assert_eq!(ProjectSettings::load(&paths)?, settings);
+    fs::rename(assets.join("game.png"), assets.join("renamed.png"))?;
+    fs::rename(
+        assets.join("game.png.meta"),
+        assets.join("renamed.png.meta"),
+    )?;
+    comet_asset_pipeline::prepare(&project, &products)?;
+    let app = std::env::current_exe()?;
+    let app_hash = digest(&fs::read(&app)?);
+    let output = temp.path().join("export");
+    let request = |id| PackageRequest {
+        products: &products,
+        index_revision: None,
+        entry_scene: scene,
+        additional_scenes: &[],
+        app: &app,
+        runtime: None,
+        app_digest: Some(&app_hash),
+        notices: &[],
+        app_icon: None,
+        game_icon: Some(id),
+        output: &output,
+    };
+    assert!(package_scenes(request(scene)).is_err());
+    assert!(!output.exists());
+    let package = package_scenes(request(icon))?;
+    let image = fs::read(output.join("game-icon.png"))?;
+    let decoded = image::load_from_memory(&image)?.to_rgba8();
+    assert_eq!(decoded.dimensions(), (256, 256));
+    assert_eq!(decoded.get_pixel(128, 128).0, [220, 10, 30, 255]);
+    let icns = fs::read(output.join("app.icns"))?;
+    assert_eq!(&icns[..4], b"icns");
+    assert_eq!(
+        u32::from_be_bytes(icns[4..8].try_into()?) as usize,
+        icns.len()
+    );
+    let manifest: comet_asset_data::package::PackageManifest =
+        serde_json::from_slice(&fs::read(output.join("package.json"))?)?;
+    assert_eq!(manifest.game_icon_sha256, Some(digest(&image)));
+    assert_eq!(digest(&fs::read(&app)?), app_hash);
+    assert_eq!(
+        AssetStore::open(package.products)?.index().products.len(),
+        1
+    );
+    #[cfg(unix)]
+    {
+        fs::remove_file(project.join("project.json"))?;
+        let outside = temp.path().join("outside.json");
+        fs::write(&outside, serde_json::to_vec(&settings)?)?;
+        std::os::unix::fs::symlink(&outside, project.join("project.json"))?;
+        assert!(ProjectSettings::load(&paths).is_err());
+        assert!(settings.save(&paths, &mut store).is_err());
+    }
+    Ok(())
+}
 #[test]
 fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indices() -> Result<()> {
     let temp = tempfile::tempdir()?;
@@ -49,8 +139,8 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
     let products = temp.path().join("products");
     comet_asset_pipeline::prepare(&project, &products)?;
     let store = AssetStore::open(&products)?;
-    let player = temp.path().join("player");
-    fs::write(&player, b"external binary")?;
+    let app = temp.path().join("app");
+    fs::write(&app, b"external binary")?;
     let output = temp.path().join("game");
     let notice_file = temp.path().join("OFL.txt");
     fs::write(&notice_file, b"font license")?;
@@ -72,24 +162,25 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
         index_revision: revision,
         entry_scene: main,
         additional_scenes: std::slice::from_ref(&additional),
-        player: &player,
+        app: &app,
         runtime: None,
-        player_digest: hash,
+        app_digest: hash,
         notices: &notices,
         app_icon: Some(&icon),
+        game_icon: None,
         output: &output,
     };
     assert!(package_scenes(request(Some("stale index"), None)).is_err());
     assert!(!output.exists());
     let bad_hash = "0".repeat(64);
-    let player_hash = digest(b"external binary");
+    let app_hash = digest(b"external binary");
     assert!(package_scenes(request(None, Some(&bad_hash))).is_err());
     assert!(!output.exists());
     fs::write(&icon_path, b"changed icon")?;
-    assert!(package_scenes(request(None, Some(&player_hash))).is_err());
+    assert!(package_scenes(request(None, Some(&app_hash))).is_err());
     assert!(!output.exists());
     fs::write(&icon_path, icon_bytes)?;
-    let game = package_scenes(request(Some(store.revision()), Some(&player_hash)))?;
+    let game = package_scenes(request(Some(store.revision()), Some(&app_hash)))?;
     let packaged = AssetStore::open(&game.products)?;
     assert_eq!(packaged.index().products.len(), 4);
     assert_eq!(

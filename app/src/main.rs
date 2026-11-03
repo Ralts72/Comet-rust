@@ -4,11 +4,11 @@ use comet_asset::AssetStore;
 use comet_asset_data::package::{PackageManifest, RuntimeIdentity};
 use comet_runtime::PlaySession;
 use std::path::PathBuf;
-struct Player {
+struct App {
     play: PlaySession,
     camera: comet_application::Camera,
 }
-impl Application for Player {
+impl Application for App {
     fn frame(
         &mut self,
         ui: &mut egui::Ui,
@@ -56,7 +56,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let mut options = HostOptions::new("Comet 游戏");
-    options.icon = Some(include_bytes!("../resources/icons/app.png"));
+    options.icon = Some(
+        include_bytes!("../resources/icons/app.png")
+            .as_slice()
+            .into(),
+    );
     let mut products = None;
     let mut scene = None;
     let mut args = std::env::args().skip(1);
@@ -82,7 +86,7 @@ fn main() -> Result<()> {
     }
     if products.is_none() {
         let executable = std::env::current_exe()?;
-        let directory = executable.parent().context("Player directory")?;
+        let directory = executable.parent().context("App directory")?;
         let resources = if directory.file_name().is_some_and(|n| n == "MacOS")
             && directory
                 .parent()
@@ -92,11 +96,21 @@ fn main() -> Result<()> {
         } else {
             directory.to_owned()
         };
-        let manifest: PackageManifest =
-            serde_json::from_slice(&std::fs::read(resources.join("package.json")).context(
-                "Player requires an exported package or explicit --products and --scene",
-            )?)?;
+        let manifest: PackageManifest = serde_json::from_slice(
+            &std::fs::read(resources.join("package.json"))
+                .context("App requires an exported package or explicit --products and --scene")?,
+        )?;
         manifest.validate()?;
+        if let Some(expected) = &manifest.game_icon_sha256 {
+            let path = resources.join("game-icon.png").canonicalize()?;
+            ensure!(
+                path.starts_with(resources.canonicalize()?),
+                "游戏图标超出包目录"
+            );
+            let icon = std::fs::read(path)?;
+            ensure!(comet_core::digest(&icon) == *expected, "游戏图标校验失败");
+            options.icon = Some(icon.into());
+        }
         if let Some(selected) = scene {
             ensure!(
                 manifest.scenes.contains(&selected),
@@ -107,7 +121,7 @@ fn main() -> Result<()> {
         }
         products = Some(resources.join("products"));
     }
-    let mut assets = AssetStore::open(products.context("missing Player products")?)?;
+    let mut assets = AssetStore::open(products.context("missing App products")?)?;
     let scene = scene.context("pass --scene <asset UUID>")?;
     let play = PlaySession::start(assets.expand_scene(scene)?)?;
     let mut camera = comet_application::Camera::default();
@@ -116,5 +130,5 @@ fn main() -> Result<()> {
         None,
         play.player_character().map(|c| c.position),
     );
-    comet_application::run(options, assets, Player { play, camera })
+    comet_application::run(options, assets, App { play, camera })
 }

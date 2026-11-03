@@ -29,7 +29,7 @@ class WindowsIcon(unittest.TestCase):
                     + struct.pack("<BBBBHHIH", 16, 16, 0, 0, 1, 32, 11, 1)
                     + struct.pack("<BBBBHHIH", 32, 32, 0, 0, 1, 32, 12, 2))
         self.assertEqual(resources[2], (14, 1, expected))
-        root = Path(__file__).resolve().parents[2]
+        root = Path(__file__).resolve().parents[3]
         for role, name in (("editor", "editor"), ("app", "app")):
             data = (root / role / f"resources/icons/{name}.ico").read_bytes()
             self.assertEqual(len(windows_icon.icon_resources(data)), 8)
@@ -99,7 +99,7 @@ class WindowsIcon(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "requires native Windows resource APIs")
     def test_native_windows_resource_roundtrip_on_a_private_pe_copy(self):
-        icon = (Path(__file__).resolve().parents[2] / "app/resources/icons/app.ico").read_bytes()
+        icon = (Path(__file__).resolve().parents[3] / "app/resources/icons/app.ico").read_bytes()
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / "图标验收.exe"
             shutil.copy2(sys.executable, binary)

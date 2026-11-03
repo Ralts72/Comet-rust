@@ -182,7 +182,7 @@ fn invalid_external_resources_and_unsupported_features_keep_the_old_index() -> R
 fn package_contains_only_the_entry_closure_and_preserves_existing_destinations() -> Result<()> {
     let p = Project::new()?;
     p.prepare()?;
-    let binary = p.path.join("dummy-player");
+    let binary = p.path.join("dummy-app");
     fs::write(&binary, b"test executable placeholder")?;
     let output = p.path.join("package");
     package(&p.output, scene(), &binary, &output)?;
@@ -192,7 +192,11 @@ fn package_contains_only_the_entry_closure_and_preserves_existing_destinations()
     assert!(!output.join("assets").exists());
     assert!(package(&p.output, scene(), &binary, &output).is_err());
     assert_eq!(
-        fs::read(output.join("comet-player"))?,
+        fs::read(output.join(if cfg!(windows) {
+            "comet-app.exe"
+        } else {
+            "comet-app"
+        }))?,
         b"test executable placeholder"
     );
     let material_count = store

@@ -1,6 +1,6 @@
 use comet_core::{Action, ActionEvent, ActionInput, Actions};
 
-/// Default keyboard/mouse mapping shared by Editor Play and Player.
+/// Default keyboard/mouse mapping shared by Editor Play and App.
 pub fn sample_actions(
     response: &egui::Response,
     active: bool,

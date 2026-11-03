@@ -6,10 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 [dependencies]
-comet-asset-data = { path = "../../../engine/asset/data" }
-comet-core = { path = "../../../engine/core" }
-comet-scene = { path = "../../../engine/scene" }
-comet-asset = { path = "../../../engine/asset/runtime" }
+comet-asset-data = { path = "../data" }
+comet-core = { path = "../../core" }
+comet-scene = { path = "../../scene" }
+comet-asset = { path = "../runtime" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

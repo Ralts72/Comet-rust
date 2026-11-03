@@ -1,7 +1,7 @@
 //! Export orchestration owns background CPU work; document and UI mutation stay on the main thread.
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
-use comet_asset_pipeline::{PackageOutput, PackageRequest, PlayerTemplate};
+use comet_asset_pipeline::{AppTemplate, PackageOutput, PackageRequest};
 use comet_core::{AssetId, ProjectPaths};
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -33,7 +33,7 @@ struct Job {
 }
 pub struct ExportController {
     pub open: bool,
-    pub template: Option<PlayerTemplate>,
+    pub template: Option<AppTemplate>,
     pub template_error: Option<String>,
     pub choices: Vec<SceneChoice>,
     entry: AssetId,
@@ -106,7 +106,7 @@ impl ExportController {
         let template = self
             .template
             .clone()
-            .context("缺少 Player 模板，请重新运行 ./start.sh 准备程序")?;
+            .context("缺少 App 模板，请重新运行 ./start.sh 准备程序")?;
         template.verify()?;
         let output = paths.export_destination(&action.output, products)?;
         ensure!(
@@ -117,6 +117,7 @@ impl ExportController {
         let source = paths.resolve_asset_path(source)?;
         let saved_digest = comet_core::digest(&std::fs::read(&source)?);
         let project = paths.root().to_owned();
+        let settings = comet_asset_pipeline::ProjectSettings::load(paths)?;
         let products = products.to_owned();
         let (sender, receiver) = mpsc::channel();
         let worker = thread::Builder::new()
@@ -138,18 +139,25 @@ impl ExportController {
                         "资源构建完成：{} 个产品，{} 个更新，{} 个复用",
                         report.products, report.changed, report.reused
                     )));
-                    let _ = sender.send(Event::Stage("正在打包所选场景与 Release Player".into()));
+                    let _ = sender.send(Event::Stage("正在打包所选场景与 Release App".into()));
                     let assets = AssetStore::open(&products).context("读取资源产品失败")?;
+                    ensure!(
+                        comet_asset_pipeline::ProjectSettings::load(&ProjectPaths::open(
+                            &project
+                        )?)? == settings,
+                        "项目设置在导出期间发生变化，请重新导出"
+                    );
                     let output = comet_asset_pipeline::package_scenes(PackageRequest {
                         products: &products,
                         index_revision: Some(assets.revision()),
                         entry_scene: action.entry,
                         additional_scenes: &action.additional,
-                        player: template.player(),
+                        app: template.app(),
                         runtime: Some(template.identity().clone()),
-                        player_digest: Some(template.player_digest()),
+                        app_digest: Some(template.app_digest()),
                         notices: template.notices(),
                         app_icon: Some(template.app_icon()),
+                        game_icon: settings.game_icon,
                         output: &output,
                     })
                     .context("游戏打包失败")?;
@@ -249,13 +257,13 @@ impl ExportController {
                 if let Some(error) = &self.template_error {
                     ui.colored_label(
                         egui::Color32::LIGHT_RED,
-                        "Player 模板不可用，请重新运行 ./start.sh。",
+                        "App 模板不可用，请重新运行 ./start.sh。",
                     );
                     ui.collapsing("模板诊断详情", |ui| {
                         ui.label(error);
                     });
                 } else if self.template.is_none() {
-                    ui.label("缺少 Player 模板，请重新运行 ./start.sh 准备程序。");
+                    ui.label("缺少 App 模板，请重新运行 ./start.sh 准备程序。");
                 }
                 ui.add_enabled_ui(!busy, |ui| {
                     egui::ComboBox::from_label("启动场景")
@@ -319,7 +327,7 @@ impl ExportController {
                 if let Some(error) = &self.failure {
                     ui.colored_label(
                         egui::Color32::LIGHT_RED,
-                        "导出未完成，请检查路径、资源或 Player 模板。",
+                        "导出未完成，请检查路径、资源或 App 模板。",
                     );
                     ui.collapsing("错误详情", |ui| {
                         ui.label(error);
