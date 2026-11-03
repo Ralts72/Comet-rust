@@ -179,5 +179,4 @@ pub(crate) fn pick(frame: &FramePacket) -> Option<PickFeedback> {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/frame.rs"]
 mod tests;

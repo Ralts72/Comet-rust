@@ -4,7 +4,6 @@ mod objects;
 mod project;
 mod session;
 #[cfg(test)]
-#[path = "../tests/support/mod.rs"]
 mod test_support;
 mod ui;
 use anyhow::{Context, Result, ensure};

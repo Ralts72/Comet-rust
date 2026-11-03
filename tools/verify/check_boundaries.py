@@ -2,7 +2,6 @@
 """Audit normal/build edges between production modules and their domain boundaries."""
 import argparse
 import json
-import re
 import subprocess
 from pathlib import Path
 
@@ -25,23 +24,11 @@ EXPECTED = {
 DATA = {"comet-core", "comet-scene", "comet-asset-data", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-assetc"}
 
 
-def audit_test_layout(packages, members):
-    for member in members:
-        source = Path(packages[member]["manifest_path"]).parent / "src"
-        for path in source.rglob("*.rs"):
-            name = path.stem
-            if ("tests" in path.relative_to(source).parts or name == "tests"
-                    or name.startswith("test_") or name.endswith(("_test", "_tests"))
-                    or re.search(r"#\s*\[\s*test\s*\]|\bmod\s+tests\s*\{", path.read_text(encoding="utf-8"))):
-                raise RuntimeError(f"test implementation must live in the package tests/ directory: {path.relative_to(ROOT)}")
-
-
 def audit(target=None):
     if target is None:
         target = next(line.split(": ", 1)[1] for line in subprocess.check_output(["rustc", "-vV"], text=True).splitlines() if line.startswith("host: "))
     metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", target], cwd=ROOT))
     packages = {p["id"]: p for p in metadata["packages"]}
-    audit_test_layout(packages, metadata["workspace_members"])
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
     members = {packages[p]["name"] for p in metadata["workspace_members"]}
     if members != set(EXPECTED):

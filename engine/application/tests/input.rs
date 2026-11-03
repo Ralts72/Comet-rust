@@ -1,4 +1,5 @@
-use super::*;
+use comet_application::{Camera, follow_target, sample_actions};
+use comet_core::{Action, ActionEvent, ActionInput};
 
 fn key(pressed: bool, repeat: bool) -> egui::Event {
     egui::Event::Key {
@@ -35,7 +36,7 @@ fn frame(
                 ui.available_rect_before_wrap(),
                 egui::Sense::click_and_drag(),
             );
-            sampled = Some(sample_actions(&response, active, crate::Camera::default()));
+            sampled = Some(sample_actions(&response, active, Camera::default()));
         },
     );
     output.textures_delta.clear();
@@ -89,7 +90,7 @@ fn movement_uses_the_camera_heading_and_normalizes_diagonals() {
 }
 #[test]
 fn following_preserves_camera_offset_and_initially_focuses_the_character() {
-    let mut camera = crate::Camera::default();
+    let mut camera = Camera::default();
     let offset = camera.eye - camera.target;
     follow_target(&mut camera, None, Some([2., 1., 3.]));
     assert_eq!(camera.target, comet_core::math::Vec3::new(2., 1., 3.));

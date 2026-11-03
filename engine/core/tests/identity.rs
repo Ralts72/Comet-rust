@@ -1,4 +1,4 @@
-use super::*;
+use comet_core::{AssetId, EntityId, InstanceId};
 #[test]
 fn stable_instance_identity_and_nil_rejection() {
     let entity = EntityId::new();

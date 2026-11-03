@@ -117,5 +117,4 @@ impl Drop for RenderWorker {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/worker.rs"]
 mod tests;

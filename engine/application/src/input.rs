@@ -105,7 +105,3 @@ pub fn follow_target(
         camera.target += delta;
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/input.rs"]
-mod tests;

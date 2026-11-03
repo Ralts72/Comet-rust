@@ -27,7 +27,3 @@ pub fn configure_ui(ctx: &egui::Context) {
     }
     ctx.set_fonts(fonts);
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/fonts.rs"]
-mod tests;

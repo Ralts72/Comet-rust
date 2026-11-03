@@ -132,5 +132,4 @@ impl AppTemplate {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/template.rs"]
 mod tests;

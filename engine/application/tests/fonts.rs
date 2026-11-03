@@ -1,4 +1,4 @@
-use super::*;
+use comet_application::configure_ui;
 #[test]
 fn bundled_fonts_cover_chinese_ui_and_authoring_names_in_both_families() {
     let ctx = egui::Context::default();

@@ -83,5 +83,4 @@ impl InputBuffer {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/input.rs"]
 mod tests;

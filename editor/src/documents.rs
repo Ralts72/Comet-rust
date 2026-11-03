@@ -11,7 +11,6 @@ pub(crate) struct DocumentWorkflow {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/documents.rs"]
 mod tests;
 
 #[derive(Clone, Copy)]

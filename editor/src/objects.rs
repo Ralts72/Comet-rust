@@ -135,5 +135,4 @@ impl Editor {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/objects.rs"]
 mod tests;

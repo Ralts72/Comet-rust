@@ -75,7 +75,3 @@ impl InstanceId {
         Self(Uuid::new_v5(&parent.0, self.0.as_bytes()))
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/identity.rs"]
-mod tests;

@@ -397,5 +397,4 @@ pub(crate) fn open(
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/session.rs"]
 mod tests;
