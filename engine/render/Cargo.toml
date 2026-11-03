@@ -10,7 +10,6 @@ comet-asset-data = { path = "../asset/data" }
 comet-core = { path = "../core" }
 comet-scene = { path = "../scene" }
 anyhow.workspace = true
-glam.workspace = true
 egui.workspace = true
 serde.workspace = true
 serde_json.workspace = true

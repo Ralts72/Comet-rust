@@ -15,29 +15,59 @@ pub struct Editor {
     pub play: Option<PlaySession>,
     pub selected: Option<EntityId>,
     pub camera: Camera,
-    pub project: PathBuf,
     pub products: PathBuf,
     pub source: PathBuf,
     pub error: Option<String>,
     pub status: String,
     pub shadows: bool,
-    pub last_snapshot: SceneSnapshot,
+    pub last_snapshot: std::sync::Arc<SceneSnapshot>,
+    snapshot_cache: Option<SnapshotCache>,
+    paths: comet_core::ProjectPaths,
     pub target_generation: u64,
     pub drag_origin: Option<[f32; 3]>,
     pub gpu_ms: f64,
+    pub export: crate::export::ExportController,
+}
+struct SnapshotCache {
+    world: WorldId,
+    document_revision: u64,
+    products_revision: String,
+    snapshot: std::sync::Arc<SceneSnapshot>,
 }
 impl Editor {
+    fn shared_snapshot(
+        &mut self,
+        assets: &mut AssetStore,
+    ) -> Result<std::sync::Arc<SceneSnapshot>> {
+        if let Some(play) = &mut self.play {
+            return Ok(play.shared_snapshot());
+        }
+        let world = self.document.world_id();
+        let revision = self.document.revision();
+        if let Some(cache) = &self.snapshot_cache
+            && cache.world == world
+            && cache.document_revision == revision
+            && cache.products_revision == assets.revision()
+        {
+            return Ok(cache.snapshot.clone());
+        }
+        let snapshot = std::sync::Arc::new(self.document.shared_source().expand(assets)?);
+        self.snapshot_cache = Some(SnapshotCache {
+            world,
+            document_revision: revision,
+            products_revision: assets.revision().to_owned(),
+            snapshot: snapshot.clone(),
+        });
+        Ok(snapshot)
+    }
     pub fn world(&self) -> WorldId {
         self.play
             .as_ref()
             .map_or(self.document.world_id(), PlaySession::world_id)
     }
+    #[cfg(test)]
     pub fn snapshot(&mut self, assets: &mut AssetStore) -> Result<SceneSnapshot> {
-        if let Some(play) = &mut self.play {
-            Ok(play.snapshot())
-        } else {
-            self.document.source().expand(assets)
-        }
+        Ok(self.shared_snapshot(assets)?.as_ref().clone())
     }
     pub fn start(&mut self, assets: &mut AssetStore) -> Result<()> {
         self.commit()?;
@@ -79,11 +109,11 @@ impl Editor {
         if !self.document.is_editing() {
             self.document.begin()?;
         }
-        let source = self.document.source();
+        let source = self.document.shared_source();
         if source.base.entities.iter().any(|e| e.id == id) {
             return self.document.preview_field(&[id], key, value);
         }
-        for instance in source.instances {
+        for instance in &source.instances {
             let prefab = assets.prefab(instance.prefab)?;
             for entity in prefab.base.entities {
                 if entity.id.in_instance(instance.id) == id {
@@ -99,20 +129,46 @@ impl Editor {
                 }
             }
         }
-        anyhow::bail!("Nested structural editing is not available for this entity")
+        anyhow::bail!("此对象暂不支持嵌套结构编辑")
     }
     pub fn save(&mut self, assets: &mut AssetStore) -> Result<()> {
-        ensure!(
-            self.play.is_none(),
-            "stop Play before saving authoring content"
-        );
+        ensure!(self.play.is_none(), "请先停止运行，再保存作者场景");
         self.commit()?;
         comet_application::extract(&self.document.source().expand(assets)?, assets, None)?;
-        self.document.save(&self.source)?;
-        comet_asset_pipeline::prepare(&self.project, &self.products)?;
-        assets.refresh()?;
-        self.status = "Saved and rebuilt products".into();
+        let path = self.paths.resolve_asset_path(&self.source)?;
+        self.document.save(&path)?;
+        self.status = "作者场景已保存".into();
         Ok(())
+    }
+    fn begin_export(
+        &mut self,
+        assets: &mut AssetStore,
+        action: crate::export::ExportAction,
+    ) -> Result<()> {
+        ensure!(!self.export.is_running(), "已有导出任务正在进行");
+        let template = self.export.template.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                self.export
+                    .template_error
+                    .as_deref()
+                    .unwrap_or("缺少 Player 模板，请重新运行 ./start.sh 准备程序")
+            )
+        })?;
+        template.verify()?;
+        let output = self
+            .paths
+            .export_destination(&action.output, &self.products)?;
+        ensure!(
+            std::fs::symlink_metadata(output)
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
+            "输出位置已存在，请选择一个新位置"
+        );
+        self.stop();
+        self.commit()?;
+        self.save(assets)?;
+        self.export
+            .start(&self.paths, &self.products, &self.source, action)
     }
     pub fn selected_entity(&self) -> Option<EntityData> {
         self.selected.and_then(|id| {
@@ -136,13 +192,46 @@ impl Application for Editor {
         assets: &mut AssetStore,
         input: &FrameContext,
     ) -> Result<ViewRequest> {
+        self.export.poll(assets)?;
         self.target_generation = input.target_generation;
-        self.last_snapshot = self.snapshot(assets)?;
-        let (viewport, pick) = crate::ui::show(self, ui, assets)?;
+        let previous_play = self.play.as_ref().map(PlaySession::world_id);
+        let previous_position = self
+            .play
+            .as_ref()
+            .and_then(PlaySession::player_character)
+            .map(|c| c.position);
         if let Some(play) = &mut self.play {
-            play.advance(input.dt)?;
+            play.synchronize_host(input.active, input.activity_changed);
         }
-        let snapshot = self.snapshot(assets)?;
+        self.last_snapshot = self.shared_snapshot(assets)?;
+        let mut view = None;
+        let busy = self.export.is_running();
+        ui.add_enabled_ui(!busy, |ui| {
+            view = Some(crate::ui::show(self, ui, assets, input.active));
+        });
+        let (viewport, pick, actions) = view.context("editor UI")??;
+        if let Some(action) = self.export.show(ui.ctx())
+            && let Err(error) = self.begin_export(assets, action)
+        {
+            self.export.fail(format!("{error:#}"));
+        }
+        if let Some(play) = &mut self.play {
+            if previous_play != Some(play.world_id()) {
+                play.synchronize_host(input.active, true);
+            }
+            let dt = if previous_play == Some(play.world_id()) {
+                input.dt
+            } else {
+                0.
+            };
+            play.advance_with_input(dt, actions)?;
+            comet_application::follow_target(
+                &mut self.camera,
+                previous_position,
+                play.player_character().map(|c| c.position),
+            );
+        }
+        let snapshot = self.shared_snapshot(assets)?;
         self.last_snapshot = snapshot.clone();
         Ok(ViewRequest {
             world: self.world(),
@@ -170,13 +259,33 @@ impl Application for Editor {
     }
 }
 pub fn run() -> Result<()> {
-    let mut options = HostOptions::new("Comet · Scene Editor");
+    let mut options = HostOptions::new("Comet · 场景编辑器");
     let mut project = PathBuf::from("demo");
     let mut products = PathBuf::from("target/products/demo");
     let mut source = PathBuf::from("main.scene");
+    let mut template = None;
+    let mut export_game = None;
+    let mut include_scenes = vec![];
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--include-scene" => include_scenes.push(
+                args.next()
+                    .context("--include-scene requires a scene UUID")?
+                    .parse::<comet_core::AssetId>()?,
+            ),
+            "--player-template" => {
+                template = Some(PathBuf::from(
+                    args.next()
+                        .context("--player-template requires a manifest")?,
+                ))
+            }
+            "--export-game" => {
+                export_game = Some(PathBuf::from(
+                    args.next()
+                        .context("--export-game requires an output directory")?,
+                ))
+            }
             "--project" => project = args.next().context("--project requires a path")?.into(),
             "--products" => products = args.next().context("--products requires a path")?.into(),
             "--scene" => {
@@ -193,7 +302,31 @@ pub fn run() -> Result<()> {
             }
         }
     }
-    let (editor, assets) = open(project, products, source)?;
+    let (mut editor, mut assets) = open(project, products, source)?;
+    if let Some(template) = template {
+        match comet_asset_pipeline::PlayerTemplate::open(&template, &std::env::current_exe()?) {
+            Ok(template) => editor.export.template = Some(template),
+            Err(error) => editor.export.template_error = Some(format!("{error:#}")),
+        }
+    }
+    if let Some(output) = export_game {
+        editor.begin_export(
+            &mut assets,
+            crate::export::ExportAction {
+                entry: editor.export.entry_scene(),
+                additional: include_scenes,
+                output,
+                run: false,
+            },
+        )?;
+        let output = editor.export.wait(&mut assets)?;
+        let report = serde_json::json!({"status":"passed","root":output.root,"executable":output.executable,"products":output.products});
+        if let Some(path) = options.report {
+            comet_core::atomic_write(&path, &serde_json::to_vec_pretty(&report)?)?;
+        }
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     comet_application::run(options, assets, editor)
 }
 pub(crate) fn open(
@@ -201,25 +334,35 @@ pub(crate) fn open(
     products: PathBuf,
     source: PathBuf,
 ) -> Result<(Editor, AssetStore)> {
-    comet_asset_pipeline::prepare(&project, &products)?;
-    let source = project.join("assets").join(source);
+    let paths = comet_core::ProjectPaths::open(&project)?;
+    let source = paths.resolve_asset_path(&source)?;
+    ensure!(
+        source.extension().is_some_and(|e| e == "scene"),
+        "author scene must use .scene"
+    );
     let document = Document::open_source(ContentSource::from_json(&std::fs::read(&source)?)?)?;
+    comet_asset_pipeline::prepare(paths.root(), &products)?;
     let assets = AssetStore::open(&products)?;
+    let metadata: comet_asset_pipeline::SourceMeta =
+        serde_json::from_slice(&std::fs::read(format!("{}.meta", source.display()))?)?;
+    let export = crate::export::ExportController::new(&paths, &assets, metadata.id)?;
     let editor = Editor {
         document,
         play: None,
         selected: None,
         camera: Camera::default(),
-        project,
-        products,
+        products: comet_core::resolve_destination(&products)?,
         source,
         error: None,
-        status: "Ready".into(),
+        status: "就绪".into(),
         shadows: true,
-        last_snapshot: SceneSnapshot::default(),
+        last_snapshot: std::sync::Arc::new(SceneSnapshot::default()),
+        snapshot_cache: None,
+        paths,
         target_generation: 0,
         drag_origin: None,
         gpu_ms: 0.,
+        export,
     };
     Ok((editor, assets))
 }
@@ -329,7 +472,7 @@ mod tests {
     #[test]
     fn stale_world_target_and_removed_entity_pick_results_are_rejected() -> Result<()> {
         let (_temp, mut editor, mut assets) = fixture()?;
-        editor.last_snapshot = editor.snapshot(&mut assets)?;
+        editor.last_snapshot = editor.shared_snapshot(&mut assets)?;
         let entity = editor.last_snapshot.entities[0].id;
         editor.target_generation = 7;
         let mut feedback = FrameFeedback {
@@ -375,6 +518,54 @@ mod tests {
         });
         editor.feedback(&feedback);
         assert_eq!(editor.selected, Some(entity));
+        Ok(())
+    }
+    #[test]
+    fn author_scene_paths_cannot_escape_and_save_rechecks_the_current_parent() -> Result<()> {
+        let (temp, mut editor, mut assets) = fixture()?;
+        let project = temp.path().join("project");
+        let outside = temp.path().join("outside.scene");
+        std::fs::write(&outside, editor.document.source().to_json()?)?;
+        let bytes = std::fs::read(&outside)?;
+        assert!(
+            open(
+                project.clone(),
+                temp.path().join("bad-products"),
+                "../outside.scene".into()
+            )
+            .is_err()
+        );
+        assert!(open(project, temp.path().join("bad-products"), outside.clone()).is_err());
+        editor.source = outside.clone();
+        assert!(editor.save(&mut assets).is_err());
+        assert_eq!(std::fs::read(outside)?, bytes);
+        Ok(())
+    }
+    #[test]
+    fn expanded_snapshot_cache_tracks_document_products_and_play_worlds() -> Result<()> {
+        use std::sync::Arc;
+        let (temp, mut editor, mut assets) = fixture()?;
+        let before = editor.shared_snapshot(&mut assets)?;
+        for _ in 0..100 {
+            assert!(Arc::ptr_eq(&before, &editor.shared_snapshot(&mut assets)?));
+        }
+        let source = temp.path().join("project/assets/showcase.gltf");
+        let mut gltf: serde_json::Value = serde_json::from_slice(&std::fs::read(&source)?)?;
+        gltf["nodes"][1]["translation"][0] = serde_json::json!(-2.);
+        std::fs::write(source, serde_json::to_vec(&gltf)?)?;
+        comet_asset_pipeline::prepare(editor.paths.root(), &editor.products)?;
+        assets.refresh()?;
+        let reloaded = editor.shared_snapshot(&mut assets)?;
+        assert!(!Arc::ptr_eq(&before, &reloaded));
+        assert_ne!(*before, *reloaded);
+        editor.start(&mut assets)?;
+        let play = editor.shared_snapshot(&mut assets)?;
+        assert!(!Arc::ptr_eq(&reloaded, &play));
+        editor.stop();
+        assert!(Arc::ptr_eq(
+            &reloaded,
+            &editor.shared_snapshot(&mut assets)?
+        ));
         Ok(())
     }
 }

@@ -12,7 +12,6 @@ comet-scene = { path = "../scene" }
 comet-asset = { path = "../asset/runtime" }
 comet-render = { path = "../render" }
 anyhow.workspace = true
-glam.workspace = true
 egui.workspace = true
 winit.workspace = true
 egui-winit.workspace = true

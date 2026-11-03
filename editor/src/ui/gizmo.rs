@@ -1,7 +1,7 @@
 use super::*;
+use comet_core::math::Vec3;
 use comet_scene::schema::{self, FieldValue};
 use egui::{Pos2, Stroke};
-use glam::Vec3;
 pub(super) fn draw(
     editor: &mut Editor,
     ui: &mut egui::Ui,
@@ -11,6 +11,9 @@ pub(super) fn draw(
     let Some(entity) = editor.selected_entity() else {
         return false;
     };
+    if editor.play.is_some() && entity.physics.is_some() {
+        return false;
+    }
     let Ok(transforms) = comet_application::world_transforms(&editor.last_snapshot) else {
         return false;
     };
@@ -36,7 +39,7 @@ pub(super) fn draw(
         .parent
         .and_then(|id| transforms.get(&id))
         .copied()
-        .unwrap_or(glam::Mat4::IDENTITY);
+        .unwrap_or(comet_core::math::Mat4::IDENTITY);
     if parent.determinant().abs() < 1e-8 {
         return false;
     }

@@ -4,15 +4,28 @@ use comet_scene::{
     ContentSource, FieldOverride, PrefabResolver, Scene, SceneSnapshot,
     schema::{FieldKey, FieldValue},
 };
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::Path,
+    sync::Arc,
+};
 
+pub const HISTORY_CAPACITY: usize = 256;
+#[derive(Clone)]
+struct State {
+    id: u64,
+    source: Arc<ContentSource>,
+}
+/// Content comparisons occur only on mutation. Queries share immutable values and stable state IDs.
 pub struct Document {
     scene: Scene,
-    instances: Vec<comet_scene::PrefabInstance>,
-    saved: ContentSource,
-    undo: Vec<ContentSource>,
-    redo: Vec<ContentSource>,
-    preview: Option<ContentSource>,
+    current: State,
+    saved: State,
+    undo: VecDeque<State>,
+    redo: Vec<State>,
+    preview: Option<State>,
+    next_state: u64,
+    revision: u64,
 }
 impl Document {
     pub fn open(snapshot: SceneSnapshot) -> Result<Self> {
@@ -25,13 +38,19 @@ impl Document {
         source.validate()?;
         source.canonicalize();
         let scene = Scene::open(source.base.clone())?;
+        let current = State {
+            id: 0,
+            source: Arc::new(source),
+        };
         Ok(Self {
             scene,
-            instances: source.instances.clone(),
-            saved: source,
-            undo: vec![],
+            saved: current.clone(),
+            current,
+            undo: VecDeque::new(),
             redo: vec![],
             preview: None,
+            next_state: 1,
+            revision: 0,
         })
     }
     pub fn load(path: &Path) -> Result<Self> {
@@ -40,26 +59,28 @@ impl Document {
         )?)
     }
     pub fn snapshot(&mut self) -> SceneSnapshot {
-        self.scene.snapshot()
+        self.current.source.base.clone()
+    }
+    pub fn shared_snapshot(&mut self) -> Arc<SceneSnapshot> {
+        self.scene.shared_snapshot()
     }
     pub fn world_id(&self) -> comet_core::WorldId {
         self.scene.world_id()
     }
-    pub fn source(&mut self) -> ContentSource {
-        ContentSource {
-            version: 1,
-            base: self.snapshot(),
-            instances: self.instances.clone(),
-        }
+    pub fn source(&self) -> ContentSource {
+        self.current.source.as_ref().clone()
     }
-    fn restore(&mut self, source: ContentSource) -> Result<()> {
-        source.validate()?;
-        self.scene.replace(source.base)?;
-        self.instances = source.instances;
-        Ok(())
+    pub fn shared_source(&self) -> Arc<ContentSource> {
+        self.current.source.clone()
     }
-    pub fn is_dirty(&mut self) -> bool {
-        self.source() != self.saved
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+    pub fn state_id(&self) -> u64 {
+        self.current.id
+    }
+    pub fn is_dirty(&self) -> bool {
+        self.current.id != self.saved.id
     }
     pub fn history_len(&self) -> usize {
         self.undo.len()
@@ -69,19 +90,58 @@ impl Document {
     }
     pub fn begin(&mut self) -> Result<()> {
         ensure!(self.preview.is_none(), "transaction already active");
-        self.preview = Some(self.source());
+        self.preview = Some(self.current.clone());
         Ok(())
+    }
+    fn restore(&mut self, state: State) -> Result<()> {
+        if self.current.source == state.source {
+            self.current = state;
+            return Ok(());
+        }
+        let revision = self
+            .revision
+            .checked_add(1)
+            .context("document revision exhausted")?;
+        self.scene.replace(state.source.base.clone())?;
+        self.current = state;
+        self.revision = revision;
+        Ok(())
+    }
+    fn apply(&mut self, mut source: ContentSource) -> Result<()> {
+        source.validate()?;
+        source.canonicalize();
+        if *self.current.source == source {
+            return Ok(());
+        }
+        let id = if *self.saved.source == source {
+            self.saved.id
+        } else if let Some(before) = &self.preview
+            && *before.source == source
+        {
+            before.id
+        } else {
+            let id = self.next_state;
+            self.next_state = self
+                .next_state
+                .checked_add(1)
+                .context("document state exhausted")?;
+            id
+        };
+        self.restore(State {
+            id,
+            source: Arc::new(source),
+        })
     }
     pub fn preview_field(
         &mut self,
         selection: &[EntityId],
-        field: FieldKey,
+        key: FieldKey,
         value: FieldValue,
     ) -> Result<()> {
         ensure!(self.preview.is_some(), "no edit transaction");
-        let mut next = self.snapshot();
-        next.set_field(selection, field, value)?;
-        self.scene.replace(next)
+        let mut next = self.source();
+        next.base.set_field(selection, key, value)?;
+        self.apply(next)
     }
     pub fn preview_override(
         &mut self,
@@ -102,42 +162,54 @@ impl Document {
         target.overrides.push(value);
         next.canonicalize();
         next.expand(resolver)?;
-        self.restore(next)
+        self.apply(next)
+    }
+    fn record(&mut self, before: State) {
+        self.undo.push_back(before);
+        self.redo.clear();
+        while self.undo.len() > HISTORY_CAPACITY {
+            self.undo.pop_front();
+        }
     }
     pub fn commit(&mut self) -> Result<()> {
         let before = self.preview.take().context("no edit transaction")?;
-        if before != self.source() {
-            self.undo.push(before);
-            self.redo.clear();
+        if before.source != self.current.source {
+            self.record(before);
         }
         Ok(())
     }
     pub fn cancel(&mut self) -> Result<()> {
-        let before = self.preview.take().context("no edit transaction")?;
-        self.restore(before)
+        let before = self
+            .preview
+            .as_ref()
+            .context("no edit transaction")?
+            .clone();
+        self.restore(before)?;
+        self.preview = None;
+        Ok(())
     }
     pub fn undo(&mut self) -> Result<()> {
         ensure!(self.preview.is_none(), "transaction active");
-        let before = self.undo.last().context("nothing to undo")?.clone();
-        let now = self.source();
+        let before = self.undo.back().context("nothing to undo")?.clone();
+        let now = self.current.clone();
         self.restore(before)?;
-        self.undo.pop();
+        self.undo.pop_back();
         self.redo.push(now);
         Ok(())
     }
     pub fn redo(&mut self) -> Result<()> {
         ensure!(self.preview.is_none(), "transaction active");
         let after = self.redo.last().context("nothing to redo")?.clone();
-        let now = self.source();
+        let now = self.current.clone();
         self.restore(after)?;
         self.redo.pop();
-        self.undo.push(now);
+        self.undo.push_back(now);
         Ok(())
     }
     pub fn clone_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeMap<EntityId, EntityId>> {
         ensure!(self.preview.is_none(), "transaction active");
-        let before = self.source();
-        let mut next = before.clone();
+        let before = self.current.clone();
+        let mut next = self.source();
         let map = next.base.clone_subtrees(roots)?;
         let copies: Vec<_> = next
             .instances
@@ -152,20 +224,17 @@ impl Document {
             })
             .collect();
         next.instances.extend(copies);
-        next.canonicalize();
         if !map.is_empty() {
-            self.restore(next)?;
-            self.undo.push(before);
-            self.redo.clear();
+            self.apply(next)?;
+            self.record(before);
         }
         Ok(map)
     }
-    /// The savepoint moves only after the authoring file is published successfully.
+    /// The savepoint changes only after a complete authoring file is published.
     pub fn save(&mut self, path: &Path) -> Result<()> {
         ensure!(self.preview.is_none(), "cannot save an active transaction");
-        let now = self.source();
-        atomic_write(path, &now.to_json()?)?;
-        self.saved = now;
+        atomic_write(path, &self.current.source.to_json()?)?;
+        self.saved = self.current.clone();
         Ok(())
     }
 }

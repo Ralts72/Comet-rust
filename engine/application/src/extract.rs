@@ -2,9 +2,9 @@ use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
 use comet_core::EntityId;
+use comet_core::math::{Mat4, Quat, Vec3};
 use comet_render::Draw;
 use comet_scene::SceneSnapshot;
-use glam::{Mat4, Quat, Vec3};
 use std::collections::BTreeMap;
 
 pub fn world_transforms(snapshot: &SceneSnapshot) -> Result<BTreeMap<EntityId, Mat4>> {

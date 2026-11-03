@@ -7,21 +7,22 @@
 
 ```text
 engine/
-  core/                  identity.rs / storage.rs
-  scene/                 components.rs / schema.rs / scene.rs / prefab.rs
+  core/                  identity.rs / storage.rs / input.rs / paths.rs / publication.rs / math.rs
+  scene/                 components.rs / physics.rs / schema.rs / scene.rs / prefab.rs
   asset/data/            product.rs：CPU 产品协议
   asset/runtime/         store.rs：只读产品消费
-  runtime/               session.rs：独立运行世界
-  application/           application.rs / extract.rs：窗口、输入与提取
+  runtime/               session.rs / clock.rs / input.rs / physics.rs / character.rs：运行世界与模拟
+  application/           application.rs / extract.rs / input.rs / timing.rs：宿主、采样与提取
+    resources/fonts/     内置中文字体与许可
   render/                frame.rs / worker.rs / shader.rs
     shaders/             正式 WGSL
     src/backend/metal/   renderer.rs / resources.rs / ui.rs
     src/backend/vulkan/  renderer.rs / device.rs / resources.rs / pipeline.rs / commands.rs / ui.rs
 editor/
   core/                  document.rs：编辑文档与历史
-  src/                   session.rs / ui/{mod.rs,inspector.rs,gizmo.rs}
+  src/                   session.rs / export.rs / ui/{mod.rs,inspector.rs,gizmo.rs}
 app/src/                 游戏入口
-tools/asset/pipeline/    import.rs / build.rs / gltf.rs / package.rs
+tools/asset/pipeline/    import.rs / build.rs / gltf.rs / package.rs / template.rs
 tools/asset/cli/         资产 CLI
 tools/gpu/               原生 GPU 能力诊断
 demo/assets/             默认作者项目
@@ -64,8 +65,9 @@ Player 不链接编辑器、资产生产库、glTF 或图像解码器；Render �
 
 | 用途 | 依赖 | 主要声明位置 |
 | --- | --- | --- |
+| 刚体与角色碰撞 | `rapier3d = 0.36.1` | 根 workspace、`engine/runtime/Cargo.toml` |
 | 场景 ECS | `bevy_ecs` | `engine/scene/Cargo.toml` |
-| 数学 | `glam` | 根 workspace、Render、Application、Editor |
+| 数学 | `glam` | 根 workspace、Core；消费者使用 `comet_core::math` |
 | 序列化 | `serde`、`serde_json` | 根 workspace，各数据和工具模块 |
 | 身份与摘要 | `uuid`、`sha2` | 根 workspace、`engine/core` |
 | 错误上下文 | `anyhow` | 根 workspace、各消费者 |
@@ -79,6 +81,7 @@ Player 不链接编辑器、资产生产库、glTF 或图像解码器；Render �
 | 验收截图编码 | `png` | `engine/render`，不用于导入作者源 |
 | 临时测试项目 | `tempfile` | 各包的开发依赖 |
 
+数学类型通过 Core 的小型门面集中导出，坐标/投影约定在同一处；门禁拒绝其他正式包直接依赖 glam。类型导出保留 glam 的实际类型身份，尚不是独立数值实现或稳定二进制 ABI。Rapier 内部数值类型留在 Runtime 适配层，持久协议继续使用既有数组。
 项目只使用 bevy_ecs，不接入完整 Bevy 引擎；稳定字段 Schema 由本项目实现。Metal/Vulkan 的系统 SDK、loader 与驱动由系统提供，Cargo 包负责 Rust 绑定与调用。
 原生 API 的 Rust 绑定可能携带构建脚本，但不等于编译 C/C++ 算法库；实际 normal/build 依赖图由审计工具检查。
 
@@ -86,7 +89,6 @@ Player 不链接编辑器、资产生产库、glTF 或图像解码器；Render �
 
 | 功能 | 技术路线 | 状态 |
 | --- | --- | --- |
-| 物理与角色运动 | Rapier | 尚未接入正式 Runtime |
 | 导航构建与寻路 | rerecast / landmass | 尚未接入正式 Runtime 和资产产品 |
 | 游戏脚本 | Rhai | 尚未接入正式 Runtime |
 
@@ -96,7 +98,7 @@ Rune 与 wgpu 不属于当前正式路线；引擎不依赖旧 C++ 引擎或 Jol
 ## 身份、场景与字段
 
 `EntityId`、`AssetId`、`InstanceId`、`WorldId` 为不同的非空 UUID 类型。ECS 槽位、内存地址和递增整数不作为持久身份。
-Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links 具体组件；SceneSnapshot 是可独立验证和序列化的 CPU 值。
+Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links、PhysicsBody、Character 具体组件；SceneSnapshot 是可独立验证和序列化的 CPU 值。
 实体句柄携带世界与代次，跨世界或替换场景后失效。parent 唯一确定层级，Transform 使用父级局部变换；拒绝重复身份、缺失父级、层级环及无效本地引用。
 实体引用区分 Local 与 External；External 保存场景资产和实体身份，当前校验所指资产为场景，不自动实例化跨场景内容。
 
@@ -105,7 +107,10 @@ Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links 
 | 1 Transform | 1/2/3 | translation / rotation / scale | 有限向量、归一化 xyzw 四元数 |
 | 2 Model | 1/2/3 | mesh / surface.material / surface.roughness | 资产身份、资产身份、[0,1] 标量 |
 | 3 Links | 1/2 | target / connections | 可空实体引用、实体引用数组 |
+| 4 PhysicsBody | 1/2 | mass / friction | 正质量、非负摩擦系数 |
+| 5 Character | 1/2 | move_speed / jump_speed | 正速度 |
 
+场景快照当前版本为 2，新增可选的 `physics`、`character` 配置；仍读取版本 1，旧场景打开、快照和保存保留原版本与 UUID，版本 1 不能携带物理组件。ContentSource 外层版本仍为 1，Prefab 展开采用内容中最高的场景版本；产品需随协议实现重新构建，metadata 身份不变。
 字段 ID 和 JSON 键属于版本化协议，不随 Rust 字段重命名而改变。编辑与 Prefab 覆盖使用稳定的组件/字段 ID。
 Schema 的读写、校验、引用分类和重映射供各消费者复用。复制子树分配新身份，重映射复制集合内的父级与本地引用，保留集合外引用及资产身份；候选校验成功后整体生效。
 
@@ -116,8 +121,26 @@ ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Pr
 当前覆盖目标是被引用 Prefab 的 base 实体，尚不支持跨层结构覆盖、移除源实体或完整结构编辑 UI。
 
 Document 拥有 Edit 场景、Prefab 声明、历史与保存点。连续预览 commit 后成为一条历史；cancel 恢复。保存先原子发布作者文件，成功后移动保存点；失败保留 dirty 状态。作者文件保留声明和覆盖，不保存为失去关系的平铺实体。
-历史目前保存完整 CPU 快照。Play 从已校验快照创建新的运行世界，Stop 销毁运行世界；编辑文档的所有权和历史不参与交换。
-Runtime 当前提供时间、暂停与 1/60 秒单步，游戏物理、动画、脚本、导航和音频尚未接入。
+历史使用不可变 CPU 内容快照，undo/redo 共计最多 256 条，保存点与活动预览分别持有其状态。状态 ID 在成功变更时更新，is_dirty 为常数时间查询；返回原值的预览、取消和撤销回保存点不会误标脏。单条历史仍与场景体积相关，当前没有字节预算。
+Scene 按内容 revision 缓存 Arc 快照；姿态未变化时不失效，成功写回或替换时才重建。Editor 按文档世界/revision 和已接纳产品索引摘要缓存 Prefab 展开结果，UI 和帧请求共享同一不可变快照。预览、undo/redo、资产刷新和运行世界切换分别使对应缓存失效；渲染提取中的变换与绘制遍历尚未实现完整增量更新。
+Play 从已校验快照创建新的运行世界，Stop 销毁运行世界；编辑文档的所有权和历史不参与交换。
+Runtime 使用 60 Hz 固定步，游戏时间由已完成步数计算，独立于渲染帧编号。每次最多补 8 步，超出 0.25 秒的帧时间及超额整步记入掉时，保留不足一步的余量和插值系数；当前尚未对呈现姿态做插值。暂停与单步不积累欠账，UI 单步请求在本轮输入授权之后、提取之前执行。动画、脚本、导航和音频尚未接入。
+
+动作契约位于 Core，不依赖 egui/winit。Application 统一采样默认键鼠映射；Runtime 保存连续状态、累加鼠标位移，并按顺序缓存按下/释放事件。没有固定步的帧不丢失快速点按；补步时边沿和鼠标位移只交付给第一步，后续步仍可读取持续状态。输入队列有上限，溢出或非有限值报错，不覆盖已接纳的输入与时钟。
+新世界、暂停、宿主恢复及输入授权恢复会建立新基线，保留当前持续状态，不重放旧边沿或鼠标位移。UI 文本输入拥有键盘时关闭游戏输入授权，游戏时钟仍继续。宿主失焦、遮挡、零尺寸或平台挂起时冻结模拟并清空欠账；恢复首帧时间为零，交换链或烟测注入的呈现尺寸不决定游戏时间。
+
+## 物理与角色
+
+Scene 只保存纯数据配置，Rapier 对象和 EntityId → 句柄映射由 Runtime 私有持有；Application、Render 和资产模块不引入 Rapier。使用 `std/dim3/f32/enhanced-determinism`，不启用线程并行或原生算法绑定。实体按稳定 UUID 顺序插入，固定步结果在同一平台不受渲染帧率及源数组顺序影响；不承诺跨平台逐位一致。
+
+支持 Fixed、Dynamic、Kinematic 刚体和 Box、Sphere、Y 轴 Capsule；碰撞层与 mask 使用完整 32 位双向匹配。动态物体开启 CCD，非角色 Kinematic 接受速度；触发器记录每个固定步的进入/离开，`trigger_events()` 包含最近一次 advance 的全部事件，下次 advance 清空。当前没有回调重入或永久事件积压。
+PhysicsBody 必须位于场景根，允许带可视子树；缩放必须为正，Sphere/Capsule 还要求等比缩放。每体一个碰撞体，尚不支持三角网格碰撞、复合体、关节或父级驱动物理。非法配置在资产构建、加载和 Play 启动时拒绝。
+
+每个场景最多一个接收玩家输入的 Character，要求直立的非传感器 Kinematic Capsule。`character.rs` 负责移动、跑步、重力、按下边沿跳跃、坡度限制、台阶和贴地；Rapier 提供形状查询和移动平台摩擦。Application 将相机平面方向换成世界 X / 负 Z 输入，并在模拟后跟随角色，Editor Play 与 Player 使用同一实现。当前不处理蹲伏、动态物体推动、动画或根运动。
+
+每步先计算角色目标，再推进 Rapier，最后批量校验并写回 ECS 的位置/旋转，保留实体句柄、世界和作者缩放。Play 的暂停、单步和宿主冻结走同一模拟路径；Stop 丢弃全部物理状态。运行中物理配置只读，普通字段编辑不能覆盖物理体变换；显式 `teleport` 重置速度和着地状态，`set_linear_velocity`、`apply_impulse` 分别验证目标运动类型。Inspector 的质量、摩擦和角色速度通过原有编辑事务修改，支持撤销/保存；完整碰撞体创建与形状编辑面板尚未实现。
+
+默认 demo 沿用原场景和 metadata，增加地面/静态物体碰撞、落体与角色，复用已有多材质网格和材质；角色用方块显示胶囊外包围尺寸，不新增模型二进制。
 
 ## 资产生产与消费
 
@@ -138,6 +161,7 @@ glTF/GLB 按 primitive 生成稳定网格、材质、纹理子产品，保留节
 
 ## 宿主、渲染与反馈
 
+Application 为 Editor/Player 统一配置内置 Noto Sans SC 中文回退字体；字体数据复用旧仓库，通过 LFS 管理并嵌入程序，不依赖开发机字体目录。界面固定使用简体中文，用户对象名称、路径、协议标识和原始诊断保留其内容；中文字体支持不等于系统 IME 已验收。
 Application 在主线程处理 winit/egui 事件和本轮应用更新，再只读场景与资产，提取不可变帧数据。egui 固定单 pass，避免布局重排重放命令。窗口保留到 Surface 和 Worker 退出后。
 RenderWorker 在专用线程创建后端，使用 1 个待处理帧槽、2 个反馈槽提供背压；关闭时断开发送与反馈再 join，避免反馈满导致死锁。诊断只保留最近 120 条。
 帧与拾取反馈携带帧号、WorldId、View 和目标代次；resize/零尺寸更新代次，拒绝旧世界或旧目标反馈。当前拾取为帧快照上的 CPU 三角形射线检测。
@@ -150,6 +174,13 @@ Metal 使用 CAMetalLayer；主线程创建的 Surface 按 `raw-window-metal` �
 
 ## 打包与目录稳定性
 
-`assetc pack` 校验入口场景依赖闭包，复制已构建 Player、所需产品和 `package.json` 到全新目录，不覆盖现有目录。Player 相对自身可执行文件解析包，不依赖工作目录，也不读取作者源。
-当前可输出可搬移的可执行文件与产品目录，完整应用包、签名与安装流程尚未实现。只有显式传入 `--capture`/`--report` 时写验收文件。
+Core 的 ProjectPaths 统一解析作者路径，使用真实路径和路径组件检查 assets 归属；新目标解析现有父目录。Editor 在打开和保存时校验，导出复用同一规则并拒绝目的地与作者资产/产品输入相互包含。Document 只负责内容事务与保存，不持有项目路径策略。
+
+`start.sh` 顺序构建 Debug Editor 和 Release Player；Core build script 嵌入共享构建身份与目标三元组。启动器对生产源码、Cargo.lock、清单、Shader 和构建配置取指纹，构建前后不一致则拒绝配对。模板清单版本为 2，另存不可变快照，校验 Player/Editor 与附带许可文件的摘要，现有快照不被后续 Cargo 构建覆盖。模板失配提示重新运行 start.sh。
+Editor 的 export.rs 持有导出配置、后台任务和子进程管理；UI 提供启动场景、额外场景、目的地和导出后运行。先停止 Play、提交并保存作者内容，再由后台线程调用 Pipeline 构建，检查保存版本未改变，收集所选场景的依赖并集。任务使用已保存输入并显示阶段与有界日志，期间禁用修改操作；没有导出时编译 Rust 的路径。
+Pipeline 的 package.rs 在正式目的地同级创建私有候选，复制后校验产品索引、所选场景、程序摘要及许可文件摘要；签名/封装完成后使用不覆盖目标的目录重命名发布。普通错误仅清理本次候选，进程中断可能留下临时候选，正式名称不提前出现。
+
+包清单版本为 2，记录启动场景、包含场景和运行程序；编辑器导出另记录匹配模板的 RuntimeIdentity。macOS `.app` 使用 Contents/MacOS 与 Contents/Resources，生成 Info.plist，执行 ad-hoc codesign 并校验；普通目录保留 exe 旁的资源布局。Player 根据自身路径定位清单和产品，校验协议/构建身份，拒绝选用清单外场景，不依赖 cwd 或作者源。资产 CLI 的低层 pack 仍接受调用方提供的既有二进制，程序配对由调用方承担；日常导出统一走编辑器的模板校验。
+
+当前支持可搬移目录和 macOS 本机签名 App；证书签名、公证、安装器及运行时场景切换仍未实现。额外场景表示已打包的资源，不代表关卡切换玩法已经接入。
 目录和包命名按业务职责维护。阶段编号仅用于迁移计划，不进入正式源码、示例路径、包名和当前验收命令。

@@ -2,25 +2,29 @@
 
 Comet 的独立 Rust 3D 引擎工程，沿用引擎、编辑器、游戏与工具的业务目录，用 Cargo workspace 管理模块依赖。旧 C++ 工程用于行为对照，新工程不链接其引擎或 C/C++ 第三方实现。
 
-当前支持静态 glTF/GLB 导入、多材质 PBR/阴影、场景编辑、撤销/重做、保存与独立游戏打包。图形使用原生 Metal/Vulkan；Metal 已实际运行，Vulkan 已进行 Linux 交叉编译检查，目标设备运行仍需验证。物理、导航、脚本、动画和音频尚未正式接入。
+编辑器界面使用简体中文，内置中文字体，独立游戏包无需另行安装字体。当前支持静态 glTF/GLB 导入、多材质 PBR/阴影、场景编辑、撤销/重做、保存与独立游戏打包。图形使用原生 Metal/Vulkan；Metal 已实际运行，Vulkan 已进行 Linux 交叉编译检查，目标设备运行仍需验证。导航、脚本、动画和音频尚未正式接入。
+Editor Play 与 Player 共用 60 Hz 固定步、暂停单步、失焦冻结及动作输入消费；长帧补步有上限并记录掉时。Rapier 已接入基础刚体、碰撞层、触发器与胶囊角色；默认 demo 可观察落体，Play 和独立游戏均可操作角色。
 
 ## 开发与启动
 
 使用 `rust-toolchain.toml` 固定的 Rust 工具链、Edition 2024 和 `Cargo.lock`。启动与验证工具使用 Python 3 标准库。workspace 共用根 `target/`，编译并行配置在 `.cargo/config.toml`；macOS 需要 Xcode Command Line Tools 提供 SDK 与链接器。
 
-日常只保留两个按用途固定的启动脚本：
+日常只保留一个启动入口：
 
 ```sh
-./editor.sh                    # Debug 增量编译并打开编辑器
-./run_game.sh                  # Release 编译、准备资源并运行游戏
-./editor.sh --help
-./editor.sh --project /path/to/project --scene main.scene
-./run_game.sh --products /path/to/products --scene 40000000-0000-4000-8000-000000000001
+./start.sh                    # 准备 Debug Editor、Release Player 模板，启动编辑器
+./start.sh --help
+./start.sh --project /path/to/project --scene main.scene
 ```
 
-脚本只接收应用参数，程序和构建配置由用途固定。默认项目为 `demo/`，两端共用 CPU 产品 `target/products/demo/`。
-项目、产品、截图和报告的相对路径以调用时的目录为基准；作者场景文件名相对项目的 `assets/`。指定现成产品运行游戏时，跳过默认示例的导入和构建。
-公共启动实现位于 `tools/launch.py`；Cargo 定位实际产物，遵循 target 目录和构建目标配置。入口在必要时查找常见 rustup 安装路径，不修改全局环境。
+脚本通过 rustup 准备锁定工具链，按顺序构建两个程序，从 Cargo JSON 获取实际路径；首次需要编译两套依赖，后续复用缓存。构建配置统一由根 `Cargo.toml` 管理，没有动作分发或模式切换。默认项目为 `demo/`，开发产品位于 `target/products/demo/`。
+模板快照位于 `target/player-templates/`，记录源码/依赖/配置指纹、平台架构、协议版本和程序摘要；包含未提交源码，不以 Git commit 代替构建身份。修改程序源码后重新运行 `start.sh`，资源变化则由编辑器导出时重新构建。
+
+在编辑器中点击“运行”后，WASD 按相机方向移动，Space 跳跃、Shift 跑步，右键拖动环绕、滚轮缩放；相机跟随角色。当前角色使用方块可视化，蹲伏、手柄和完整玩法仍待接入。
+“导出游戏”窗口选择启动场景、额外场景和新输出位置，提供 “导出”、“导出并运行”。导出会结束 Play、提交编辑事务并保存作者场景，再后台构建资源和打包；窗口显示阶段、日志和失败原因，任务期间暂停修改操作。日常“保存”只保存作者内容。
+macOS 默认导出 `.app`，资源放在 `Contents/Resources`，发布前完成本机临时签名与校验；其他目录形式也可导出。游戏直接运行导出包，不依赖 Cargo、开发目录或编辑器进程。正式输出必须尚不存在，完整候选通过后才整体发布。对外分发的证书签名、公证与安装器尚未接入。
+
+项目、产品、截图、报告和导出目的地的相对路径以调用目录为基准；作者场景路径统一限制在项目的 `assets/` 内，打开、保存和导出都会校验。公共启动实现位于 `tools/launch.py`，只使用 Python 3 标准库。
 
 | 配置 | 用途与取舍 |
 | --- | --- |
@@ -37,15 +41,15 @@ Comet 的独立 Rust 3D 引擎工程，沿用引擎、编辑器、游戏与工�
 
 | 路径 | 职责 |
 | --- | --- |
-| `engine/core` | 分类 UUID、摘要、原子文件发布 |
+| `engine/core` | 分类 UUID、摘要、数学入口、项目路径与原子发布 |
 | `engine/scene` | 组件、稳定字段 Schema、ECS 场景、层级、复制与 Prefab |
 | `engine/asset/data` | 网格、材质、纹理、场景产品与索引的 CPU 数据协议 |
 | `engine/asset/runtime` | 只读产品加载、校验、依赖闭包、版本切换与缓存 |
-| `engine/runtime` | 独立 Play 世界、时间、暂停与单步 |
-| `engine/application` | 窗口、输入、egui 接入与帧数据提取 |
+| `engine/runtime` | 独立 Play 世界、固定步、Rapier 物理、角色运动与动作消费 |
+| `engine/application` | 窗口、输入采样与授权、宿主活动策略、egui 与帧提取 |
 | `engine/render` | 帧协议、渲染线程、共享 Shader 和原生 Metal/Vulkan 后端 |
 | `editor/core` | 编辑文档、事务、历史与保存点 |
-| `editor/src` | 编辑器入口、会话与各功能面板 |
+| `editor/src` | 编辑器入口、会话、导出后台任务与各功能面板 |
 | `app` | 独立游戏运行入口，包内资源相对可执行文件定位 |
 | `tools/asset/pipeline` | 源导入、产品构建、索引发布与打包库 |
 | `tools/asset/cli` | `comet-assetc` 命令行入口 |
@@ -68,7 +72,7 @@ cargo run -p comet-assetc --locked -- prepare demo --output target/products/demo
 ```
 
 默认 `cargo build/test` 面向引擎库、编辑文档和资产工具；`--workspace` 包含编辑器、游戏和 GPU 工具，均为按功能组织的当前模块。
-GitHub [CI](.github/workflows/ci.yml) 在 PR、`main/master` 推送及手动触发时执行 Linux 默认验证，并构建 Release 游戏与资产工具。日志、报告和源码快照保存为 7 天的运行附件；Metal、物理 GPU 与窗口验收使用本地命令，详见[开发与验证](docs/development.md)。
+GitHub [CI](.github/workflows/ci.yml) 在 PR、`main/master` 推送及手动触发时执行 Linux 默认验证，并准备 Release Player 模板、验证编辑器导出和构建 Release 资产工具。日志、报告和源码快照保存为 7 天的运行附件；Metal、物理 GPU 与窗口验收使用本地命令，详见[开发与验证](docs/development.md)。
 文档按职责保留三份：[架构与依赖](docs/architecture.md)、[开发与验证](docs/development.md)、[功能迁移清单](docs/migration.md)。
 仓库协作规范见 [AGENTS.md](AGENTS.md)。
 

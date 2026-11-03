@@ -9,3 +9,4 @@ publish.workspace = true
 comet-core = { path = "../core" }
 comet-scene = { path = "../scene" }
 anyhow.workspace = true
+rapier3d.workspace = true

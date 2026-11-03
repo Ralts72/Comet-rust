@@ -38,18 +38,17 @@
 
 ## 构建与启动
 
-日常启动按用途只保留两个入口，脚本固定程序和构建配置，只接收应用参数：
+日常只保留 `start.sh` 一个启动入口，固定准备 Debug Editor 和 Release Player 模板，再启动编辑器：
 
 ```sh
-./editor.sh                     # Debug 增量编译并启动编辑器
-./run_game.sh                   # Release 编译、准备示例产品并运行游戏
-./editor.sh --help
-./run_game.sh --help
+./start.sh
+./start.sh --help
+./start.sh --project /path/to/project --scene main.scene
 ```
 
-启动脚本不提供可选编译动作或模式切换，不另加统一动作分发入口、Debug/Release 启动入口或只编译脚本。
-默认使用 `demo`，两个程序共用 CPU 产品 `target/products/demo`；指定现成产品运行 Player 时，跳过默认示例的准备流程。
-应用的项目、产品、截图和报告路径相对调用目录解析；作者场景文件名相对项目的 `assets/`。
+脚本只接收编辑器参数，不提供可选编译动作或构建模式切换，不恢复独立 Player/Debug/Release 启动脚本。
+默认使用 demo 与 target/products/demo。游戏导出、场景选择和试玩由编辑器处理；导出复用匹配的 Release Player 模板，不调用 Cargo，程序源码变化后重新运行 start.sh。
+项目、产品、截图、报告和导出目的地相对调用目录解析；作者场景通过公共 ProjectPaths 限制在项目 assets 内。正式导出在同级候选完成校验后整体发布，不覆盖已有目的地。
 
 使用锁定的工具链与 `Cargo.lock`，尊重 `.cargo/config.toml` 的并行配置并复用 workspace 缓存。
 Debug 保留本仓库代码的完整调试信息，第三方依赖关闭调试信息；测试继承开发配置。Release 使用性能优化、Thin LTO、符号剥离与非增量构建。

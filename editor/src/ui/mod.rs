@@ -5,14 +5,15 @@ mod tests;
 use crate::session::Editor;
 use anyhow::Result;
 use comet_asset::AssetStore;
-use comet_core::EntityId;
+use comet_core::{ActionInput, EntityId};
 use comet_scene::EntityData;
 use egui::{Color32, Rect, Vec2};
 pub fn show(
     editor: &mut Editor,
     root: &mut egui::Ui,
     assets: &mut AssetStore,
-) -> Result<(Rect, Option<[f32; 2]>)> {
+    active: bool,
+) -> Result<(Rect, Option<[f32; 2]>, ActionInput)> {
     egui::Panel::top("toolbar")
         .exact_size(44.)
         .show(root, |ui| {
@@ -24,50 +25,53 @@ pub fn show(
                 );
                 ui.separator();
                 if ui
-                    .add_enabled(editor.play.is_none(), egui::Button::new("Save"))
+                    .add_enabled(editor.play.is_none(), egui::Button::new("保存"))
                     .clicked()
                 {
                     let result = editor.save(assets);
                     editor.notice(result);
                 }
                 if ui
-                    .add_enabled(editor.play.is_none(), egui::Button::new("Undo"))
+                    .add_enabled(editor.play.is_none(), egui::Button::new("撤销"))
                     .clicked()
                 {
                     let result = editor.commit().and_then(|_| editor.document.undo());
                     editor.notice(result);
                 }
                 if ui
-                    .add_enabled(editor.play.is_none(), egui::Button::new("Redo"))
+                    .add_enabled(editor.play.is_none(), egui::Button::new("重做"))
                     .clicked()
                 {
                     let result = editor.commit().and_then(|_| editor.document.redo());
                     editor.notice(result);
                 }
+                if ui.button("导出游戏").clicked() {
+                    editor.export.open = true;
+                }
                 ui.separator();
                 if editor.play.is_none() {
-                    if ui.button("Play").clicked() {
+                    if ui.button("运行").clicked() {
                         let result = editor.start(assets);
                         editor.notice(result);
                     }
                 } else {
                     let paused = editor.play.as_ref().unwrap().is_paused();
-                    if ui.button(if paused { "Resume" } else { "Pause" }).clicked() {
+                    if ui.button(if paused { "继续" } else { "暂停" }).clicked() {
                         editor.play.as_mut().unwrap().set_paused(!paused);
                     }
-                    if ui.add_enabled(paused, egui::Button::new("Step")).clicked() {
-                        let result = editor.play.as_mut().unwrap().single_step();
+                    if ui.add_enabled(paused, egui::Button::new("单步")).clicked() {
+                        let result = editor.play.as_mut().unwrap().request_single_step();
                         editor.notice(result);
                     }
-                    if ui.button("Stop").clicked() {
+                    if ui.button("停止").clicked() {
                         editor.stop();
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(if editor.document.is_dirty() {
-                        "Unsaved *"
+                        "未保存 *"
                     } else {
-                        "Saved"
+                        "已保存"
                     });
                 });
             });
@@ -79,24 +83,29 @@ pub fn show(
                 ui.small(&editor.status);
                 ui.separator();
                 ui.small(format!(
-                    "{} entities · GPU {:.2} ms",
+                    "{} 个实体 · GPU {:.2} 毫秒",
                     editor.last_snapshot.entities.len(),
                     editor.gpu_ms
                 ));
                 if let Some(play) = &editor.play {
-                    ui.small(format!("Play {:.2}s", play.elapsed()));
+                    ui.small(format!(
+                        "运行 {:.2} 秒 · {} 步 · 掉时 {:.3} 秒",
+                        play.elapsed(),
+                        play.steps(),
+                        play.dropped_time()
+                    ));
                 }
             });
         });
     egui::Panel::left("scene")
         .default_size(220.)
         .show(root, |ui| {
-            ui.heading("Scene");
+            ui.heading("场景");
             ui.label(
                 egui::RichText::new(if editor.play.is_some() {
-                    "PLAY WORLD"
+                    "运行场景"
                 } else {
-                    "AUTHORING"
+                    "编辑场景"
                 })
                 .small()
                 .weak(),
@@ -133,42 +142,56 @@ pub fn show(
     egui::Panel::right("inspector")
         .default_size(280.)
         .show(root, |ui| {
-            ui.heading("Inspector");
+            ui.heading("属性");
             ui.add_space(12.);
             if let Some(entity) = editor.selected_entity() {
                 inspector::draw(editor, ui, assets, &entity);
             } else {
-                ui.weak("Select an object in the scene or viewport.");
+                ui.weak("请在场景树或视口中选择对象。");
             }
             ui.separator();
-            ui.checkbox(&mut editor.shadows, "Directional shadows");
+            ui.checkbox(&mut editor.shadows, "方向光阴影");
             if let Some(message) = editor.error.clone() {
                 ui.add_space(12.);
-                ui.colored_label(Color32::from_rgb(244, 141, 131), message);
-                if ui.small_button("Dismiss").clicked() {
+                ui.colored_label(Color32::from_rgb(244, 141, 131), "操作未完成");
+                ui.collapsing("诊断详情", |ui| {
+                    ui.label(message);
+                });
+                if ui.small_button("关闭提示").clicked() {
                     editor.error = None;
                 }
             }
         });
     let mut viewport = Rect::NOTHING;
     let mut pick = None;
+    let mut actions = ActionInput::default();
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
         .show(root, |ui| {
             viewport = ui.max_rect();
             let response = ui.allocate_rect(viewport, egui::Sense::click_and_drag());
+            if response.clicked() {
+                response.request_focus();
+            }
             comet_application::orbit(&mut editor.camera, &response);
+            if editor.play.is_some() {
+                actions = comet_application::sample_actions(&response, active, editor.camera);
+            }
             ui.painter().text(
                 viewport.left_top() + Vec2::new(18., 16.),
                 egui::Align2::LEFT_TOP,
-                "PERSPECTIVE  /  LIT",
+                "透视 / 光照",
                 egui::FontId::proportional(12.),
                 Color32::from_gray(190),
             );
             ui.painter().text(
                 viewport.left_bottom() + Vec2::new(18., -18.),
                 egui::Align2::LEFT_BOTTOM,
-                "Right drag: orbit   ·   Scroll: zoom   ·   Drag axes: translate",
+                if editor.play.is_some() {
+                    "WASD：移动 · 空格：跳跃 · Shift：跑步 · 右键拖动：环绕"
+                } else {
+                    "右键拖动：环绕 · 滚轮：缩放 · 拖动坐标轴：移动"
+                },
                 egui::FontId::proportional(11.),
                 Color32::from_gray(160),
             );
@@ -203,5 +226,5 @@ pub fn show(
         });
         editor.notice(result);
     }
-    Ok((viewport, pick))
+    Ok((viewport, pick, actions))
 }

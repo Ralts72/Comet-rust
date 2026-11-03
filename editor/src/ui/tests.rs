@@ -1,5 +1,5 @@
+use comet_core::math::Vec3;
 use egui::Pos2;
-use glam::Vec3;
 
 use super::*;
 use comet_application::{Application, FrameContext, ViewRequest};
@@ -11,6 +11,29 @@ fn frame(
     number: u64,
     events: Vec<egui::Event>,
 ) -> ViewRequest {
+    frame_with_context(
+        ctx,
+        editor,
+        assets,
+        FrameContext {
+            number,
+            dt: 1. / 60.,
+            active: true,
+            activity_changed: false,
+            target_generation: 1,
+            size: [1280, 800],
+            smoke: false,
+        },
+        events,
+    )
+}
+fn frame_with_context(
+    ctx: &egui::Context,
+    editor: &mut Editor,
+    assets: &mut AssetStore,
+    context: FrameContext,
+    events: Vec<egui::Event>,
+) -> ViewRequest {
     let mut request = None;
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -19,28 +42,13 @@ fn frame(
             ..Default::default()
         },
         |ui| {
-            request = Some(
-                editor
-                    .frame(
-                        ui,
-                        assets,
-                        &FrameContext {
-                            number,
-                            dt: 1. / 60.,
-                            target_generation: 1,
-                            size: [1280, 800],
-                            smoke: false,
-                        },
-                    )
-                    .unwrap(),
-            );
+            request = Some(editor.frame(ui, assets, &context).unwrap());
         },
     );
     output.textures_delta.clear();
     request.unwrap()
 }
-#[test]
-fn gizmo_drag_holds_its_value_and_commits_one_history_item() -> Result<()> {
+fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
     let temp = tempfile::tempdir()?;
     let project = temp.path().join("project");
     fs::create_dir_all(project.join("assets"))?;
@@ -52,8 +60,13 @@ fn gizmo_drag_holds_its_value_and_commits_one_history_item() -> Result<()> {
             fs::copy(file.path(), project.join("assets").join(file.file_name()))?;
         }
     }
-    let (mut editor, mut assets) =
+    let (editor, assets) =
         crate::session::open(project, temp.path().join("products"), "main.scene".into())?;
+    Ok((temp, editor, assets))
+}
+#[test]
+fn gizmo_drag_holds_its_value_and_commits_one_history_item() -> Result<()> {
+    let (_temp, mut editor, mut assets) = fixture()?;
     let before = editor.snapshot(&mut assets)?;
     let selected = before
         .entities
@@ -109,5 +122,185 @@ fn gizmo_drag_holds_its_value_and_commits_one_history_item() -> Result<()> {
     assert_eq!(editor.document.history_len(), 1);
     editor.document.undo()?;
     assert_eq!(editor.snapshot(&mut assets)?, before);
+    Ok(())
+}
+
+#[test]
+fn play_frames_share_fixed_time_input_and_host_pause_policy() -> Result<()> {
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let source = editor.document.source();
+    editor.start(&mut assets)?;
+    let world = editor.world();
+    let ctx = egui::Context::default();
+    ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
+    let context = |dt, active| FrameContext {
+        number: 0,
+        dt,
+        active,
+        activity_changed: false,
+        target_generation: 1,
+        size: [1280, 800],
+        smoke: false,
+    };
+    frame_with_context(&ctx, &mut editor, &mut assets, context(0., true), vec![]);
+    let key = |pressed| egui::Event::Key {
+        key: egui::Key::Space,
+        physical_key: Some(egui::Key::Space),
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame_with_context(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        context(comet_runtime::FIXED_DELTA / 2., true),
+        vec![key(true), key(false)],
+    );
+    assert_eq!(editor.play.as_ref().unwrap().steps(), 0);
+    frame_with_context(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        context(comet_runtime::FIXED_DELTA / 2., true),
+        vec![],
+    );
+    let play = editor.play.as_ref().unwrap();
+    assert_eq!(play.steps(), 1);
+    assert_eq!(play.input().events.len(), 2);
+    frame_with_context(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        context(0., true),
+        vec![key(true), key(false)],
+    );
+    let mut restored = context(0., true);
+    restored.activity_changed = true;
+    frame_with_context(&ctx, &mut editor, &mut assets, restored, vec![]);
+    frame_with_context(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        context(comet_runtime::FIXED_DELTA, true),
+        vec![],
+    );
+    assert!(editor.play.as_ref().unwrap().input().events.is_empty());
+    frame_with_context(&ctx, &mut editor, &mut assets, context(100., false), vec![]);
+    assert!(editor.play.as_ref().unwrap().is_suspended());
+    assert_eq!(editor.play.as_ref().unwrap().steps(), 2);
+    frame_with_context(&ctx, &mut editor, &mut assets, context(0., true), vec![]);
+    assert_eq!(editor.play.as_ref().unwrap().steps(), 2);
+    editor.play.as_mut().unwrap().set_paused(true);
+    editor.play.as_mut().unwrap().request_single_step()?;
+    frame_with_context(&ctx, &mut editor, &mut assets, context(10., true), vec![]);
+    let play = editor.play.as_ref().unwrap();
+    assert_eq!(play.steps(), 3);
+    assert_eq!(play.dropped_time(), 0.);
+    assert_eq!(editor.world(), world);
+    editor.stop();
+    assert_eq!(editor.document.source(), source);
+    assert!(!editor.document.is_dirty());
+    editor.start(&mut assets)?;
+    assert_ne!(editor.world(), world);
+    assert_eq!(editor.play.as_ref().unwrap().steps(), 0);
+    Ok(())
+}
+
+#[test]
+fn editor_play_simulates_physics_and_restores_authoring_after_stop() -> Result<()> {
+    use comet_scene::{BodyMotion, Character, ColliderShape, PhysicsBody};
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let mut source = editor.document.source();
+    source.base.version = 2;
+    let mut floor = EntityData::new("floor");
+    floor.transform.translation = [0., -0.5, 0.];
+    floor.physics = Some(PhysicsBody {
+        shape: ColliderShape::Box {
+            half_extents: [20., 0.5, 20.],
+        },
+        ..Default::default()
+    });
+    let mut player = EntityData::new("player");
+    let id = player.id;
+    player.transform.translation = [0., 2., 3.];
+    player.physics = Some(PhysicsBody {
+        motion: BodyMotion::Kinematic,
+        shape: ColliderShape::Capsule {
+            half_height: 0.5,
+            radius: 0.3,
+        },
+        ..Default::default()
+    });
+    player.character = Some(Character::default());
+    source.base.entities.extend([floor, player]);
+    editor.document = comet_editor_core::Document::open_source(source.clone())?;
+    editor.edit(
+        id,
+        comet_scene::schema::MOVE_SPEED,
+        comet_scene::schema::FieldValue::Scalar(6.),
+        &mut assets,
+    )?;
+    editor.commit()?;
+    assert_eq!(editor.document.history_len(), 1);
+    editor.document.undo()?;
+    let before = editor.document.source();
+    editor.start(&mut assets)?;
+    let ctx = egui::Context::default();
+    ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
+    for n in 0..60 {
+        frame(&ctx, &mut editor, &mut assets, n, vec![]);
+    }
+    assert!(
+        editor
+            .play
+            .as_ref()
+            .unwrap()
+            .character(id)
+            .unwrap()
+            .grounded
+    );
+    let press = egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: Some(egui::Key::W),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let camera = editor.camera;
+    let position = editor
+        .play
+        .as_ref()
+        .unwrap()
+        .character(id)
+        .unwrap()
+        .position;
+    for n in 60..75 {
+        frame(
+            &ctx,
+            &mut editor,
+            &mut assets,
+            n,
+            if n == 60 { vec![press.clone()] } else { vec![] },
+        );
+    }
+    let next = editor
+        .play
+        .as_ref()
+        .unwrap()
+        .character(id)
+        .unwrap()
+        .position;
+    assert!(Vec3::from_array(next).distance(Vec3::from_array(position)) > 0.5);
+    assert!(
+        (editor.camera.target
+            - camera.target
+            - (Vec3::from_array(next) - Vec3::from_array(position)))
+        .length()
+            < 1e-5
+    );
+    editor.stop();
+    assert_eq!(editor.document.source(), before);
+    assert!(!editor.document.is_dirty());
     Ok(())
 }

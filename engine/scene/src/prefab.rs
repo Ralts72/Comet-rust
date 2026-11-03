@@ -123,7 +123,10 @@ impl ContentSource {
     }
     /// Expand declarations from snapshots; dependency discovery does not create an ECS World.
     pub fn expand(&self, resolver: &mut impl PrefabResolver) -> Result<SceneSnapshot> {
-        let mut result = SceneSnapshot::default();
+        let mut result = SceneSnapshot {
+            version: self.base.version,
+            entities: vec![],
+        };
         expand(self, None, None, resolver, &mut vec![], &mut result)?;
         result.validate()?;
         result.canonicalize();
@@ -139,6 +142,7 @@ fn expand(
     output: &mut SceneSnapshot,
 ) -> Result<()> {
     source.validate()?;
+    output.version = output.version.max(source.base.version);
     ensure!(stack.len() < 64, "prefab nesting exceeds 64 levels");
     let map: BTreeMap<_, _> = source
         .base

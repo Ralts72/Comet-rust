@@ -23,7 +23,7 @@ impl Globals {
                 .to_cols_array_2d(),
             light_projection: crate::Camera::light_projection().to_cols_array_2d(),
             eye: frame.camera.eye.extend(1.).to_array(),
-            light: glam::Vec3::new(6., 10., 5.)
+            light: comet_core::math::Vec3::new(6., 10., 5.)
                 .normalize()
                 .extend(0.)
                 .to_array(),

@@ -16,8 +16,8 @@ EXPECTED = {
     "comet-runtime": {"comet-core", "comet-scene"},
     "comet-render": {"comet-core", "comet-scene", "comet-asset-data"},
     "comet-application": {"comet-core", "comet-scene", "comet-asset-data", "comet-asset", "comet-render"},
-    "comet-editor": {"comet-core", "comet-scene", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-runtime", "comet-application", "comet-render"},
-    "comet-player": {"comet-core", "comet-asset", "comet-runtime", "comet-application"},
+    "comet-editor": {"comet-asset-data", "comet-core", "comet-scene", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-runtime", "comet-application", "comet-render"},
+    "comet-player": {"comet-asset-data", "comet-core", "comet-asset", "comet-runtime", "comet-application"},
     "comet-assetc": {"comet-core", "comet-asset", "comet-asset-pipeline"},
     "comet-gpu-check": set(),
 }
@@ -47,6 +47,8 @@ def audit(target=None):
         forbidden = {"wgpu", "wgpu-core", "cc", "cmake"}
         if name in DATA:
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "rune"}
+        if name not in {"comet-runtime", "comet-editor", "comet-player"}:
+            forbidden.add("rapier3d")
         if name == "comet-runtime":
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "comet-asset-pipeline", "comet-editor-core"}
         if name == "comet-render":
@@ -58,6 +60,9 @@ def audit(target=None):
         direct = {packages[d["pkg"]]["name"] for d in nodes[root]["deps"] if any(k["kind"] != "dev" for k in d["dep_kinds"]) and packages[d["pkg"]]["name"].startswith("comet-")}
         if direct != allowed:
             raise RuntimeError(f"{name} dependencies: {direct}, expected {allowed}")
+        direct_packages={packages[d["pkg"]]["name"] for d in nodes[root]["deps"] if any(k["kind"] != "dev" for k in d["dep_kinds"])}
+        if name != "comet-core" and "glam" in direct_packages:
+            raise RuntimeError(f"{name} must use comet_core::math instead of depending directly on glam")
         graph[name] = {"direct_modules": sorted(direct), "transitive_packages": len(seen)}
     return {"target": target, "modules": graph}
 

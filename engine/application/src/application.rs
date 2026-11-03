@@ -1,3 +1,4 @@
+use crate::timing::FrameTiming;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_core::{EntityId, WorldId};
@@ -33,13 +34,15 @@ impl HostOptions {
 pub struct FrameContext {
     pub number: u64,
     pub dt: f64,
+    pub active: bool,
+    pub activity_changed: bool,
     pub target_generation: u64,
     pub size: [u32; 2],
     pub smoke: bool,
 }
 pub struct ViewRequest {
     pub world: WorldId,
-    pub snapshot: SceneSnapshot,
+    pub snapshot: Arc<SceneSnapshot>,
     pub viewport: egui::Rect,
     pub camera: Camera,
     pub selected: Option<EntityId>,
@@ -69,7 +72,7 @@ struct Host<A: Application> {
     number: u64,
     generation: u64,
     last_size: [u32; 2],
-    last: Instant,
+    timing: FrameTiming,
     token: Option<ViewToken>,
     feedback: Vec<FrameFeedback>,
     error: Option<String>,
@@ -78,6 +81,7 @@ struct Host<A: Application> {
 pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> Result<()> {
     let headless = options.headless;
     let ctx = egui::Context::default();
+    crate::configure_ui(&ctx);
     // Application callbacks include commands and one runtime update, so execute exactly once.
     // Layout settles on the next host frame rather than replaying side effects in an egui pass.
     ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
@@ -92,7 +96,7 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         number: 0,
         generation: 1,
         last_size: [1280, 800],
-        last: Instant::now(),
+        timing: FrameTiming::default(),
         token: None,
         feedback: vec![],
         error: None,
@@ -184,12 +188,24 @@ impl<A: Application> Host<A> {
             self.generation += 1;
             self.last_size = size;
         }
-        let now = Instant::now();
-        let dt = now.duration_since(self.last).as_secs_f64().min(0.1);
-        self.last = now;
+        let host_dt = self.timing.sample(Instant::now());
+        let active = self.timing.active();
+        let activity_changed = self.timing.take_activity_change();
+        // Eight very fast smoke frames must still exercise real simulation ticks.
+        let dt = if self.options.smoke {
+            if active && !activity_changed {
+                1. / 60.
+            } else {
+                0.
+            }
+        } else {
+            host_dt
+        };
         let input = FrameContext {
             number: self.number,
             dt,
+            active,
+            activity_changed,
             target_generation: self.generation,
             size,
             smoke: self.options.smoke,
@@ -264,12 +280,16 @@ impl<A: Application> Host<A> {
 }
 impl<A: Application> ApplicationHandler for Host<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.timing.suspended(false);
         if self.window.is_none()
             && let Err(error) = self.setup(event_loop)
         {
             self.error = Some(format!("{error:#}"));
             event_loop.exit();
         }
+    }
+    fn suspended(&mut self, _: &ActiveEventLoop) {
+        self.timing.suspended(true);
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         if let (Some(window), Some(state)) = (&self.window, &mut self.state) {
@@ -292,7 +312,15 @@ impl<A: Application> ApplicationHandler for Host<A> {
                     event_loop.exit();
                 }
             },
-            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+            WindowEvent::Focused(focused) => self.timing.focused(focused),
+            WindowEvent::Occluded(occluded) => self.timing.occluded(occluded),
+            WindowEvent::Resized(size) => {
+                self.timing.minimized(size.width == 0 || size.height == 0);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
@@ -314,10 +342,10 @@ pub fn orbit(camera: &mut Camera, response: &egui::Response) {
     let mut offset = camera.eye - camera.target;
     if response.dragged_by(egui::PointerButton::Secondary) {
         let delta = response.ctx.input(|i| i.pointer.delta());
-        offset = glam::Quat::from_rotation_y(-delta.x * 0.006) * offset;
-        let right = offset.cross(glam::Vec3::Y).normalize_or_zero();
-        let candidate = glam::Quat::from_axis_angle(right, delta.y * 0.006) * offset;
-        if candidate.normalize().dot(glam::Vec3::Y).abs() < 0.96 {
+        offset = comet_core::math::Quat::from_rotation_y(-delta.x * 0.006) * offset;
+        let right = offset.cross(comet_core::math::Vec3::Y).normalize_or_zero();
+        let candidate = comet_core::math::Quat::from_axis_angle(right, delta.y * 0.006) * offset;
+        if candidate.normalize().dot(comet_core::math::Vec3::Y).abs() < 0.96 {
             offset = candidate;
         }
     }

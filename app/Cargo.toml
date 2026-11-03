@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 [dependencies]
+comet-asset-data = { path = "../engine/asset/data" }
 comet-core = { path = "../engine/core" }
 comet-asset = { path = "../engine/asset/runtime" }
 comet-runtime = { path = "../engine/runtime" }

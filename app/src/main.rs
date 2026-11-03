@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use comet_application::{Application, FrameContext, HostOptions, ViewRequest};
 use comet_asset::AssetStore;
+use comet_asset_data::package::{PackageManifest, RuntimeIdentity};
 use comet_runtime::PlaySession;
 use std::path::PathBuf;
 struct Player {
@@ -14,13 +15,27 @@ impl Application for Player {
         _: &mut AssetStore,
         input: &FrameContext,
     ) -> Result<ViewRequest> {
-        self.play.advance(input.dt)?;
         let viewport = ui.max_rect();
-        let response = ui.allocate_rect(viewport, egui::Sense::drag());
+        let response = ui.allocate_rect(viewport, egui::Sense::click_and_drag());
+        if response.clicked() {
+            response.request_focus();
+        }
         comet_application::orbit(&mut self.camera, &response);
+        let previous_position = self.play.player_character().map(|c| c.position);
+        self.play
+            .synchronize_host(input.active, input.activity_changed);
+        self.play.advance_with_input(
+            input.dt,
+            comet_application::sample_actions(&response, input.active, self.camera),
+        )?;
+        comet_application::follow_target(
+            &mut self.camera,
+            previous_position,
+            self.play.player_character().map(|c| c.position),
+        );
         Ok(ViewRequest {
             world: self.play.world_id(),
-            snapshot: self.play.snapshot(),
+            snapshot: self.play.shared_snapshot(),
             viewport,
             camera: self.camera,
             selected: None,
@@ -29,11 +44,18 @@ impl Application for Player {
         })
     }
     fn report(&mut self) -> serde_json::Value {
-        serde_json::json!({"elapsed":self.play.elapsed(),"steps":self.play.steps(),"world":self.play.world_id()})
+        serde_json::json!({"elapsed":self.play.elapsed(),"steps":self.play.steps(),"world":self.play.world_id(),"frame_steps":self.play.frame_steps(),"dropped_time":self.play.dropped_time(),"interpolation_alpha":self.play.interpolation_alpha(),"suspended":self.play.is_suspended(),"character":self.play.player_character().map(|c| serde_json::json!({"position":c.position,"grounded":c.grounded,"vertical_velocity":c.vertical_velocity}))})
     }
 }
 fn main() -> Result<()> {
-    let mut options = HostOptions::new("Comet Player");
+    if std::env::args().nth(1).as_deref() == Some("--template-info") {
+        println!(
+            "{}",
+            serde_json::json!({"identity":RuntimeIdentity::current(),"debug":cfg!(debug_assertions)})
+        );
+        return Ok(());
+    }
+    let mut options = HostOptions::new("Comet 游戏");
     let mut products = None;
     let mut scene = None;
     let mut args = std::env::args().skip(1);
@@ -60,33 +82,38 @@ fn main() -> Result<()> {
     if products.is_none() {
         let executable = std::env::current_exe()?;
         let directory = executable.parent().context("Player directory")?;
-        let manifest = directory.join("package.json");
-        if manifest.is_file() {
-            let package: serde_json::Value = serde_json::from_slice(&std::fs::read(manifest)?)?;
+        let resources = if directory.file_name().is_some_and(|n| n == "MacOS")
+            && directory
+                .parent()
+                .is_some_and(|p| p.file_name().is_some_and(|n| n == "Contents"))
+        {
+            directory.parent().unwrap().join("Resources")
+        } else {
+            directory.to_owned()
+        };
+        let manifest: PackageManifest =
+            serde_json::from_slice(&std::fs::read(resources.join("package.json")).context(
+                "Player requires an exported package or explicit --products and --scene",
+            )?)?;
+        manifest.validate()?;
+        if let Some(selected) = scene {
             ensure!(
-                package["version"] == 1,
-                "unsupported Player package version"
+                manifest.scenes.contains(&selected),
+                "scene is not included in this package"
             );
-            if scene.is_none() {
-                scene = Some(
-                    package["entry_scene"]
-                        .as_str()
-                        .context("package entry_scene")?
-                        .parse()?,
-                );
-            }
-            products = Some(directory.join("products"));
+        } else {
+            scene = Some(manifest.entry_scene);
         }
+        products = Some(resources.join("products"));
     }
-    let mut assets = AssetStore::open(products.unwrap_or_else(|| PathBuf::from("products")))?;
+    let mut assets = AssetStore::open(products.context("missing Player products")?)?;
     let scene = scene.context("pass --scene <asset UUID>")?;
     let play = PlaySession::start(assets.expand_scene(scene)?)?;
-    comet_application::run(
-        options,
-        assets,
-        Player {
-            play,
-            camera: Default::default(),
-        },
-    )
+    let mut camera = comet_application::Camera::default();
+    comet_application::follow_target(
+        &mut camera,
+        None,
+        play.player_character().map(|c| c.position),
+    );
+    comet_application::run(options, assets, Player { play, camera })
 }

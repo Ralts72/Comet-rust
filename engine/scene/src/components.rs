@@ -58,6 +58,10 @@ pub struct EntityData {
     pub transform: Transform,
     pub model: Option<Model>,
     pub links: Links,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physics: Option<crate::PhysicsBody>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character: Option<crate::Character>,
 }
 impl EntityData {
     pub fn new(name: impl Into<String>) -> Self {
@@ -68,6 +72,8 @@ impl EntityData {
             transform: Transform::default(),
             model: None,
             links: Links::default(),
+            physics: None,
+            character: None,
         }
     }
 }

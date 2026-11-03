@@ -1,5 +1,5 @@
 use crate::{
-    EntityData, EntityRef, Links, Model, Transform,
+    Character, EntityData, EntityRef, Links, Model, PhysicsBody, Transform,
     components::Identity,
     schema::{self, FieldKey, FieldValue},
 };
@@ -7,8 +7,11 @@ use anyhow::{Context, Result, ensure};
 use bevy_ecs::world::World;
 use comet_core::{AssetId, EntityId, WorldId};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
-pub const SCENE_VERSION: u32 = 1;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+pub const SCENE_VERSION: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneSnapshot {
@@ -26,9 +29,25 @@ impl Default for SceneSnapshot {
 impl SceneSnapshot {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == SCENE_VERSION,
+            (1..=SCENE_VERSION).contains(&self.version),
             "unsupported scene version {}",
             self.version
+        );
+        ensure!(
+            self.version >= 2
+                || self
+                    .entities
+                    .iter()
+                    .all(|e| e.physics.is_none() && e.character.is_none()),
+            "physics components require scene version 2"
+        );
+        ensure!(
+            self.entities
+                .iter()
+                .filter(|e| e.character.as_ref().is_some_and(|c| c.player_controlled))
+                .count()
+                <= 1,
+            "scene has multiple player-controlled characters"
         );
         let mut parents = BTreeMap::new();
         for e in &self.entities {
@@ -170,6 +189,9 @@ pub struct Scene {
     world: World,
     id: WorldId,
     generation: u64,
+    version: u32,
+    revision: u64,
+    cached: Option<Arc<SceneSnapshot>>,
 }
 impl Scene {
     pub fn open(snapshot: SceneSnapshot) -> Result<Self> {
@@ -177,6 +199,9 @@ impl Scene {
             world: World::new(),
             id: WorldId::new(),
             generation: 0,
+            version: snapshot.version,
+            revision: 0,
+            cached: None,
         };
         scene.replace(snapshot)?;
         Ok(scene)
@@ -190,6 +215,11 @@ impl Scene {
             .generation
             .checked_add(1)
             .context("scene generation exhausted")?;
+        let revision = self
+            .revision
+            .checked_add(1)
+            .context("scene revision exhausted")?;
+        let version = snapshot.version;
         let mut world = World::new();
         for e in snapshot.entities {
             let mut entity = world.spawn((
@@ -201,33 +231,125 @@ impl Scene {
                 e.transform,
                 e.links,
             ));
+            if let Some(body) = e.physics {
+                entity.insert(body);
+            }
+            if let Some(character) = e.character {
+                entity.insert(character);
+            }
             if let Some(model) = e.model {
                 entity.insert(model);
             }
         }
+        self.revision = revision;
+        self.cached = None;
+        self.version = version;
         self.world = world;
         self.generation = generation;
         Ok(())
     }
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
     pub fn snapshot(&mut self) -> SceneSnapshot {
+        self.shared_snapshot().as_ref().clone()
+    }
+    pub fn shared_snapshot(&mut self) -> Arc<SceneSnapshot> {
+        if let Some(snapshot) = &self.cached {
+            return snapshot.clone();
+        }
         let mut entities: Vec<_> = self
             .world
-            .query::<(&Identity, &Transform, Option<&Model>, &Links)>()
+            .query::<(
+                &Identity,
+                &Transform,
+                Option<&Model>,
+                &Links,
+                Option<&PhysicsBody>,
+                Option<&Character>,
+            )>()
             .iter(&self.world)
-            .map(|(i, t, m, l)| EntityData {
+            .map(|(i, t, m, l, p, c)| EntityData {
                 id: i.id,
                 name: i.name.clone(),
                 parent: i.parent,
                 transform: t.clone(),
                 model: m.cloned(),
                 links: l.clone(),
+                physics: p.cloned(),
+                character: c.cloned(),
             })
             .collect();
         entities.sort_by_key(|e| e.id);
-        SceneSnapshot {
-            version: SCENE_VERSION,
+        let snapshot = Arc::new(SceneSnapshot {
+            version: self.version,
             entities,
+        });
+        self.cached = Some(snapshot.clone());
+        snapshot
+    }
+    /// Validate the entire batch before changing any component; existing handles remain valid.
+    pub fn update_poses(&mut self, updates: &[PoseUpdate]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
         }
+        let mut pending = BTreeMap::new();
+        for update in updates {
+            ensure!(
+                pending.insert(update.entity, update).is_none(),
+                "duplicate pose update"
+            );
+            schema::validate_pose(update.translation, update.rotation)?;
+        }
+        let mut entities = BTreeMap::new();
+        for (entity, identity, character) in self
+            .world
+            .query::<(bevy_ecs::entity::Entity, &Identity, Option<&Character>)>()
+            .iter(&self.world)
+        {
+            if let Some(update) = pending.get(&identity.id) {
+                ensure!(
+                    identity.parent.is_none(),
+                    "pose update requires a root entity"
+                );
+                if character.is_some() {
+                    ensure!(
+                        update.rotation[0].abs() < 1e-5 && update.rotation[2].abs() < 1e-5,
+                        "character must remain upright"
+                    );
+                }
+                entities.insert(identity.id, entity);
+            }
+        }
+        ensure!(
+            pending.keys().all(|id| entities.contains_key(id)),
+            "stale pose update"
+        );
+        let changed = pending.iter().any(|(id, u)| {
+            let transform = self
+                .world
+                .get::<Transform>(entities[id])
+                .expect("scene transform");
+            transform.translation != u.translation || transform.rotation != u.rotation
+        });
+        if !changed {
+            return Ok(());
+        }
+        let revision = self
+            .revision
+            .checked_add(1)
+            .context("scene revision exhausted")?;
+        for (id, update) in pending {
+            let mut transform = self
+                .world
+                .get_mut::<Transform>(entities[&id])
+                .expect("scene transform");
+            transform.translation = update.translation;
+            transform.rotation = update.rotation;
+        }
+        self.revision = revision;
+        self.cached = None;
+        Ok(())
     }
     pub fn handle(&mut self, id: EntityId) -> Result<EntityHandle> {
         ensure!(
@@ -248,10 +370,19 @@ impl Scene {
             h.world == self.id && h.generation == self.generation,
             "stale or foreign entity handle"
         );
-        self.snapshot()
+        self.shared_snapshot()
             .entities
-            .into_iter()
+            .iter()
             .find(|e| e.id == h.id)
+            .cloned()
             .context("entity removed")
     }
+}
+
+/// World-space pose for a root entity. Scale remains authored content.
+#[derive(Clone, Debug)]
+pub struct PoseUpdate {
+    pub entity: EntityId,
+    pub translation: [f32; 3],
+    pub rotation: [f32; 4],
 }

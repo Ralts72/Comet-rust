@@ -68,3 +68,74 @@ fn clone_is_one_undo_step_and_new_edit_discards_redo() -> Result<()> {
     assert_eq!(doc.snapshot().entities.len(), 1);
     Ok(())
 }
+
+#[test]
+fn preview_dirty_state_and_shared_reads_follow_content_changes_only() -> Result<()> {
+    use std::sync::Arc;
+    let e = EntityData::new("editable");
+    let id = e.id;
+    let mut doc = Document::open(SceneSnapshot {
+        entities: vec![e],
+        ..Default::default()
+    })?;
+    let source = doc.shared_source();
+    let snapshot = doc.shared_snapshot();
+    let revision = doc.revision();
+    for _ in 0..1000 {
+        assert!(!doc.is_dirty());
+        assert!(Arc::ptr_eq(&source, &doc.shared_source()));
+        assert!(Arc::ptr_eq(&snapshot, &doc.shared_snapshot()));
+    }
+    assert_eq!(doc.revision(), revision);
+    doc.begin()?;
+    assert!(!doc.is_dirty());
+    doc.preview_field(&[id], schema::TRANSLATION, FieldValue::Vec3([1.; 3]))?;
+    assert!(doc.is_dirty());
+    assert!(!Arc::ptr_eq(&source, &doc.shared_source()));
+    doc.preview_field(&[id], schema::TRANSLATION, FieldValue::Vec3([0.; 3]))?;
+    assert!(!doc.is_dirty());
+    doc.commit()?;
+    assert_eq!(doc.history_len(), 0);
+    doc.begin()?;
+    doc.preview_field(&[id], schema::TRANSLATION, FieldValue::Vec3([2.; 3]))?;
+    doc.cancel()?;
+    assert!(!doc.is_dirty());
+    assert_eq!(doc.source(), *source);
+    Ok(())
+}
+#[test]
+fn bounded_history_preserves_savepoints_and_does_not_reuse_branch_state_ids() -> Result<()> {
+    let e = EntityData::new("editable");
+    let id = e.id;
+    let mut doc = Document::open(SceneSnapshot {
+        entities: vec![e],
+        ..Default::default()
+    })?;
+    let set = |doc: &mut Document, x: f32| -> Result<()> {
+        doc.begin()?;
+        doc.preview_field(&[id], schema::TRANSLATION, FieldValue::Vec3([x, 0., 0.]))?;
+        doc.commit()
+    };
+    for x in 1..=300 {
+        set(&mut doc, x as f32)?;
+    }
+    assert_eq!(doc.history_len(), 256);
+    let temp = tempfile::tempdir()?;
+    doc.save(&temp.path().join("main.scene"))?;
+    let saved = doc.state_id();
+    doc.undo()?;
+    assert!(doc.is_dirty());
+    doc.redo()?;
+    assert_eq!(doc.state_id(), saved);
+    assert!(!doc.is_dirty());
+    doc.undo()?;
+    set(&mut doc, 999.)?;
+    assert_ne!(doc.state_id(), saved);
+    assert!(doc.redo().is_err());
+    for _ in 0..256 {
+        doc.undo()?;
+    }
+    assert!(doc.undo().is_err());
+    assert!(doc.is_dirty());
+    Ok(())
+}

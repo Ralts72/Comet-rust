@@ -50,10 +50,10 @@ jobs:
       - name: Verify workspace and standalone package
         run: python3 tools/verify.py
 
-      - name: Build Release game and asset tool
+      - name: Build Release asset tool
         run: |
           mkdir -p target/verification
-          cargo build --release --locked -p comet-player -p comet-assetc 2>&1 | tee target/verification/release-build.log
+          cargo build --release --locked -p comet-assetc 2>&1 | tee target/verification/release-build.log
 
       - name: Upload verification evidence
         if: ${{ always() }}

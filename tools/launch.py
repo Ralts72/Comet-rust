@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""Shared launcher for the Editor and Player scripts."""
-
+"""Prepare the matched Editor/Release Player pair used by start.sh."""
 import argparse
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "demo"
 PRODUCTS = ROOT / "target/products/demo"
-ENTRY_SCENE = "40000000-0000-4000-8000-000000000001"
-PATH_OPTIONS = {"--project", "--products", "--capture", "--report"}
+PATH_OPTIONS = {"--project", "--products", "--capture", "--report", "--export-game"}
 
 
 def application_arguments(arguments, parser):
-    """Resolve path values before Cargo changes cwd; scene stays relative to assets."""
-    result = []
-    supplied = set()
+    result, supplied = [], set()
     arguments = iter(arguments)
     for argument in arguments:
+        if argument == "--player-template":
+            parser.error("Player 模板由 start.sh 准备，不接受覆盖")
         result.append(argument)
-        if argument in PATH_OPTIONS or argument == "--scene":
+        if argument in PATH_OPTIONS or argument in ("--scene", "--include-scene"):
             value = next(arguments, None)
             if value is None:
                 parser.error(f"{argument} 缺少参数")
@@ -34,64 +35,135 @@ def application_arguments(arguments, parser):
 
 
 def cargo_path():
-    cargo = shutil.which("cargo")
-    if cargo:
-        return str(Path(cargo).absolute())
-    for directory in (
-        Path.home() / ".cargo/bin",
-        Path("/opt/homebrew/opt/rustup/bin"),
-        Path("/usr/local/opt/rustup/bin"),
-    ):
-        cargo = directory / "cargo"
-        if cargo.is_file() and os.access(cargo, os.X_OK):
-            os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
+    for directory in [None, Path.home() / ".cargo/bin", Path("/opt/homebrew/opt/rustup/bin"), Path("/usr/local/opt/rustup/bin")]:
+        cargo = shutil.which("cargo") if directory is None else directory / "cargo"
+        if cargo and Path(cargo).is_file() and os.access(cargo, os.X_OK):
+            cargo = Path(cargo).absolute()
+            os.environ["PATH"] = str(cargo.parent) + os.pathsep + os.environ.get("PATH", "")
             return str(cargo)
     raise RuntimeError("找不到 cargo，请先安装 rustup，并将其命令目录加入 PATH。")
 
 
+def file_digest(path):
+    value = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def source_fingerprint():
+    files = [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py")]
+    files.extend((ROOT / ".cargo").glob("*.toml"))
+    for directory in ("engine", "editor", "app", "tools/asset"):
+        files.extend(p for p in (ROOT / directory).rglob("*") if p.is_file()
+                     and (p.suffix in (".rs", ".wgsl") or p.name == "Cargo.toml" or "resources" in p.relative_to(ROOT).parts)
+                     and "tests" not in p.relative_to(ROOT).parts)
+    value = hashlib.sha256()
+    for path in sorted(set(files)):
+        value.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes() + b"\0")
+    for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"):
+        value.update(name.encode() + b"=" + os.environ.get(name, "").encode() + b"\0")
+    return value.hexdigest()
+
+
+def build_program(cargo, package, release, environment):
+    command = [cargo, "build", "--locked", "-p", package, "--message-format=json-render-diagnostics"]
+    if release:
+        command.append("--release")
+    executable = None
+    with subprocess.Popen(command, cwd=ROOT, env=environment, stdout=subprocess.PIPE, text=True) as process:
+        for line in process.stdout:
+            try:
+                message = json.loads(line)
+            except ValueError:
+                print(line, end="", flush=True)
+                continue
+            if message.get("reason") == "compiler-artifact" and message.get("executable") and message["target"]["name"] == package:
+                executable = Path(message["executable"])
+            elif message.get("reason") == "compiler-message":
+                print(message["message"].get("rendered", ""), end="", file=sys.stderr, flush=True)
+        if process.wait():
+            raise subprocess.CalledProcessError(process.returncode, command)
+    if executable is None:
+        raise RuntimeError(f"Cargo 没有返回 {package} 的可执行文件")
+    return executable
+
+
+def prepare_programs():
+    cargo = cargo_path()
+    rustup = shutil.which("rustup")
+    if not rustup:
+        raise RuntimeError("启动需要 rustup 管理仓库锁定工具链。")
+    subprocess.run([rustup, "show", "active-toolchain"], cwd=ROOT, check=True)
+    build_id = source_fingerprint()
+    environment = dict(os.environ, COMET_BUILD_ID=build_id)
+    print("Comet: 准备 Debug Editor…", flush=True)
+    editor = build_program(cargo, "comet-editor", False, environment)
+    print("Comet: 准备 Release Player 模板…", flush=True)
+    player = build_program(cargo, "comet-player", True, environment)
+    if source_fingerprint() != build_id:
+        raise RuntimeError("准备程序期间源码发生变化，请重新运行 ./start.sh。")
+    info = json.loads(subprocess.check_output([str(player), "--template-info"], env=environment, text=True))
+    if info["debug"] or info["identity"]["build_id"] != build_id:
+        raise RuntimeError("Player 构建身份或 Release 配置不匹配。")
+    notice_sources = {"NotoSansSC-OFL.txt": ROOT / "engine/application/resources/fonts/OFL.txt"}
+    manifest = {"version": 2, "identity": info["identity"], "profile": "release", "player": player.name,
+                "player_sha256": file_digest(player), "editor_sha256": file_digest(editor),
+                "notices": {name: file_digest(path) for name, path in notice_sources.items()}}
+    encoded = json.dumps(manifest, sort_keys=True, indent=2) + "\n"
+    snapshot_id = hashlib.sha256(encoded.encode()).hexdigest()
+    templates = ROOT / "target/player-templates"
+    templates.mkdir(parents=True, exist_ok=True)
+    snapshot = templates / snapshot_id
+    suffix = 0
+    while snapshot.exists():
+        try:
+            valid = ((snapshot / "template.json").read_text() == encoded
+                     and file_digest(snapshot / player.name) == manifest["player_sha256"]
+                     and all(file_digest(snapshot / "licenses" / name) == expected for name, expected in manifest["notices"].items()))
+        except OSError:
+            valid = False
+        if valid:
+            break
+        suffix += 1
+        snapshot = templates / f"{snapshot_id}-{suffix}"
+    if not snapshot.exists():
+        with tempfile.TemporaryDirectory(prefix=".comet-", suffix=".tmp", dir=templates) as directory:
+            candidate = Path(directory) / "snapshot"
+            candidate.mkdir()
+            shutil.copy2(player, candidate / player.name)
+            if file_digest(candidate / player.name) != manifest["player_sha256"]:
+                raise RuntimeError("复制期间 Player 产物发生变化，请重新运行 ./start.sh。")
+            (candidate / "licenses").mkdir()
+            for name, source in notice_sources.items():
+                shutil.copyfile(source, candidate / "licenses" / name)
+                if file_digest(candidate / "licenses" / name) != manifest["notices"][name]:
+                    raise RuntimeError("复制期间程序许可文件发生变化，请重新运行 ./start.sh。")
+            (candidate / "template.json").write_text(encoded)
+            try:
+                candidate.rename(snapshot)
+            except OSError:
+                if not snapshot.is_dir() or (snapshot / "template.json").read_text() != encoded or file_digest(snapshot / player.name) != manifest["player_sha256"] or any(file_digest(snapshot / "licenses" / name) != expected for name, expected in manifest["notices"].items()):
+                    raise
+    return {"editor": editor, "player": snapshot / player.name, "template": snapshot / "template.json", "build_id": build_id}
+
+
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ("editor", "player"):
-        raise RuntimeError("请使用仓库根目录的 editor.sh 或 run_game.sh")
-    application = sys.argv[1]
-    is_editor = application == "editor"
-    script = "editor.sh" if is_editor else "run_game.sh"
-    parser = argparse.ArgumentParser(
-        prog=f"./{script}",
-        usage="%(prog)s [应用参数...]",
-        description="以 Debug 配置编译并启动编辑器。" if is_editor else "以 Release 配置准备资源并运行游戏。",
-        epilog=("编辑器参数：--project <目录> --products <目录> --scene <作者场景文件名>"
-                if is_editor else "游戏参数：--products <现成产品目录> --scene <资产 UUID>"),
-        allow_abbrev=False,
-    )
-    arguments = sys.argv[2:]
-    if arguments in (["--help"], ["-h"]):
+    parser = argparse.ArgumentParser(prog="./start.sh", usage="%(prog)s [编辑器参数...]",
+                                     description="准备 Debug Editor 和匹配的 Release Player 模板，启动编辑器。",
+                                     epilog="--project <目录> --products <目录> --scene <assets 内的场景文件>", allow_abbrev=False)
+    if sys.argv[1:] in (["--help"], ["-h"]):
         parser.print_help()
         return
-    app_args, supplied = application_arguments(arguments, parser)
-
-    cargo = cargo_path()
-    profile = ["--profile", "dev" if is_editor else "release"]
-    if is_editor:
-        defaults = {"--project": str(DEMO), "--products": str(PRODUCTS)}
-    elif "--products" not in supplied:
-        subprocess.run(
-            [cargo, "run", "--locked", *profile, "-p", "comet-assetc", "--",
-             "prepare", str(DEMO), "--output", str(PRODUCTS)],
-            cwd=ROOT, check=True,
-        )
-        defaults = {"--products": str(PRODUCTS), "--scene": ENTRY_SCENE}
-    else:
-        if "--scene" not in supplied:
-            parser.error("指定现成 --products 时，还需提供 --scene <资产 UUID>")
-        defaults = {}
-    default_args = []
-    for flag, value in defaults.items():
+    arguments, supplied = application_arguments(sys.argv[1:], parser)
+    programs = prepare_programs()
+    defaults = []
+    for flag, path in (("--project", DEMO), ("--products", PRODUCTS)):
         if flag not in supplied:
-            default_args.extend((flag, value))
-    command = [cargo, "run", "--locked", *profile, "-p", f"comet-{application}",
-               "--", *default_args, *app_args]
-    os.chdir(ROOT)
-    os.execv(cargo, command)
+            defaults.extend((flag, str(path)))
+    command = [str(programs["editor"]), "--player-template", str(programs["template"]), *defaults, *arguments]
+    os.execv(command[0], command)
 
 
 if __name__ == "__main__":
@@ -99,7 +171,7 @@ if __name__ == "__main__":
         main()
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode if error.returncode > 0 else 128 - error.returncode)
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"Comet: {error}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:

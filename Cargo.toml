@@ -23,6 +23,7 @@ serde_json = "1.0"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 sha2 = "0.10"
 glam = { version = "0.33", features = ["serde"] }
+rapier3d = { version = "=0.36.1", default-features = false, features = ["std", "dim3", "f32", "enhanced-determinism"] }
 egui = { version = "=0.37.0", default-features = false, features = ["default_fonts"] }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "x11"] }
 egui-winit = { version = "=0.37.0", default-features = false, features = ["x11"] }

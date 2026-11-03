@@ -1,6 +1,6 @@
 use comet_asset_data::product::ProductFile;
+use comet_core::math::{Mat4, Vec3};
 use comet_core::{EntityId, WorldId};
-use glam::{Mat4, Vec3};
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
 
@@ -25,16 +25,12 @@ impl Default for Camera {
 }
 impl Camera {
     pub fn view_projection(self, aspect: f32) -> Mat4 {
-        glam::camera::rh::proj::directx::perspective(
-            45_f32.to_radians(),
-            aspect.max(0.01),
-            0.05,
-            200.,
-        ) * glam::camera::rh::view::look_at_mat4(self.eye, self.target, Vec3::Y)
+        comet_core::math::perspective(45_f32.to_radians(), aspect.max(0.01), 0.05, 200.)
+            * comet_core::math::look_at(self.eye, self.target, Vec3::Y)
     }
     pub fn light_projection() -> Mat4 {
-        glam::camera::rh::proj::directx::orthographic(-7., 7., -7., 7., 0.1, 30.)
-            * glam::camera::rh::view::look_at_mat4(Vec3::new(6., 10., 5.), Vec3::ZERO, Vec3::Y)
+        comet_core::math::orthographic(-7., 7., -7., 7., 0.1, 30.)
+            * comet_core::math::look_at(Vec3::new(6., 10., 5.), Vec3::ZERO, Vec3::Y)
     }
 }
 #[derive(Clone)]

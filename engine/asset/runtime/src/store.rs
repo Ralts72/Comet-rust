@@ -11,19 +11,20 @@ use std::{
 
 pub struct AssetStore {
     root: PathBuf,
+    revision: String,
     index: ProductIndex,
     cache: BTreeMap<AssetId, Arc<ProductFile>>,
 }
 impl AssetStore {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_owned();
-        let index: ProductIndex = serde_json::from_slice(
-            &fs::read(root.join("index.json")).context("read product index")?,
-        )
-        .context("parse product index")?;
+        let bytes = fs::read(root.join("index.json")).context("read product index")?;
+        let revision = digest(&bytes);
+        let index: ProductIndex = serde_json::from_slice(&bytes).context("parse product index")?;
         index.validate()?;
         let mut store = Self {
             root,
+            revision,
             index,
             cache: BTreeMap::new(),
         };
@@ -53,6 +54,9 @@ impl AssetStore {
         }
         store.cache.clear();
         Ok(store)
+    }
+    pub fn revision(&self) -> &str {
+        &self.revision
     }
     pub fn index(&self) -> &ProductIndex {
         &self.index

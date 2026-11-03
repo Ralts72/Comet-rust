@@ -72,6 +72,34 @@ pub const CONNECTIONS: FieldKey = FieldKey {
     component: 3,
     field: 2,
 };
+// Component 4: body configuration; component 5: character configuration.
+pub const MASS: FieldKey = FieldKey {
+    component: 4,
+    field: 1,
+};
+pub const FRICTION: FieldKey = FieldKey {
+    component: 4,
+    field: 2,
+};
+pub const MOVE_SPEED: FieldKey = FieldKey {
+    component: 5,
+    field: 1,
+};
+pub const JUMP_SPEED: FieldKey = FieldKey {
+    component: 5,
+    field: 2,
+};
+fn nonnegative_scalar(v: &FieldValue) -> Result<()> {
+    ensure!(
+        matches!(v,FieldValue::Scalar(x) if x.is_finite() && *x>=0.),
+        "expected nonnegative finite scalar"
+    );
+    Ok(())
+}
+pub(crate) fn validate_pose(translation: [f32; 3], rotation: [f32; 4]) -> Result<()> {
+    vector(&FieldValue::Vec3(translation))?;
+    quaternion(&FieldValue::Quat(rotation))
+}
 fn vector(v: &FieldValue) -> Result<()> {
     ensure!(
         matches!(v,FieldValue::Vec3(v) if v.iter().all(|x|x.is_finite())),
@@ -220,6 +248,74 @@ pub static FIELDS: &[FieldDescriptor] = &[
         },
         validate: entities,
     },
+    FieldDescriptor {
+        key: MASS,
+        path: "physics.mass",
+        references: ReferencePolicy::None,
+        read: |e| e.physics.as_ref().map(|c| FieldValue::Scalar(c.mass)),
+        write: |e, v| {
+            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.physics, v) {
+                c.mass = v;
+                Ok(())
+            } else {
+                bail!("missing component or wrong value")
+            }
+        },
+        validate: nonnegative_scalar,
+    },
+    FieldDescriptor {
+        key: FRICTION,
+        path: "physics.friction",
+        references: ReferencePolicy::None,
+        read: |e| e.physics.as_ref().map(|c| FieldValue::Scalar(c.friction)),
+        write: |e, v| {
+            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.physics, v) {
+                c.friction = v;
+                Ok(())
+            } else {
+                bail!("missing component or wrong value")
+            }
+        },
+        validate: nonnegative_scalar,
+    },
+    FieldDescriptor {
+        key: MOVE_SPEED,
+        path: "character.move_speed",
+        references: ReferencePolicy::None,
+        read: |e| {
+            e.character
+                .as_ref()
+                .map(|c| FieldValue::Scalar(c.move_speed))
+        },
+        write: |e, v| {
+            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.character, v) {
+                c.move_speed = v;
+                Ok(())
+            } else {
+                bail!("missing component or wrong value")
+            }
+        },
+        validate: nonnegative_scalar,
+    },
+    FieldDescriptor {
+        key: JUMP_SPEED,
+        path: "character.jump_speed",
+        references: ReferencePolicy::None,
+        read: |e| {
+            e.character
+                .as_ref()
+                .map(|c| FieldValue::Scalar(c.jump_speed))
+        },
+        write: |e, v| {
+            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.character, v) {
+                c.jump_speed = v;
+                Ok(())
+            } else {
+                bail!("missing component or wrong value")
+            }
+        },
+        validate: nonnegative_scalar,
+    },
 ];
 pub fn descriptor(key: FieldKey) -> Result<&'static FieldDescriptor> {
     FIELDS
@@ -237,6 +333,7 @@ impl FieldDescriptor {
     }
 }
 pub fn validate(e: &EntityData) -> Result<()> {
+    crate::physics::validate(e)?;
     for f in FIELDS {
         if let Some(v) = f.read(e) {
             (f.validate)(&v)
