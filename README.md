@@ -20,7 +20,7 @@ Editor Play 与 Player 共用 60 Hz 固定步、暂停单步、失焦冻结及�
 Windows 原生终端运行 `python tools/launch.py`，与 `start.sh` 共用全部准备和启动逻辑；Windows 构建使用 MSVC 工具链和 Windows SDK，运行需要支持 Vulkan 的显卡驱动。没有额外的构建模式或 Player 启动入口。
 
 脚本通过 rustup 准备锁定工具链，按顺序构建两个程序，从 Cargo JSON 获取实际路径；首次需要编译两套依赖，后续复用缓存。构建配置统一由根 `Cargo.toml` 管理，没有动作分发或模式切换。默认项目为 `demo/`，开发产品位于 `target/products/demo/`。
-macOS 启动时自动准备带原版蓝色彗星图标的 `Comet Editor.app`，缓存于 `target/editor-apps/`；导出游戏使用原版橙色彗星图标。两套图标分别由 `editor/resources/icons/` 和 `app/resources/icons/` 管理，PNG 嵌入程序供桌面窗口及 Windows 任务栏使用，ICNS 随 macOS App 分发。
+macOS 启动时自动准备带原版蓝色彗星图标的 `Comet Editor.app`，缓存于 `target/editor-apps/`；导出游戏使用原版橙色彗星图标。两套图标分别由 `editor/resources/icons/` 和 `app/resources/icons/` 管理，PNG 嵌入程序供桌面窗口及 Windows 任务栏使用，ICNS 随 macOS App 分发。Windows 启动时将原版 ICO 写入编辑器和 Player 的独立程序快照，导出游戏复用带图标的 Player；Windows 原生显示仍待实机验收。
 模板快照位于 `target/player-templates/`，记录源码/依赖/配置指纹、平台架构、协议版本和程序摘要；包含未提交源码，不以 Git commit 代替构建身份。修改程序源码后重新运行 `start.sh`，资源变化则由编辑器导出时重新构建。
 
 在编辑器中点击“运行”后，WASD 按相机方向移动，Space 跳跃、Shift 跑步，右键拖动环绕、滚轮缩放；相机跟随角色。当前角色使用方块可视化，蹲伏、手柄和完整玩法仍待接入。

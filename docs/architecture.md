@@ -21,10 +21,10 @@ engine/
 editor/
   core/                  document.rs：编辑文档与历史
   src/                   session.rs / export.rs / ui/{mod.rs,inspector.rs,gizmo.rs}
-  resources/icons/       编辑器原版 PNG / ICNS 图标
+  resources/icons/       编辑器原版 PNG / ICNS / ICO 图标
 app/
   src/                   游戏入口
-  resources/icons/       独立游戏原版 PNG / ICNS 图标
+  resources/icons/       独立游戏原版 PNG / ICNS / ICO 图标
 tools/asset/pipeline/    import.rs / build.rs / gltf.rs / package.rs / template.rs
 tools/asset/cli/         资产 CLI
 tools/gpu/               原生 GPU 能力诊断
@@ -179,7 +179,7 @@ Metal 使用 CAMetalLayer；主线程创建的 Surface 按 `raw-window-metal` �
 
 Core 的 ProjectPaths 统一解析作者路径，使用真实路径和路径组件检查 assets 归属；新目标解析现有父目录。Editor 在打开和保存时校验，导出复用同一规则并拒绝目的地与作者资产/产品输入相互包含。Document 只负责内容事务与保存，不持有项目路径策略。
 
-`start.sh` 顺序构建 Debug Editor 和 Release Player；Core build script 嵌入共享构建身份与目标三元组。启动器对生产源码、Cargo.lock、清单、Shader 和构建配置取指纹，构建前后不一致则拒绝配对。macOS 同时把 Debug Editor 复制到 `target/editor-apps/` 的不可变 App 快照，写入原版编辑器 ICNS 和 Info.plist，签名并验证；以签名后的实际程序摘要与 Player 配对，日常仍由 start.sh 传入项目与模板参数；Windows 原生终端通过 python tools/launch.py 调用同一流程，等待编辑器退出并保留返回码。模板清单版本为 3，另存不可变快照，校验 Player/Editor、游戏 ICNS 与附带许可文件的摘要，现有快照不被后续 Cargo 构建覆盖。模板失配提示重新运行 start.sh。
+`start.sh` 顺序构建 Debug Editor 和 Release Player；Core build script 嵌入共享构建身份与目标三元组。启动器对生产源码、Cargo.lock、清单、Shader、图标和构建配置取指纹，构建前后不一致则拒绝配对。macOS 同时把 Debug Editor 复制到 `target/editor-apps/` 的不可变 App 快照，写入原版编辑器 ICNS 和 Info.plist，签名并验证；以签名后的实际程序摘要与 Player 配对，日常仍由 start.sh 传入项目与模板参数。Windows 原生终端通过 `python tools/launch.py` 调用同一流程，等待编辑器退出并保留返回码；启动器将 Cargo 产物复制到 `target/windows-programs/` 候选快照，通过 `tools/windows_icon.py` 写入并读回原版 ICO 的各尺寸及现有语言资源，以写入后的程序摘要完成配对。模板清单版本为 3，另存不可变快照，校验 Player/Editor、游戏 ICNS 与附带许可文件的摘要，现有快照不被后续 Cargo 构建覆盖。模板失配提示重新运行启动器。
 Editor 的 export.rs 持有导出配置、后台任务和子进程管理；UI 提供启动场景、额外场景、目的地和导出后运行。先停止 Play、提交并保存作者内容，再由后台线程调用 Pipeline 构建，检查保存版本未改变，收集所选场景的依赖并集。任务使用已保存输入并显示阶段与有界日志，期间禁用修改操作；没有导出时编译 Rust 的路径。
 Pipeline 的 package.rs 在正式目的地同级创建私有候选，复制后校验产品索引、所选场景、程序摘要及许可文件摘要；签名/封装完成后使用不覆盖目标的目录重命名发布。普通错误仅清理本次候选，进程中断可能留下临时候选，正式名称不提前出现。
 

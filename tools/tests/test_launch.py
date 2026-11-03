@@ -1,11 +1,13 @@
 import importlib.util
 import json
 import plistlib
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 spec = importlib.util.spec_from_file_location("comet_launch", Path(__file__).resolve().parents[1] / "launch.py")
 launch = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launch)
@@ -44,7 +46,7 @@ class ProgramPreparation(unittest.TestCase):
     def test_build_identity_tracks_uncommitted_sources_and_lockfile_not_project_assets(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)):
             root = Path(directory)
-            for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py", "engine/core/src/lib.rs"):
+            for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py", "tools/windows_icon.py", "engine/core/src/lib.rs"):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("initial")
@@ -61,6 +63,9 @@ class ProgramPreparation(unittest.TestCase):
             font.parent.mkdir(parents=True);font.write_bytes(b"font data")
             before_font=launch.source_fingerprint();font.write_bytes(b"changed font data")
             self.assertNotEqual(before_font,launch.source_fingerprint())
+            before_helper = launch.source_fingerprint()
+            (root / "tools/windows_icon.py").write_text("updated")
+            self.assertNotEqual(before_helper, launch.source_fingerprint())
 
     def test_snapshots_are_reused_preserved_and_repaired_without_overwriting_old_files(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)):
@@ -81,6 +86,7 @@ class ProgramPreparation(unittest.TestCase):
                  patch.object(launch.subprocess, "run", side_effect=mock_codesign), \
                  patch.object(launch.subprocess, "check_output", return_value=info), \
                  patch.object(launch, "source_fingerprint", return_value=build_id), \
+                 patch.object(launch, "prepare_windows_program", side_effect=lambda executable, icon: executable), \
                  patch.object(launch, "build_program", side_effect=lambda cargo, package, release, environment: player if release else editor):
                 first = launch.prepare_programs()
                 self.assertEqual(first["template"], launch.prepare_programs()["template"])
@@ -102,6 +108,39 @@ class ProgramPreparation(unittest.TestCase):
                 fixed = launch.prepare_programs()
                 self.assertNotEqual(fixed["template"], repaired["template"])
                 self.assertEqual((fixed["template"].parent / "icons/app.icns").read_bytes(), icns())
+
+    def test_windows_icon_snapshots_preserve_cargo_outputs_and_failed_candidates(self):
+        def apply(binary, data):
+            binary.write_bytes(binary.read_bytes() + b" embedded:" + data)
+        def verify(binary, data):
+            if not binary.read_bytes().endswith(b" embedded:" + data):
+                raise ValueError("icon mismatch")
+        with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)), \
+             patch.object(launch.windows_icon, "apply_icon", side_effect=apply), \
+             patch.object(launch.windows_icon, "verify_icon", side_effect=verify):
+            root = Path(directory)
+            executable = root / "target/debug/comet-editor.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original Cargo executable")
+            icon = root / "editor.ico"
+            icon.write_bytes((Path(__file__).resolve().parents[2] / "editor/resources/icons/editor.ico").read_bytes())
+            first = launch.prepare_windows_program(executable, icon)
+            self.assertEqual(executable.read_bytes(), b"original Cargo executable")
+            self.assertNotEqual(first.read_bytes(), executable.read_bytes())
+            receipt = json.loads((first.parent / "program.json").read_text())
+            self.assertEqual(receipt["executable_sha256"], launch.file_digest(first))
+            self.assertEqual(launch.prepare_windows_program(executable, icon), first)
+            first.write_bytes(b"corrupted old snapshot")
+            repaired = launch.prepare_windows_program(executable, icon)
+            self.assertNotEqual(repaired, first)
+            self.assertEqual(first.read_bytes(), b"corrupted old snapshot")
+            executable.write_bytes(b"next Cargo executable")
+            snapshots = root / "target/windows-programs"
+            before = {p.relative_to(snapshots): p.read_bytes() for p in snapshots.rglob("*") if p.is_file()}
+            with patch.object(launch.windows_icon, "apply_icon", side_effect=OSError("resource write failed")):
+                with self.assertRaises(OSError):
+                    launch.prepare_windows_program(executable, icon)
+            self.assertEqual(before, {p.relative_to(snapshots): p.read_bytes() for p in snapshots.rglob("*") if p.is_file()})
 
     def test_macos_editor_app_signing_identity_and_snapshot_repair(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)), \

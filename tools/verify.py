@@ -28,6 +28,9 @@ def report(status):
             if checks.get("player-native", {}).get("status") != "passed":
                 unverified.append(f"{backend}: native window execution")
     unverified.append("physical mouse drag (synthetic egui drag regression passes)")
+    if sys.platform != "win32":
+        unverified.append("Windows EXE icon resource API roundtrip")
+    unverified.append("Windows Explorer icon display")
     (OUT / "verification.json").write_text(json.dumps({"status": status, "checks": checks, "unverified": unverified}, indent=2) + "\n")
 
 
@@ -131,6 +134,11 @@ def main():
         run("program_templates", [sys.executable, "-c", prepare_code], timeout=900)
         programs = json.loads((OUT / "programs.json").read_text())
         editor, template = Path(programs["editor"]), Path(programs["template"])
+        if sys.platform == "win32":
+            import windows_icon
+            windows_icon.verify_icon(editor, (ROOT / "editor/resources/icons/editor.ico").read_bytes())
+            windows_icon.verify_icon(Path(programs["player"]), (ROOT / "app/resources/icons/app.ico").read_bytes())
+            checks["windows_executable_icons"] = {"status": "passed", "scope": "native Windows resource readback for Editor and Release Player"}
         editor_icon = ROOT / "editor/resources/icons/editor.icns"
         if sys.platform == "darwin":
             bundle = editor.parents[2]
@@ -197,6 +205,8 @@ def main():
         empty.mkdir()
         run("standalone_products", [assetc, "inspect", relocated / products_relative, scene], cwd=empty)
         player = relocated / executable_relative
+        if sys.platform == "win32":
+            windows_icon.verify_icon(player, (ROOT / "app/resources/icons/app.ico").read_bytes())
         run("standalone_runtime_identity", [player, "--template-info"], cwd=empty)
         identity = json.loads((OUT / "standalone_runtime_identity.log").read_text())
         assert identity["identity"] == manifest["runtime"] and not identity["debug"]

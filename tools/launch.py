@@ -7,9 +7,11 @@ import os
 from pathlib import Path
 import plistlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import windows_icon
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "demo"
@@ -55,7 +57,7 @@ def file_digest(path):
 
 
 def source_fingerprint():
-    files = [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py")]
+    files = [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tools/launch.py", "tools/windows_icon.py")]
     files.extend((ROOT / ".cargo").glob("*.toml"))
     for directory in ("engine", "editor", "app", "tools/asset"):
         files.extend(p for p in (ROOT / directory).rglob("*") if p.is_file()
@@ -161,6 +163,54 @@ def prepare_editor_app(editor):
     return snapshot / "Comet Editor.app/Contents/MacOS/comet-editor"
 
 
+def windows_program_valid(snapshot, inputs, icon):
+    try:
+        receipt = json.loads((snapshot / "program.json").read_text())
+        binary = snapshot / inputs["name"]
+        if (receipt["inputs"] != inputs or file_digest(binary) != receipt["executable_sha256"]
+                or not binary.resolve().is_relative_to(snapshot.resolve())):
+            return False
+        windows_icon.verify_icon(binary, icon)
+        return True
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
+def prepare_windows_program(executable, icon):
+    data = icon.read_bytes()
+    windows_icon.icon_resources(data)
+    inputs = {"name": executable.name, "program_sha256": file_digest(executable),
+              "icon_sha256": hashlib.sha256(data).hexdigest()}
+    identity = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+    snapshots = ROOT / "target/windows-programs"
+    snapshots.mkdir(parents=True, exist_ok=True)
+    snapshot, suffix = snapshots / identity, 0
+    while snapshot.exists():
+        if windows_program_valid(snapshot, inputs, data):
+            return snapshot / executable.name
+        suffix += 1
+        snapshot = snapshots / f"{identity}-{suffix}"
+    with tempfile.TemporaryDirectory(prefix=".comet-", suffix=".tmp", dir=snapshots) as directory:
+        candidate = Path(directory) / "snapshot"
+        candidate.mkdir()
+        binary = candidate / executable.name
+        shutil.copy2(executable, binary)
+        binary.chmod(binary.stat().st_mode | stat.S_IWRITE)
+        if file_digest(binary) != inputs["program_sha256"]:
+            raise RuntimeError("复制期间程序产物发生变化，请重新准备程序。")
+        windows_icon.apply_icon(binary, data)
+        receipt = {"inputs": inputs, "executable_sha256": file_digest(binary)}
+        (candidate / "program.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+        if not windows_program_valid(candidate, inputs, data):
+            raise RuntimeError("Windows 程序图标校验失败，请重新准备程序。")
+        try:
+            candidate.rename(snapshot)
+        except OSError:
+            if not windows_program_valid(snapshot, inputs, data):
+                raise
+    return snapshot / executable.name
+
+
 def prepare_programs():
     cargo = cargo_path()
     rustup = shutil.which("rustup")
@@ -178,7 +228,14 @@ def prepare_programs():
     info = json.loads(subprocess.check_output([str(player), "--template-info"], env=environment, text=True))
     if info["debug"] or info["identity"]["build_id"] != build_id:
         raise RuntimeError("Player 构建身份或 Release 配置不匹配。")
-    editor = prepare_editor_app(editor)
+    if sys.platform == "win32":
+        editor = prepare_windows_program(editor, ROOT / "editor/resources/icons/editor.ico")
+        player = prepare_windows_program(player, ROOT / "app/resources/icons/app.ico")
+        prepared_info = json.loads(subprocess.check_output([str(player), "--template-info"], env=environment, text=True))
+        if prepared_info != info:
+            raise RuntimeError("写入图标后的 Player 构建身份发生变化，请重新准备程序。")
+    else:
+        editor = prepare_editor_app(editor)
     app_icon = ROOT / "app/resources/icons/app.icns"
     notice_sources = {"NotoSansSC-OFL.txt": ROOT / "engine/application/resources/fonts/OFL.txt"}
     manifest = {"version": 3, "identity": info["identity"], "profile": "release", "player": player.name,
