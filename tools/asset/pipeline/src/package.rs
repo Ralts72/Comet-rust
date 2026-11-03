@@ -19,7 +19,8 @@ pub struct PackageRequest<'a> {
     pub player: &'a Path,
     pub runtime: Option<RuntimeIdentity>,
     pub player_digest: Option<&'a str>,
-    pub notices: &'a [crate::PackageNotice],
+    pub notices: &'a [crate::PackageFile],
+    pub app_icon: Option<&'a crate::PackageFile>,
     pub output: &'a Path,
 }
 #[derive(Clone, Debug)]
@@ -39,6 +40,7 @@ pub fn package(products: &Path, scene: AssetId, player: &Path, output: &Path) ->
         runtime: None,
         player_digest: None,
         notices: &[],
+        app_icon: None,
         output,
     })?;
     Ok(())
@@ -53,6 +55,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         runtime,
         player_digest,
         notices,
+        app_icon,
         output,
     } = request;
     ensure!(
@@ -154,6 +157,20 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
             "program notice changed while packaging"
         );
     }
+    if let Some(icon) = app_icon {
+        let bytes = fs::read(&icon.path).context("read package icon")?;
+        ensure!(
+            comet_core::digest(&bytes) == icon.sha256,
+            "application icon changed while packaging"
+        );
+        ensure!(
+            bytes.starts_with(b"icns")
+                && bytes.len() >= 8
+                && u32::from_be_bytes(bytes[4..8].try_into()?) as usize == bytes.len(),
+            "invalid ICNS application icon"
+        );
+        atomic_write(&resources.join("app.icns"), &bytes)?;
+    }
     let manifest = PackageManifest {
         version: PACKAGE_VERSION,
         entry_scene,
@@ -167,7 +184,13 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         &serde_json::to_vec_pretty(&manifest)?,
     )?;
     if bundle {
-        write_bundle(candidate.path(), &output, entry_scene, executable)?;
+        write_bundle(
+            candidate.path(),
+            &output,
+            entry_scene,
+            executable,
+            app_icon.is_some(),
+        )?;
     }
     let root = candidate.publish()?;
     Ok(PackageOutput {
@@ -184,7 +207,13 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         root,
     })
 }
-fn write_bundle(candidate: &Path, output: &Path, scene: AssetId, executable: &str) -> Result<()> {
+fn write_bundle(
+    candidate: &Path,
+    output: &Path,
+    scene: AssetId,
+    executable: &str,
+    has_icon: bool,
+) -> Result<()> {
     let name = output.file_stem().context("App name")?.to_string_lossy();
     let name = name
         .replace('&', "&amp;")
@@ -192,6 +221,11 @@ fn write_bundle(candidate: &Path, output: &Path, scene: AssetId, executable: &st
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;");
+    let icon = if has_icon {
+        "<key>CFBundleIconFile</key><string>app.icns</string>"
+    } else {
+        ""
+    };
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -201,6 +235,7 @@ fn write_bundle(candidate: &Path, output: &Path, scene: AssetId, executable: &st
 <key>CFBundleDisplayName</key><string>{name}</string>
 <key>CFBundleIdentifier</key><string>org.comet.game.{scene}</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+{icon}
 <key>CFBundleVersion</key><string>1</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

@@ -15,7 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 raw-window-handle = { version = "0.6", features = ["std"] }
 naga = { version = "30", features = ["wgsl-in", "msl-out", "spv-out"] }
-png = "0.18"
+png.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSError", "NSObject"] }

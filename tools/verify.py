@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,17 @@ checks = {}
 
 
 def report(status):
-    (OUT / "verification.json").write_text(json.dumps({"status": status, "checks": checks, "unverified": ["native Vulkan execution", "Windows", "physical mouse drag (synthetic egui drag regression passes)"]}, indent=2) + "\n")
+    unverified = []
+    for platform, backend in (("darwin", "macOS Metal"), ("linux", "Linux Vulkan"), ("win32", "Windows Vulkan")):
+        if sys.platform != platform:
+            unverified.append(f"{backend}: native build/link and GPU/window execution")
+        else:
+            if checks.get("player-headless", {}).get("status") != "passed":
+                unverified.append(f"{backend}: offscreen GPU execution")
+            if checks.get("player-native", {}).get("status") != "passed":
+                unverified.append(f"{backend}: native window execution")
+    unverified.append("physical mouse drag (synthetic egui drag regression passes)")
+    (OUT / "verification.json").write_text(json.dumps({"status": status, "checks": checks, "unverified": unverified}, indent=2) + "\n")
 
 
 def run(name, command, cwd=ROOT, timeout=300, expect_failure=False):
@@ -84,11 +95,23 @@ def freeze_sources():
     (OUT / "source-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
+def check_target(name, target):
+    run(f"{name}_check", ["cargo", "check", "--workspace", "--all-targets", "--target", target, "--locked"], timeout=900)
+    run(f"{name}_clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--target", target, "--locked", "--", "-D", "warnings"], timeout=900)
+    run(f"{name}_boundaries", [sys.executable, "tools/check_boundaries.py", "--target", target])
+    run(f"{name}_audit", [sys.executable, "tools/audit_dependencies.py", "--target", target])
+
+
+def start_command():
+    return [sys.executable, ROOT / "tools/launch.py"] if sys.platform == "win32" else [ROOT / "start.sh"]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", action="store_true", help="Run actual offscreen GPU frames")
     parser.add_argument("--native", action="store_true", help="Also open and close native Editor/Player windows")
     parser.add_argument("--linux", action="store_true", help="Cross-check both apps and Vulkan for installed Linux target")
+    parser.add_argument("--windows", action="store_true", help="Cross-check the workspace and Vulkan for installed Windows MSVC target; no linking or execution")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     report("running")
@@ -99,7 +122,7 @@ def main():
         run("boundaries", [sys.executable, "tools/check_boundaries.py"])
         run("dependency_audit", [sys.executable, "tools/audit_dependencies.py"])
         run("python_tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools/tests"])
-        run("start_help", [ROOT / "start.sh", "--help"])
+        run("start_help", [*start_command(), "--help"])
         run("build_asset_tool", ["cargo", "build", "-p", "comet-assetc", "--locked", "--message-format=json-render-diagnostics"], timeout=900)
         assetc = executables(OUT / "build_asset_tool.log")["comet-assetc"]
         prepare_code = ("import sys,json;from pathlib import Path;"
@@ -108,6 +131,14 @@ def main():
         run("program_templates", [sys.executable, "-c", prepare_code], timeout=900)
         programs = json.loads((OUT / "programs.json").read_text())
         editor, template = Path(programs["editor"]), Path(programs["template"])
+        editor_icon = ROOT / "editor/resources/icons/editor.icns"
+        if sys.platform == "darwin":
+            bundle = editor.parents[2]
+            assert bundle.suffix == ".app"
+            plist = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+            assert plist["CFBundleIconFile"] == "editor.icns"
+            assert (bundle / "Contents/Resources/editor.icns").read_bytes() == editor_icon.read_bytes()
+            run("editor_bundle_signature", ["/usr/bin/codesign", "--verify", "--deep", "--strict", bundle])
         case = Path(tempfile.mkdtemp(prefix="verification-", dir=OUT))
         project, products = case / "project", case / "products"
         shutil.copytree(ROOT / "demo", project, ignore=shutil.ignore_patterns(".assetc.lock"))
@@ -119,7 +150,7 @@ def main():
         if args.gpu or args.native:
             for native in ([False, True] if args.native else [False]):
                 name = "editor-native" if native else "editor-headless"
-                command = ([ROOT / "start.sh"] if native else [editor, "--player-template", template])
+                command = (start_command() if native else [editor, "--player-template", template])
                 command += ["--project", project, "--products", products, "--smoke", "--report", OUT / f"{name}.json", "--capture", OUT / f"{name}.png"]
                 if not native:
                     command.append("--headless")
@@ -138,7 +169,14 @@ def main():
         assert set(manifest["scenes"]) == {scene, extra} and manifest["entry_scene"] == scene
         assert manifest["runtime"]["build_id"] == programs["build_id"]
         template_manifest = json.loads(template.read_text())
-        assert template_manifest["version"] == 2
+        assert template_manifest["version"] == 3
+        icon = built / manifest_relative.parent / "app.icns"
+        assert hashlib.sha256(icon.read_bytes()).hexdigest() == template_manifest["app_icon_sha256"]
+        assert icon.read_bytes() == (ROOT / "app/resources/icons/app.icns").read_bytes()
+        if sys.platform == "darwin":
+            plist = plistlib.loads((built / "Contents/Info.plist").read_bytes())
+            assert plist["CFBundleIconFile"] == "app.icns"
+        checks["application_icons"] = {"status": "passed", "editor_icns_sha256": hashlib.sha256(editor_icon.read_bytes()).hexdigest(), "player_icns_sha256": template_manifest["app_icon_sha256"]}
         for name, expected in template_manifest["notices"].items():
             assert hashlib.sha256((built / manifest_relative.parent / "licenses" / name).read_bytes()).hexdigest() == expected
         original_manifest = (built / manifest_relative).read_bytes()
@@ -173,10 +211,9 @@ def main():
         checks["package_isolation"] = {"status": "passed", "package": str(relocated), "authoring_exists": project.exists(), "development_cache_exists": products.exists(), "included_scenes": manifest["scenes"], "product_count": len(json.loads((relocated / products_relative / "index.json").read_text())["products"])}
         assert checks["package_isolation"]["product_count"] == 13
         if args.linux:
-            run("vulkan_linux", ["cargo", "check", "--workspace", "--target", "x86_64-unknown-linux-gnu", "--locked"])
-            run("vulkan_linux_clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--target", "x86_64-unknown-linux-gnu", "--locked", "--", "-D", "warnings"])
-            run("linux_boundaries", [sys.executable, "tools/check_boundaries.py", "--target", "x86_64-unknown-linux-gnu"])
-            run("linux_audit", [sys.executable, "tools/audit_dependencies.py", "--target", "x86_64-unknown-linux-gnu"])
+            check_target("linux", "x86_64-unknown-linux-gnu")
+        if args.windows:
+            check_target("windows", "x86_64-pc-windows-msvc")
         if args.gpu or args.native:
             run("gpu_capabilities", ["cargo", "run", "-p", "comet-gpu-check", "--locked", "--", "--output", case / "gpu"])
         freeze_sources()

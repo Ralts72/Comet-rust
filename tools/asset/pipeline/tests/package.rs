@@ -54,11 +54,19 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
     let output = temp.path().join("game");
     let notice_file = temp.path().join("OFL.txt");
     fs::write(&notice_file, b"font license")?;
-    let notices = [comet_asset_pipeline::PackageNotice {
+    let notices = [comet_asset_pipeline::PackageFile {
         name: "NotoSansSC-OFL.txt".into(),
         path: notice_file.clone(),
         sha256: digest(b"font license"),
     }];
+    let icon_bytes = b"icns\0\0\0\x0cTEST";
+    let icon_path = temp.path().join("app.icns");
+    fs::write(&icon_path, icon_bytes)?;
+    let icon = comet_asset_pipeline::PackageFile {
+        name: "app.icns".into(),
+        path: icon_path.clone(),
+        sha256: digest(icon_bytes),
+    };
     let request = |revision, hash| PackageRequest {
         products: &products,
         index_revision: revision,
@@ -68,6 +76,7 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
         runtime: None,
         player_digest: hash,
         notices: &notices,
+        app_icon: Some(&icon),
         output: &output,
     };
     assert!(package_scenes(request(Some("stale index"), None)).is_err());
@@ -76,6 +85,10 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
     let player_hash = digest(b"external binary");
     assert!(package_scenes(request(None, Some(&bad_hash))).is_err());
     assert!(!output.exists());
+    fs::write(&icon_path, b"changed icon")?;
+    assert!(package_scenes(request(None, Some(&player_hash))).is_err());
+    assert!(!output.exists());
+    fs::write(&icon_path, icon_bytes)?;
     let game = package_scenes(request(Some(store.revision()), Some(&player_hash)))?;
     let packaged = AssetStore::open(&game.products)?;
     assert_eq!(packaged.index().products.len(), 4);
@@ -83,6 +96,7 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
         fs::read(output.join("licenses/NotoSansSC-OFL.txt"))?,
         b"font license"
     );
+    assert_eq!(fs::read(output.join("app.icns"))?, icon_bytes);
     for id in [main, additional, mesh, material] {
         assert!(packaged.index().products.contains_key(&id));
     }

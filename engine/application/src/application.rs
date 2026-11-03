@@ -15,6 +15,7 @@ use winit::{
 
 pub struct HostOptions {
     pub title: String,
+    pub icon: Option<&'static [u8]>,
     pub smoke: bool,
     pub headless: bool,
     pub capture: Option<PathBuf>,
@@ -24,6 +25,7 @@ impl HostOptions {
     pub fn new(title: &str) -> Self {
         Self {
             title: title.into(),
+            icon: None,
             smoke: false,
             headless: false,
             capture: None,
@@ -132,14 +134,18 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
 }
 impl<A: Application> Host<A> {
     fn setup(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
-        let window = Arc::new(
-            event_loop.create_window(
-                Window::default_attributes()
-                    .with_title(&self.options.title)
-                    .with_inner_size(LogicalSize::new(1280., 800.))
-                    .with_min_inner_size(LogicalSize::new(1000., 650.)),
-            )?,
-        );
+        let icon = self.options.icon.map(crate::icon::decode).transpose()?;
+        let attributes = Window::default_attributes()
+            .with_title(&self.options.title)
+            .with_window_icon(icon.clone())
+            .with_inner_size(LogicalSize::new(1280., 800.))
+            .with_min_inner_size(LogicalSize::new(1000., 650.));
+        #[cfg(windows)]
+        let attributes = {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            attributes.with_taskbar_icon(icon)
+        };
+        let window = Arc::new(event_loop.create_window(attributes)?);
         window.set_ime_allowed(true);
         self.worker = Some(RenderWorker::spawn(Some(Surface::new(window.clone())?))?);
         self.state = Some(egui_winit::State::new(

@@ -34,6 +34,15 @@ fn frame_with_context(
     context: FrameContext,
     events: Vec<egui::Event>,
 ) -> ViewRequest {
+    frame_with_output(ctx, editor, assets, context, events).0
+}
+fn frame_with_output(
+    ctx: &egui::Context,
+    editor: &mut Editor,
+    assets: &mut AssetStore,
+    context: FrameContext,
+    events: Vec<egui::Event>,
+) -> (ViewRequest, egui::FullOutput) {
     let mut request = None;
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -46,7 +55,7 @@ fn frame_with_context(
         },
     );
     output.textures_delta.clear();
-    request.unwrap()
+    (request.unwrap(), output)
 }
 fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
     let temp = tempfile::tempdir()?;
@@ -64,6 +73,92 @@ fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
         crate::session::open(project, temp.path().join("products"), "main.scene".into())?;
     Ok((temp, editor, assets))
 }
+#[test]
+fn physics_parameter_drag_keeps_its_preview_and_commits_one_history_item() -> Result<()> {
+    use comet_scene::{BodyMotion, Character, ColliderShape, PhysicsBody};
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let mut source = editor.document.source();
+    source.base.version = 2;
+    let mut entity = EntityData::new("角色");
+    let id = entity.id;
+    entity.physics = Some(PhysicsBody {
+        motion: BodyMotion::Kinematic,
+        shape: ColliderShape::Capsule {
+            half_height: 0.5,
+            radius: 0.3,
+        },
+        ..Default::default()
+    });
+    entity.character = Some(Character::default());
+    source.base.entities.push(entity);
+    editor.document = comet_editor_core::Document::open_source(source)?;
+    editor.selected = Some(id);
+    let before = editor.document.shared_source();
+    let ctx = egui::Context::default();
+    comet_application::configure_ui(&ctx);
+    ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
+    let context = |number| FrameContext {
+        number,
+        dt: 1. / 60.,
+        active: true,
+        activity_changed: false,
+        target_generation: 1,
+        size: [1280, 800],
+        smoke: false,
+    };
+    frame_with_output(&ctx, &mut editor, &mut assets, context(0), vec![]);
+    let (_, output) = frame_with_output(&ctx, &mut editor, &mut assets, context(1), vec![]);
+    fn field_position(shape: &egui::epaint::Shape) -> Option<Pos2> {
+        match shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text.starts_with("移动速度 ") => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(field_position),
+            _ => None,
+        }
+    }
+    let start = output
+        .shapes
+        .iter()
+        .find_map(|s| field_position(&s.shape))
+        .expect("movement speed control is visible");
+    let end = start + Vec2::new(40., 0.);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        2,
+        vec![egui::Event::PointerMoved(start), button(start, true)],
+    );
+    frame(
+        &ctx,
+        &mut editor,
+        &mut assets,
+        3,
+        vec![egui::Event::PointerMoved(end)],
+    );
+    let changed = editor.document.shared_source();
+    assert_ne!(
+        changed, before,
+        "dragging must change the physics configuration"
+    );
+    frame(&ctx, &mut editor, &mut assets, 4, vec![]);
+    assert_eq!(editor.document.shared_source(), changed);
+    frame(&ctx, &mut editor, &mut assets, 5, vec![button(end, false)]);
+    assert_eq!(editor.document.history_len(), 1);
+    assert!(!editor.document.is_editing());
+    editor.document.undo()?;
+    assert_eq!(editor.document.shared_source(), before);
+    assert!(!editor.document.is_dirty());
+    Ok(())
+}
+
 #[test]
 fn gizmo_drag_holds_its_value_and_commits_one_history_item() -> Result<()> {
     let (_temp, mut editor, mut assets) = fixture()?;

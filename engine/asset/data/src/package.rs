@@ -52,17 +52,19 @@ pub struct PlayerTemplateManifest {
     pub player: String,
     pub player_sha256: String,
     pub editor_sha256: String,
+    pub app_icon_sha256: String,
     pub notices: BTreeMap<String, String>,
 }
 impl PlayerTemplateManifest {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 2 && self.profile == "release",
+            self.version == 3 && self.profile == "release",
             "unsupported Player template"
         );
         validate_digest(&self.identity.build_id)?;
         validate_digest(&self.player_sha256)?;
         validate_digest(&self.editor_sha256)?;
+        validate_digest(&self.app_icon_sha256)?;
         ensure!(
             self.identity.protocols == ProtocolVersions::current(),
             "Player template resource protocols do not match"

@@ -4,6 +4,6 @@ mod gltf;
 mod package;
 pub use package::{PackageOutput, PackageRequest, package, package_scenes};
 mod template;
-pub use template::{PackageNotice, PlayerTemplate};
+pub use template::{PackageFile, PlayerTemplate};
 mod import;
 pub use build::{BuildReport, SourceMeta, prepare};

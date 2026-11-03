@@ -16,3 +16,4 @@ egui.workspace = true
 winit.workspace = true
 egui-winit.workspace = true
 serde_json.workspace = true
+png.workspace = true

@@ -149,6 +149,7 @@ impl ExportController {
                         runtime: Some(template.identity().clone()),
                         player_digest: Some(template.player_digest()),
                         notices: template.notices(),
+                        app_icon: Some(template.app_icon()),
                         output: &output,
                     })
                     .context("游戏打包失败")?;

@@ -23,7 +23,7 @@ defaults:
 
 jobs:
   verify:
-    name: Linux / Vulkan
+    name: Linux tests / Windows check / Vulkan
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -36,6 +36,7 @@ jobs:
       - name: Install repository toolchain
         run: |
           rustup show active-toolchain
+          rustup target add x86_64-pc-windows-msvc
           rustc --version
           cargo --version
 
@@ -48,7 +49,7 @@ jobs:
           save-if: ${{ github.ref_name == github.event.repository.default_branch }}
 
       - name: Verify workspace and standalone package
-        run: python3 tools/verify.py
+        run: python3 tools/verify.py --windows
 
       - name: Build Release asset tool
         run: |

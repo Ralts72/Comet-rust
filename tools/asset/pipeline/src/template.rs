@@ -8,7 +8,7 @@ use std::{
 };
 
 #[derive(Clone, Debug)]
-pub struct PackageNotice {
+pub struct PackageFile {
     pub name: String,
     pub path: PathBuf,
     pub sha256: String,
@@ -17,7 +17,8 @@ pub struct PackageNotice {
 pub struct PlayerTemplate {
     manifest: PlayerTemplateManifest,
     player: PathBuf,
-    notices: Vec<PackageNotice>,
+    notices: Vec<PackageFile>,
+    app_icon: PackageFile,
 }
 impl PlayerTemplate {
     pub fn open(path: &Path, editor: &Path) -> Result<Self> {
@@ -58,16 +59,30 @@ impl PlayerTemplate {
                 path.starts_with(&root),
                 "Player template notice escapes its snapshot"
             );
-            notices.push(PackageNotice {
+            notices.push(PackageFile {
                 name: name.clone(),
                 path,
                 sha256: sha256.clone(),
             });
         }
+        let icon_path = root
+            .join("icons/app.icns")
+            .canonicalize()
+            .context("Player template icon is missing; run ./start.sh")?;
+        ensure!(
+            icon_path.starts_with(&root),
+            "Player template icon escapes its snapshot"
+        );
+        let app_icon = PackageFile {
+            name: "app.icns".into(),
+            path: icon_path,
+            sha256: manifest.app_icon_sha256.clone(),
+        };
         let result = Self {
             manifest,
             player,
             notices,
+            app_icon,
         };
         result.verify()?;
         Ok(result)
@@ -91,19 +106,23 @@ impl PlayerTemplate {
                 == self.manifest.player_sha256,
             "Player template changed; run ./start.sh"
         );
-        for notice in &self.notices {
+        for file in self.notices.iter().chain(std::iter::once(&self.app_icon)) {
             ensure!(
-                digest(
-                    &fs::read(&notice.path)
-                        .context("Player template notice is missing; run ./start.sh")?
-                ) == notice.sha256,
-                "Player template notice changed; run ./start.sh"
+                digest(&fs::read(&file.path).with_context(|| format!(
+                    "Player template file {} is missing; run ./start.sh",
+                    file.name
+                ))?) == file.sha256,
+                "Player template file {} changed; run ./start.sh",
+                file.name
             );
         }
         Ok(())
     }
-    pub fn notices(&self) -> &[PackageNotice] {
+    pub fn notices(&self) -> &[PackageFile] {
         &self.notices
+    }
+    pub fn app_icon(&self) -> &PackageFile {
+        &self.app_icon
     }
     pub fn player_digest(&self) -> &str {
         &self.manifest.player_sha256
@@ -136,13 +155,16 @@ mod tests {
         identity.build_id = "a".repeat(64);
         fs::create_dir(root.join("licenses"))?;
         fs::write(root.join("licenses/font.txt"), b"font license")?;
+        fs::create_dir(root.join("icons"))?;
+        fs::write(root.join("icons/app.icns"), b"app icon")?;
         let manifest = PlayerTemplateManifest {
-            version: 2,
+            version: 3,
             identity: identity.clone(),
             profile: "release".into(),
             player: "comet-player".into(),
             player_sha256: digest(&fs::read(&player)?),
             editor_sha256: digest(&fs::read(&editor)?),
+            app_icon_sha256: digest(b"app icon"),
             notices: std::collections::BTreeMap::from([(
                 "font.txt".into(),
                 digest(b"font license"),
@@ -151,6 +173,9 @@ mod tests {
         let path = root.join("template.json");
         fs::write(&path, serde_json::to_vec(&manifest)?)?;
         let template = PlayerTemplate::open_for(&path, &editor, &identity)?;
+        fs::write(root.join("icons/app.icns"), b"changed icon")?;
+        assert!(template.verify().is_err());
+        fs::write(root.join("icons/app.icns"), b"app icon")?;
         fs::write(root.join("licenses/font.txt"), b"changed license")?;
         assert!(template.verify().is_err());
         fs::write(root.join("licenses/font.txt"), b"font license")?;

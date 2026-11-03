@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use comet_core::{EntityId, InstanceId, atomic_write};
 use comet_scene::{
-    ContentSource, FieldOverride, PrefabResolver, Scene, SceneSnapshot,
+    Character, ContentSource, FieldOverride, PhysicsBody, PrefabResolver, Scene, SceneSnapshot,
     schema::{FieldKey, FieldValue},
 };
 use std::{
@@ -141,6 +141,30 @@ impl Document {
         ensure!(self.preview.is_some(), "no edit transaction");
         let mut next = self.source();
         next.base.set_field(selection, key, value)?;
+        self.apply(next)
+    }
+    /// Body and controller form one candidate so intermediate invalid combinations never publish.
+    pub fn preview_physics(
+        &mut self,
+        id: EntityId,
+        body: Option<PhysicsBody>,
+        character: Option<Character>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        ensure!(self.preview.is_some(), "no edit transaction");
+        let mut next = self.source();
+        let entity = next
+            .base
+            .entities
+            .iter_mut()
+            .find(|e| e.id == id)
+            .context("physics component editing requires an authored entity")?;
+        entity.physics = body;
+        entity.character = character;
+        if entity.physics.is_some() || entity.character.is_some() {
+            next.base.version = comet_scene::scene::SCENE_VERSION;
+        }
+        next.expand(resolver)?;
         self.apply(next)
     }
     pub fn preview_override(

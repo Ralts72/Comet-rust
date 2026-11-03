@@ -13,7 +13,7 @@ comet-asset = { path = "../../../engine/asset/runtime" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-png = "0.18"
+png.workspace = true
 gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] }
 base64 = "0.22"
 percent-encoding = "2"

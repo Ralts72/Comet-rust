@@ -6,7 +6,8 @@ use comet_editor_core::Document;
 use comet_render::{Camera, FrameFeedback};
 use comet_runtime::PlaySession;
 use comet_scene::{
-    ContentSource, EntityData, FieldOverride, PrefabResolver, SceneSnapshot,
+    Character, ContentSource, EntityData, FieldOverride, PhysicsBody, PrefabResolver,
+    SceneSnapshot,
     schema::{FieldKey, FieldValue},
 };
 use std::path::PathBuf;
@@ -130,6 +131,28 @@ impl Editor {
             }
         }
         anyhow::bail!("此对象暂不支持嵌套结构编辑")
+    }
+    pub fn edit_physics(
+        &mut self,
+        id: EntityId,
+        body: Option<PhysicsBody>,
+        character: Option<Character>,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        ensure!(self.play.is_none(), "请先停止运行，再修改物理组件");
+        ensure!(!self.export.is_running(), "请等待导出完成，再修改物理组件");
+        let began = !self.document.is_editing();
+        if began {
+            self.document.begin()?;
+        }
+        let result = self
+            .document
+            .preview_physics(id, body, character, assets)
+            .context("无法更新物理组件，请检查对象层级、缩放及角色配置");
+        if result.is_err() && began {
+            self.document.cancel()?;
+        }
+        result
     }
     pub fn save(&mut self, assets: &mut AssetStore) -> Result<()> {
         ensure!(self.play.is_none(), "请先停止运行，再保存作者场景");
@@ -260,6 +283,7 @@ impl Application for Editor {
 }
 pub fn run() -> Result<()> {
     let mut options = HostOptions::new("Comet · 场景编辑器");
+    options.icon = Some(include_bytes!("../resources/icons/editor.png"));
     let mut project = PathBuf::from("demo");
     let mut products = PathBuf::from("target/products/demo");
     let mut source = PathBuf::from("main.scene");
@@ -386,6 +410,82 @@ mod tests {
         }
         let (editor, assets) = open(project, temp.path().join("products"), "main.scene".into())?;
         Ok((temp, editor, assets))
+    }
+    #[test]
+    fn authored_physics_survives_save_reopen_and_cannot_change_during_play() -> Result<()> {
+        use comet_scene::{BodyMotion, ColliderShape};
+        let (temp, mut editor, mut assets) = fixture()?;
+        let mut source = editor.document.source();
+        let mut entity = EntityData::new("新角色");
+        let id = entity.id;
+        entity.transform.translation = [0., 3., 0.];
+        source.base.entities.push(entity);
+        editor.document = Document::open_source(source)?;
+        let mut body = PhysicsBody {
+            motion: BodyMotion::Kinematic,
+            shape: ColliderShape::Capsule {
+                half_height: 0.5,
+                radius: 0.3,
+            },
+            ..Default::default()
+        };
+        editor.edit_physics(
+            id,
+            Some(body.clone()),
+            Some(Character::default()),
+            &mut assets,
+        )?;
+        editor.commit()?;
+        for radius in [0.4, 0.5, 0.6] {
+            body.shape = ColliderShape::Capsule {
+                half_height: 0.5,
+                radius,
+            };
+            editor.edit_physics(
+                id,
+                Some(body.clone()),
+                Some(Character::default()),
+                &mut assets,
+            )?;
+        }
+        editor.commit()?;
+        assert_eq!(editor.document.history_len(), 2);
+        let configured = editor.document.shared_source();
+        let mut invalid = body;
+        invalid.motion = BodyMotion::Dynamic;
+        assert!(
+            editor
+                .edit_physics(id, Some(invalid), Some(Character::default()), &mut assets)
+                .is_err()
+        );
+        assert!(!editor.document.is_editing());
+        assert_eq!(editor.document.shared_source(), configured);
+        editor.save(&mut assets)?;
+        let (mut reopened, mut rebuilt) = open(
+            temp.path().join("project"),
+            temp.path().join("rebuilt"),
+            "main.scene".into(),
+        )?;
+        assert_eq!(reopened.document.shared_source(), configured);
+        reopened.start(&mut rebuilt)?;
+        let world = reopened.world();
+        assert!(reopened.edit_physics(id, None, None, &mut rebuilt).is_err());
+        assert_eq!(reopened.world(), world);
+        assert!(!reopened.document.is_editing());
+        let play = reopened.play.as_mut().unwrap();
+        for _ in 0..30 {
+            play.advance(1. / 60.)?;
+        }
+        assert!(play.character(id).unwrap().position[1] < 3.);
+        reopened.stop();
+        assert_eq!(reopened.document.shared_source(), configured);
+        assert!(!reopened.document.is_dirty());
+        editor.edit_physics(id, None, None, &mut assets)?;
+        editor.commit()?;
+        editor.document.undo()?;
+        assert_eq!(editor.document.shared_source(), configured);
+        assert!(!editor.document.is_dirty());
+        Ok(())
     }
     #[test]
     fn model_edit_save_reopen_history_and_play_stop_isolation() -> Result<()> {

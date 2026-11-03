@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import plistlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +11,36 @@ launch = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launch)
 
 
+def icns(payload=b"icon"):
+    return b"icns" + (8 + len(payload)).to_bytes(4, "big") + payload
+
+
+def mock_codesign(command, **_):
+    if "--force" in command:
+        binary = Path(command[-1]) / "Contents/MacOS/comet-editor"
+        binary.write_bytes(binary.read_bytes() + b" signed")
+
+
 class ProgramPreparation(unittest.TestCase):
+    def test_windows_cargo_discovery_and_child_exit_status(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(launch.sys, "platform", "win32"), \
+             patch.object(launch.shutil, "which", return_value=None), \
+             patch.dict(launch.os.environ, {"CARGO_HOME": directory}):
+            cargo = Path(directory) / "bin/cargo.exe"
+            cargo.parent.mkdir()
+            cargo.write_bytes(b"cargo placeholder")
+            cargo.chmod(0o755)
+            self.assertEqual(launch.cargo_path(), str(cargo))
+        command = ["C:/Comet/comet-editor.exe", "--project", "C:/项目"]
+        with patch.object(launch.sys, "platform", "win32"), \
+             patch.object(launch.subprocess, "run") as run, patch.object(launch.os, "execv") as execute:
+            run.return_value.returncode = 7
+            with self.assertRaises(SystemExit) as result:
+                launch.launch_editor(command)
+            self.assertEqual(result.exception.code, 7)
+            run.assert_called_once_with(command)
+            execute.assert_not_called()
+
     def test_build_identity_tracks_uncommitted_sources_and_lockfile_not_project_assets(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)):
             root = Path(directory)
@@ -38,19 +68,27 @@ class ProgramPreparation(unittest.TestCase):
             editor, player = root / "comet-editor", root / "comet-player"
             notice=root / "engine/application/resources/fonts/OFL.txt"
             notice.parent.mkdir(parents=True);notice.write_text("font license")
+            for name in ("app/resources/icons/app.icns", "editor/resources/icons/editor.icns"):
+                icon = root / name
+                icon.parent.mkdir(parents=True)
+                icon.write_bytes(icns())
             editor.write_bytes(b"debug editor")
             player.write_bytes(b"release player")
             build_id = "a" * 64
             info = json.dumps({"identity": {"build_id": build_id}, "debug": False})
             with patch.object(launch, "cargo_path", return_value="cargo"), \
                  patch.object(launch.shutil, "which", return_value="rustup"), \
-                 patch.object(launch.subprocess, "run"), \
+                 patch.object(launch.subprocess, "run", side_effect=mock_codesign), \
                  patch.object(launch.subprocess, "check_output", return_value=info), \
                  patch.object(launch, "source_fingerprint", return_value=build_id), \
                  patch.object(launch, "build_program", side_effect=lambda cargo, package, release, environment: player if release else editor):
                 first = launch.prepare_programs()
                 self.assertEqual(first["template"], launch.prepare_programs()["template"])
                 self.assertEqual((first["template"].parent / "licenses/NotoSansSC-OFL.txt").read_text(),"font license")
+                self.assertEqual((first["template"].parent / "icons/app.icns").read_bytes(), icns())
+                manifest = json.loads(first["template"].read_text())
+                self.assertEqual(manifest["version"], 3)
+                self.assertEqual(manifest["editor_sha256"], launch.file_digest(first["editor"]))
                 player.write_bytes(b"another cargo build")
                 second = launch.prepare_programs()
                 self.assertNotEqual(first["template"], second["template"])
@@ -60,6 +98,40 @@ class ProgramPreparation(unittest.TestCase):
                 self.assertNotEqual(second["template"], repaired["template"])
                 self.assertEqual(repaired["player"].read_bytes(), b"another cargo build")
                 self.assertEqual(repaired["template"], launch.prepare_programs()["template"])
+                (repaired["template"].parent / "icons/app.icns").write_bytes(icns(b"corrupted"))
+                fixed = launch.prepare_programs()
+                self.assertNotEqual(fixed["template"], repaired["template"])
+                self.assertEqual((fixed["template"].parent / "icons/app.icns").read_bytes(), icns())
+
+    def test_macos_editor_app_signing_identity_and_snapshot_repair(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(launch, "ROOT", Path(directory)), \
+             patch.object(launch.sys, "platform", "darwin"), \
+             patch.object(launch.subprocess, "run", side_effect=mock_codesign):
+            root = Path(directory)
+            icon = root / "editor/resources/icons/editor.icns"
+            editor = root / "target/debug/comet-editor"
+            editor.parent.mkdir(parents=True)
+            editor.write_bytes(b"debug editor")
+            icon.parent.mkdir(parents=True)
+            icon.write_bytes(icns())
+            first = launch.prepare_editor_app(editor)
+            self.assertEqual(first.read_bytes(), b"debug editor signed")
+            self.assertEqual(editor.read_bytes(), b"debug editor")
+            plist = plistlib.loads((first.parents[1] / "Info.plist").read_bytes())
+            self.assertEqual(plist["CFBundleIconFile"], "editor.icns")
+            self.assertEqual(launch.prepare_editor_app(editor), first)
+            (first.parents[1] / "Resources/editor.icns").write_bytes(icns(b"changed"))
+            repaired = launch.prepare_editor_app(editor)
+            self.assertNotEqual(repaired, first)
+            self.assertEqual((repaired.parents[1] / "Resources/editor.icns").read_bytes(), icns())
+            (repaired.parents[3] / "bundle.json").write_text("[]")
+            repaired_again = launch.prepare_editor_app(editor)
+            self.assertNotEqual(repaired_again, repaired)
+            editor.write_bytes(b"new editor")
+            updated = launch.prepare_editor_app(editor)
+            self.assertNotEqual(updated, repaired)
+            self.assertEqual(repaired.read_bytes(), b"debug editor signed")
+            self.assertEqual(updated.read_bytes(), b"new editor signed")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 mod application;
 mod extract;
 mod fonts;
+mod icon;
 mod input;
 mod timing;
 pub use application::*;

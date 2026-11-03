@@ -28,7 +28,7 @@
 ## 架构与技术边界
 
 - 架构、格式、依赖及接入状态以 `docs/architecture.md` 为准，开发与验收流程见 `docs/development.md`。已确定的 ECS、物理、导航、脚本、UI 路线按实际功能接入，区分计划、已实现与已验证。
-- 图形主路线为原生 Vulkan（ash）和 Metal（objc2-metal）；共享帧协议、Shader 与数据布局，原生资源和编码归各自后端。设计保留显式多队列、原生显存别名和 Mac 硬件光追的直接控制。Windows 适配与 DX12 低优先级。
+- 桌面平台共同支持 macOS、Windows、Linux；macOS 使用原生 Metal（objc2-metal），Windows/Linux 共用原生 Vulkan（ash），暂不接入 DX12。新增或修改通用功能时同步考虑三个平台的实现和验收，不再将 Windows/Linux 的适配整体后置。共享帧协议、Shader 与数据布局，原生资源和编码归各自后端；保留显式多队列、原生显存别名和 Mac 硬件光追的直接控制。
 - wgpu、Rune 不属于正式路线，不引入对照包或其可选构建路径。依赖更新通过 Cargo 管理，不修改本机 registry 缓存或第三方源码。
 - Scene 不拥有编辑历史或资产产品；Editor Core 不拥有运行实例；Play 使用独立 Runtime 世界，停止运行不覆盖作者文档。
 - 导入与构建属于资产 Pipeline，只读消费属于资产 Runtime。Player 不依赖编辑器或导入器。
@@ -44,6 +44,7 @@
 ./start.sh
 ./start.sh --help
 ./start.sh --project /path/to/project --scene main.scene
+# Windows 原生终端使用同一公共实现：python tools/launch.py
 ```
 
 脚本只接收编辑器参数，不提供可选编译动作或构建模式切换，不恢复独立 Player/Debug/Release 启动脚本。
@@ -64,12 +65,12 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 python3 tools/check_boundaries.py
 python3 tools/audit_dependencies.py
 python3 tools/verify.py                            # 当前完整 CPU/构建/打包验收
-python3 tools/verify.py --native --linux            # GPU/窗口与 Linux 交叉检查
+python3 tools/verify.py --native --linux --windows  # 本机 GPU/窗口、Linux 与 Windows 交叉检查
 ```
 
 默认 `cargo build/test` 面向引擎库、编辑文档和资产工具；`--workspace` 包含应用与独立 GPU 工具，均为当前正式模块。
 Python 工具需要 Python 3；直接运行 Cargo 或验证工具时确保 rustup 命令目录在 PATH 中。macOS 需要 Metal/AppKit SDK 与 Xcode Command Line Tools。
-`--native` 会打开真实窗口，`--linux` 需要已安装的 Linux 标准库目标；按改动和可用平台选择，不能把缺少运行环境当作验证通过。
+`--native` 会打开本机真实窗口；`--linux` / `--windows` 分别需要 x86_64-unknown-linux-gnu / x86_64-pc-windows-msvc 标准库。CI runner 仍仅用 Linux，并执行 Windows 交叉检查；每个功能区分三平台的编译、CPU 测试、原生链接和 GPU/窗口验收，无法实测的项记录为待验收，不能用另一平台结果替代。
 
 ## 代码风格
 

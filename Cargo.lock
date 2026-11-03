@@ -523,6 +523,7 @@ dependencies = [
  "comet-scene",
  "egui",
  "egui-winit",
+ "png",
  "serde_json",
  "winit",
 ]

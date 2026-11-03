@@ -144,23 +144,27 @@ pub fn show(
         .show(root, |ui| {
             ui.heading("属性");
             ui.add_space(12.);
-            if let Some(entity) = editor.selected_entity() {
-                inspector::draw(editor, ui, assets, &entity);
-            } else {
-                ui.weak("请在场景树或视口中选择对象。");
-            }
-            ui.separator();
-            ui.checkbox(&mut editor.shadows, "方向光阴影");
-            if let Some(message) = editor.error.clone() {
-                ui.add_space(12.);
-                ui.colored_label(Color32::from_rgb(244, 141, 131), "操作未完成");
-                ui.collapsing("诊断详情", |ui| {
-                    ui.label(message);
+            egui::ScrollArea::vertical()
+                .id_salt("inspector-content")
+                .show(ui, |ui| {
+                    if let Some(entity) = editor.selected_entity() {
+                        inspector::draw(editor, ui, assets, &entity);
+                    } else {
+                        ui.weak("请在场景树或视口中选择对象。");
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut editor.shadows, "方向光阴影");
+                    if let Some(message) = editor.error.clone() {
+                        ui.add_space(12.);
+                        ui.colored_label(Color32::from_rgb(244, 141, 131), "操作未完成");
+                        ui.collapsing("诊断详情", |ui| {
+                            ui.label(message);
+                        });
+                        if ui.small_button("关闭提示").clicked() {
+                            editor.error = None;
+                        }
+                    }
                 });
-                if ui.small_button("关闭提示").clicked() {
-                    editor.error = None;
-                }
-            }
         });
     let mut viewport = Rect::NOTHING;
     let mut pick = None;

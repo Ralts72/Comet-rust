@@ -56,6 +56,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let mut options = HostOptions::new("Comet 游戏");
+    options.icon = Some(include_bytes!("../resources/icons/app.png"));
     let mut products = None;
     let mut scene = None;
     let mut args = std::env::args().skip(1);
