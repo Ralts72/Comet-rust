@@ -35,7 +35,7 @@ engine/
     src/backend/vulkan/  renderer.rs / device.rs / resources.rs / pipeline.rs / commands.rs / ui.rs
 editor/
   core/                  document.rs：编辑文档与历史
-  src/                   main.rs：启动；session.rs：会话；documents.rs / objects.rs / export.rs / project.rs
+  src/                   main.rs：启动；session.rs：会话；documents.rs / objects.rs / resources.rs / export.rs / project.rs / jobs.rs
     ui/                  面板与交互；层级、资源、属性和 Gizmo 各归所属文件
   resources/icons/       编辑器原版 PNG / ICNS / ICO 图标
 app/
@@ -142,7 +142,7 @@ ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Pr
 实例实体身份由实例和源实体 UUID 确定性派生，嵌套实例同理；源更新后身份稳定，覆盖重新应用。展开检查循环、缺失依赖、目标及类型，最多 64 层，不创建临时 ECS 世界收集依赖。
 当前覆盖目标是被引用 Prefab 的 base 实体，尚不支持跨层结构覆盖、移除源实体或完整结构编辑 UI。
 
-Editor 的 main.rs 只解析启动参数并准备宿主，session.rs 协调文档、Play、产品和帧提取；documents.rs 负责文档切换，objects.rs 负责对象命令，ui/ 组织实际面板和交互。界面沿用旧版的功能目标，具体操作结合 egui 与当前工作流设计。
+Editor 的 main.rs 只解析启动参数并准备宿主，session.rs 协调文档、Play、产品和帧提取；documents.rs 负责文档切换，objects.rs 负责对象命令，resources.rs 负责资源构建候选，export.rs 负责游戏导出与子进程；两种后台任务共用 jobs.rs 的进度传递、异常完成与线程收尾。ui/ 组织实际面板和交互。界面沿用旧版的功能目标，具体操作结合 egui 与当前工作流设计。
 
 Document 拥有 Edit 场景、Prefab 声明、历史与保存点。连续预览 commit 后成为一条历史；cancel 恢复。保存先原子发布作者文件，成功后移动保存点；失败保留 dirty 状态。作者文件保留声明和覆盖，不保存为失去关系的平铺实体。结构命令共用候选编辑、完整展开校验、内容发布与历史记录入口；无变化不创建历史，失败不替换文档。资源放置保留 Prefab 声明，挂接到一个作者容器供整体变换和子树操作。
 
@@ -182,6 +182,10 @@ PhysicsBody 必须位于场景根，允许带可视子树；缩放必须为正�
 6. AssetStore 只读产品目录。打开与刷新时全量校验候选索引、摘要、协议、依赖及展开，成功后切换；缓存使用 Arc，消费者已持有的旧版本继续有效。
 
 Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径和版本校验；SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与资源面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
+
+资源刷新只在 Edit 模式启动，提交活动预览但不自动保存作者文件。后台线程调用 Pipeline 构建、打开独立 AssetStore、准备 SourceCatalog，并校验当前文档、保存点和 undo/redo 保留内容的 Prefab 展开与渲染依赖。Document 仅提供不可变内容引用，不拥有 Store；此检查只在资源更新时执行。任务期间禁用修改、Play、保存、切换和并发导出；主线程再次核对文档世界和 revision，成功后一起接纳 Store、目录和快照，失败保留当前状态。外部源删除或结构变化使历史不可解析时拒绝接纳；保留可解析性不表示撤销会恢复旧版本资产内容。
+
+构建发布磁盘索引与编辑器接纳候选是两层边界：候选被编辑器拒绝时，磁盘上可能已有完整新索引，当前会话继续使用旧索引及保留的产品文件，不回滚作者源或自动清理产品。导出复用相同的历史依赖校验，防止完成后切换 Store 导致撤销失效。
 
 当前构建仍解析全部源，复用的是未变化的产品文件，尚无导入计算缓存。资产打开/刷新仍全量验证，尚未实现大场景按需流送。
 自有源、metadata、产品和索引有显式版本，未知版本/字段报错。旧 C++ 自有格式需显式单向迁移；源路径不参与资产身份。

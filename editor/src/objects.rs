@@ -12,7 +12,7 @@ enum Owner {
 impl Editor {
     fn structural_edit(&mut self) -> Result<()> {
         ensure!(self.play.is_none(), "请先停止运行，再编辑场景结构");
-        ensure!(!self.export.is_running(), "请等待导出完成，再编辑场景结构");
+        ensure!(!self.is_busy(), "请等待后台任务完成，再编辑场景结构");
         self.commit()
     }
 

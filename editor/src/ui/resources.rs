@@ -11,6 +11,16 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
             let mut place = None;
             ui.horizontal(|ui| {
                 ui.heading("资源");
+                if ui
+                    .add_enabled(
+                        editor.play.is_none() && !editor.is_busy(),
+                        egui::Button::new("刷新资源"),
+                    )
+                    .clicked()
+                {
+                    let result = editor.refresh_resources();
+                    editor.notice(result);
+                }
                 let selected = editor
                     .resource_selection
                     .and_then(|id| {
@@ -22,15 +32,27 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                     .cloned();
                 if ui
                     .add_enabled(
-                        editor.play.is_none() && selected.is_some(),
+                        editor.play.is_none() && !editor.is_busy() && selected.is_some(),
                         egui::Button::new("添加到场景"),
                     )
                     .clicked()
                 {
                     place = selected;
                 }
-                ui.weak("模型与 Prefab · 新增或修改资源后重新启动编辑器");
+                ui.weak("模型与 Prefab");
             });
+            if editor.resource_build.is_running() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(&editor.resource_build.stage);
+                });
+            }
+            if let Some(error) = &editor.resource_build.failure {
+                ui.colored_label(egui::Color32::LIGHT_RED, "资源刷新未完成，当前内容仍保留。");
+                ui.collapsing("刷新诊断详情", |ui| {
+                    ui.label(error);
+                });
+            }
             egui::ScrollArea::vertical()
                 .id_salt("resources-list")
                 .show(ui, |ui| {
@@ -50,7 +72,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                         if response.clicked() {
                             editor.resource_selection = Some(choice.id);
                         }
-                        if response.double_clicked() && editor.play.is_none() {
+                        if response.double_clicked() && editor.play.is_none() && !editor.is_busy() {
                             place = Some(choice.clone());
                         }
                     }

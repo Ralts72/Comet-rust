@@ -53,6 +53,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 - Editor 的 `src/session/tests.rs` 验证世界、缓存、保存和路径；`documents/tests.rs` 验证场景切换与未保存确认；`objects/tests.rs` 验证对象命令、资源放置及保存后产品构建；`ui/tests.rs` 验证实际 egui 帧、快捷键、模拟授权和控件拖动。临时项目由仅在测试时启用的 `src/test_support.rs` 从现有 fixtures 准备。Core 的身份、Application 的字体与输入采样通过公共 API 在各包 `tests/` 验证；Runtime 输入缓冲、Render 和 Pipeline 模板等内部测试按所属模块就近组织。
 - 资产流程测试使用 `tests/fixtures/prefab`、`tests/fixtures/gltf` 的临时副本，覆盖 metadata 身份、产品复用、失败后的索引保持、外部输入复核、glTF 多材质/子身份和坏输入。
 - 资产目录回归验证已构建源的身份和类型、同名不同类型文件、未构建资源隐藏、坏 metadata 与符号链接拒绝；构建和目录使用相同源扫描规则。
+- 资源刷新回归检查模型外部输入更新、新源身份与目录接纳、未保存内容及保存点保留、坏导入重试、仅被 undo/redo 引用的依赖拒绝、后台期间的操作与关闭保护，以及过期文档候选拒绝。后台任务测试检查输入错误和线程 panic 能结束任务。
 - 默认 `demo/` 是当前示例项目，不用于测试写回。导入、保存和破坏性测试使用独立临时项目。
 - 路径测试覆盖越界、绝对路径、符号链接及保存前复核；发布测试覆盖未完成候选不可见、并发占位、不覆盖已有目标和失败清理。
 - 模板测试覆盖未提交源码指纹、不可变快照、摘要/架构/协议失配；打包测试覆盖额外场景独占依赖、陈旧索引及错误 App 摘要。

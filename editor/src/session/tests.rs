@@ -2,6 +2,7 @@ use super::*;
 use crate::test_support::fixture;
 use comet_render::{PickFeedback, ViewToken};
 use comet_scene::schema;
+mod resources;
 #[test]
 fn authored_physics_survives_save_reopen_and_cannot_change_during_play() -> Result<()> {
     use comet_scene::{BodyMotion, ColliderShape};

@@ -1,7 +1,9 @@
 mod documents;
 mod export;
+mod jobs;
 mod objects;
 mod project;
+mod resources;
 mod session;
 #[cfg(test)]
 mod test_support;

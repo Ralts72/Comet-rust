@@ -35,6 +35,7 @@ pub struct Editor {
     pub(crate) sources: SourceCatalog,
     source_revision: String,
     pub(crate) resource_selection: Option<AssetId>,
+    pub(crate) resource_build: crate::resources::ResourceBuild,
 }
 struct SnapshotCache {
     world: WorldId,
@@ -43,6 +44,58 @@ struct SnapshotCache {
     snapshot: std::sync::Arc<SceneSnapshot>,
 }
 impl Editor {
+    pub(crate) fn is_busy(&self) -> bool {
+        self.export.is_running() || self.resource_build.is_running()
+    }
+    pub(crate) fn refresh_resources(&mut self) -> Result<()> {
+        ensure!(!self.is_busy(), "请等待当前后台任务完成");
+        ensure!(self.play.is_none(), "请先停止运行，再刷新资源");
+        ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
+        self.commit()?;
+        self.resource_build.start(
+            &self.paths,
+            &self.products,
+            self.document.world_id(),
+            self.document.revision(),
+            self.document.retained_sources().collect(),
+        )
+    }
+    fn poll_resources(&mut self, assets: &mut AssetStore) {
+        let Some(result) = self.resource_build.poll() else {
+            return;
+        };
+        let result = result.and_then(|candidate| {
+            if candidate.world != self.document.world_id()
+                || candidate.document_revision != self.document.revision()
+            {
+                return Err("文档在资源刷新期间发生变化，请重新刷新".into());
+            }
+            let snapshot = std::sync::Arc::new(candidate.snapshot);
+            if self
+                .selected
+                .is_some_and(|id| !snapshot.entities.iter().any(|entity| entity.id == id))
+            {
+                self.selected = None;
+            }
+            self.sources = candidate.sources;
+            self.source_revision = candidate.assets.revision().to_owned();
+            self.resource_selection = None;
+            self.snapshot_cache = Some(SnapshotCache {
+                world: candidate.world,
+                document_revision: candidate.document_revision,
+                products_revision: self.source_revision.clone(),
+                snapshot: snapshot.clone(),
+            });
+            self.last_snapshot = snapshot;
+            *assets = candidate.assets;
+            self.status = "资源刷新完成".into();
+            Ok(())
+        });
+        if let Err(error) = result {
+            self.resource_build.stage = "资源刷新失败".into();
+            self.resource_build.failure = Some(error);
+        }
+    }
     fn shared_snapshot(
         &mut self,
         assets: &mut AssetStore,
@@ -74,6 +127,7 @@ impl Editor {
             .map_or(self.document.world_id(), PlaySession::world_id)
     }
     pub fn start(&mut self, assets: &mut AssetStore) -> Result<()> {
+        ensure!(!self.is_busy(), "请等待后台任务完成，再运行场景");
         self.commit()?;
         let snapshot = self.document.source().expand(assets)?;
         comet_application::extract(&snapshot, assets, None)?;
@@ -107,6 +161,7 @@ impl Editor {
         value: FieldValue,
         assets: &mut AssetStore,
     ) -> Result<()> {
+        ensure!(!self.is_busy(), "请等待后台任务完成，再编辑场景");
         if let Some(play) = &mut self.play {
             return play.set_field(&[id], key, value);
         }
@@ -143,7 +198,7 @@ impl Editor {
         assets: &mut AssetStore,
     ) -> Result<()> {
         ensure!(self.play.is_none(), "请先停止运行，再修改物理组件");
-        ensure!(!self.export.is_running(), "请等待导出完成，再修改物理组件");
+        ensure!(!self.is_busy(), "请等待后台任务完成，再修改物理组件");
         let began = !self.document.is_editing();
         if began {
             self.document.begin()?;
@@ -158,6 +213,7 @@ impl Editor {
         result
     }
     pub fn save(&mut self, assets: &mut AssetStore) -> Result<()> {
+        ensure!(!self.is_busy(), "请等待后台任务完成，再保存场景");
         ensure!(self.play.is_none(), "请先停止运行，再保存作者场景");
         self.commit()?;
         comet_application::extract(&self.document.source().expand(assets)?, assets, None)?;
@@ -170,7 +226,7 @@ impl Editor {
         comet_asset_pipeline::create_scene(&self.paths, path)
     }
     pub(crate) fn switch_scene(&mut self, path: PathBuf, assets: &mut AssetStore) -> Result<()> {
-        ensure!(!self.export.is_running(), "请等待导出完成，再切换场景");
+        ensure!(!self.is_busy(), "请等待后台任务完成，再切换场景");
         let (mut candidate, mut candidate_assets) =
             open(self.paths.root().to_owned(), self.products.clone(), path)?;
         let snapshot = candidate.shared_snapshot(&mut candidate_assets)?;
@@ -203,7 +259,7 @@ impl Editor {
         assets: &mut AssetStore,
         action: crate::export::ExportAction,
     ) -> Result<()> {
-        ensure!(!self.export.is_running(), "已有导出任务正在进行");
+        ensure!(!self.is_busy(), "已有后台任务正在进行");
         let template = self.export.template.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "{}",
@@ -225,8 +281,13 @@ impl Editor {
         self.stop();
         self.commit()?;
         self.save(assets)?;
-        self.export
-            .start(&self.paths, &self.products, &self.source, action)
+        self.export.start(
+            &self.paths,
+            &self.products,
+            &self.source,
+            action,
+            self.document.retained_sources().collect(),
+        )
     }
     pub fn selected_entity(&self) -> Option<EntityData> {
         self.selected.and_then(|id| {
@@ -256,6 +317,7 @@ impl Application for Editor {
         assets: &mut AssetStore,
         input: &FrameContext,
     ) -> Result<ViewRequest> {
+        self.poll_resources(assets);
         self.export.poll(assets)?;
         if self.source_revision != assets.revision() {
             match SourceCatalog::read(&self.paths, assets.index()) {
@@ -282,7 +344,7 @@ impl Application for Editor {
         }
         self.last_snapshot = self.shared_snapshot(assets)?;
         let mut view = None;
-        let busy = self.export.is_running() || self.documents.is_blocking();
+        let busy = self.is_busy() || self.documents.is_blocking();
         ui.add_enabled_ui(!busy, |ui| {
             view = Some(crate::ui::show(self, ui, assets, active));
         });
@@ -292,13 +354,15 @@ impl Application for Editor {
                 .show(ui.ctx(), &self.paths, assets, &self.sources);
         }
         if !self.documents.pending
-            && !self.export.is_running()
+            && !self.is_busy()
             && let Some(action) = self.documents.show_browser(ui.ctx(), &self.sources)
         {
             self.request_document_action(action);
         }
         if !self.documents.is_blocking()
-            && let Some(action) = self.export.show(ui.ctx(), &self.sources)
+            && let Some(action) =
+                self.export
+                    .show(ui.ctx(), &self.sources, self.resource_build.is_running())
             && let Err(error) = self.begin_export(assets, action)
         {
             self.export.fail(format!("{error:#}"));
@@ -392,6 +456,7 @@ pub(crate) fn open(
         sources,
         source_revision,
         resource_selection: None,
+        resource_build: Default::default(),
     };
     Ok((editor, assets))
 }

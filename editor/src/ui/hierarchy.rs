@@ -19,7 +19,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                 ui.heading("层级");
                 if ui
                     .add_enabled(
-                        editor.play.is_none() && !editor.export.is_running(),
+                        editor.play.is_none() && !editor.is_busy(),
                         egui::Button::new("新建对象"),
                     )
                     .clicked()
@@ -81,7 +81,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
             }
             let before = editor.selected;
             let mut action = None;
-            let can_edit = editor.play.is_none() && !editor.export.is_running();
+            let can_edit = editor.play.is_none() && !editor.is_busy();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 tree(
                     ui,

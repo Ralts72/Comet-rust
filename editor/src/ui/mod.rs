@@ -181,7 +181,7 @@ pub fn show(
             }
         });
     let ctx = root.ctx();
-    if !root.is_enabled() {
+    if !root.is_enabled() || editor.is_busy() {
         return Ok((viewport, pick, actions));
     }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {

@@ -124,7 +124,7 @@ impl Editor {
         if self.documents.approved {
             return true;
         }
-        if !self.document.is_dirty() && !self.export.is_running() {
+        if !self.document.is_dirty() && !self.is_busy() {
             self.documents.approved = true;
             return true;
         }
@@ -160,7 +160,7 @@ impl Editor {
             self.documents = DocumentWorkflow::default();
             return;
         }
-        if self.export.is_running() {
+        if self.is_busy() {
             return;
         }
         let result = (|| -> anyhow::Result<()> {
@@ -182,7 +182,7 @@ impl Editor {
         if !self.documents.pending || self.documents.approved {
             return;
         }
-        let busy = self.export.is_running();
+        let busy = self.is_busy();
         if !busy && !self.document.is_dirty() && self.documents.error.is_none() {
             self.resolve_transition(Choice::Discard, assets);
             if !self.documents.pending || self.documents.approved {
@@ -200,7 +200,7 @@ impl Editor {
             });
             ui.separator();
             if busy {
-                ui.label("正在导出游戏，请等待任务完成。");
+                ui.label("正在处理后台任务，请等待完成。");
             } else if self.document.is_dirty() {
                 ui.label("当前场景有未保存的修改，是否保存后继续？");
                 if self.play.is_some() {

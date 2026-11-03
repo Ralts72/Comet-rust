@@ -74,6 +74,17 @@ impl Document {
     pub fn shared_source(&self) -> Arc<ContentSource> {
         self.current.source.clone()
     }
+    /// Current content first, then distinct states retained by savepoint, preview and history.
+    pub fn retained_sources(&self) -> impl Iterator<Item = Arc<ContentSource>> + '_ {
+        let mut seen = std::collections::BTreeSet::new();
+        std::iter::once(&self.current)
+            .chain(std::iter::once(&self.saved))
+            .chain(self.preview.iter())
+            .chain(self.undo.iter())
+            .chain(self.redo.iter())
+            .filter(move |state| seen.insert(state.id))
+            .map(|state| state.source.clone())
+    }
     pub fn revision(&self) -> u64 {
         self.revision
     }
