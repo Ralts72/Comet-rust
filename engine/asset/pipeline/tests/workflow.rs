@@ -293,7 +293,7 @@ fn document_preserves_prefab_declarations_overrides_and_cloned_attachments() -> 
     );
     assert_eq!(doc.source(), before);
     doc.cancel()?;
-    let copies = doc.clone_subtrees(&[root])?;
+    let copies = doc.clone_subtrees(&[root], &mut store)?;
     assert_eq!(doc.source().instances.len(), 4);
     assert_eq!(
         doc.source()

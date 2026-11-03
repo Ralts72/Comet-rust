@@ -55,6 +55,29 @@ fn clone_hierarchy_remaps_local_refs_and_preserves_other_identities() -> Result<
     Ok(())
 }
 #[test]
+fn remove_subtree_clears_local_references_and_preserves_external_references() -> Result<()> {
+    let mut scene = fixture();
+    let root = scene.entities[0].id;
+    let child = scene.entities[1].id;
+    let outside = scene.entities[2].id;
+    let external = EntityRef::External {
+        scene: AssetId::new(),
+        entity: child,
+    };
+    scene.entities[2].links.target = Some(EntityRef::local(child));
+    scene.entities[2].links.connections = vec![EntityRef::local(root), external.clone()];
+    let before = scene.clone();
+    assert!(scene.remove_subtrees(&[EntityId::new()]).is_err());
+    assert_eq!(scene, before);
+    let removed = scene.remove_subtrees(&[root])?;
+    assert_eq!(removed.len(), 2);
+    assert!(removed.contains(&child));
+    let survivor = scene.entities.iter().find(|e| e.id == outside).unwrap();
+    assert_eq!(survivor.links.target, None);
+    assert_eq!(survivor.links.connections, vec![external]);
+    Ok(())
+}
+#[test]
 fn invalid_batches_and_hierarchy_edits_are_atomic() -> Result<()> {
     let mut s = fixture();
     let before = s.clone();

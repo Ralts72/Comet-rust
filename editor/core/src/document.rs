@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, ensure};
 use comet_core::{EntityId, InstanceId, atomic_write};
 use comet_scene::{
-    Character, ContentSource, FieldOverride, PhysicsBody, PrefabResolver, Scene, SceneSnapshot,
+    Character, ContentSource, EntityData, FieldOverride, PhysicsBody, PrefabResolver, Scene,
+    SceneSnapshot,
     schema::{FieldKey, FieldValue},
 };
 use std::{
@@ -230,7 +231,43 @@ impl Document {
         self.undo.push_back(now);
         Ok(())
     }
-    pub fn clone_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeMap<EntityId, EntityId>> {
+    pub fn insert_entity(
+        &mut self,
+        entity: EntityData,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        ensure!(self.preview.is_none(), "transaction active");
+        let before = self.current.clone();
+        let mut next = self.source();
+        next.base.entities.push(entity);
+        next.expand(resolver)?;
+        self.apply(next)?;
+        self.record(before);
+        Ok(())
+    }
+    pub fn remove_subtrees(
+        &mut self,
+        roots: &[EntityId],
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        ensure!(self.preview.is_none(), "transaction active");
+        let before = self.current.clone();
+        let mut next = self.source();
+        let removed = next.base.remove_subtrees(roots)?;
+        if !removed.is_empty() {
+            next.instances
+                .retain(|instance| !instance.parent.is_some_and(|id| removed.contains(&id)));
+            next.expand(resolver)?;
+            self.apply(next)?;
+            self.record(before);
+        }
+        Ok(())
+    }
+    pub fn clone_subtrees(
+        &mut self,
+        roots: &[EntityId],
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<BTreeMap<EntityId, EntityId>> {
         ensure!(self.preview.is_none(), "transaction active");
         let before = self.current.clone();
         let mut next = self.source();
@@ -249,10 +286,49 @@ impl Document {
             .collect();
         next.instances.extend(copies);
         if !map.is_empty() {
+            next.expand(resolver)?;
             self.apply(next)?;
             self.record(before);
         }
         Ok(map)
+    }
+    pub fn duplicate_instance(
+        &mut self,
+        id: InstanceId,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<InstanceId> {
+        ensure!(self.preview.is_none(), "transaction active");
+        let before = self.current.clone();
+        let mut next = self.source();
+        let mut copy = next
+            .instances
+            .iter()
+            .find(|i| i.id == id)
+            .context("stale prefab instance")?
+            .clone();
+        copy.id = InstanceId::new();
+        let new_id = copy.id;
+        next.instances.push(copy);
+        next.expand(resolver)?;
+        self.apply(next)?;
+        self.record(before);
+        Ok(new_id)
+    }
+    pub fn remove_instance(
+        &mut self,
+        id: InstanceId,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        ensure!(self.preview.is_none(), "transaction active");
+        let before = self.current.clone();
+        let mut next = self.source();
+        let count = next.instances.len();
+        next.instances.retain(|i| i.id != id);
+        ensure!(next.instances.len() != count, "stale prefab instance");
+        next.expand(resolver)?;
+        self.apply(next)?;
+        self.record(before);
+        Ok(())
     }
     /// The savepoint changes only after a complete authoring file is published.
     pub fn save(&mut self, path: &Path) -> Result<()> {

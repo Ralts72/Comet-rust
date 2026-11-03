@@ -6,6 +6,58 @@ use comet_application::{Application, FrameContext, ViewRequest};
 use std::{fs, path::Path};
 
 #[test]
+fn scene_object_commands_support_undo_and_are_blocked_during_play() -> Result<()> {
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let before = editor.document.source();
+    editor.create_object(None, &mut assets)?;
+    let root = editor.selected.unwrap();
+    editor.create_object(Some(root), &mut assets)?;
+    let child = editor.selected.unwrap();
+    editor.duplicate_object(root, &mut assets)?;
+    let copy = editor.selected.unwrap();
+    assert_ne!(copy, root);
+    assert!(
+        editor
+            .document
+            .source()
+            .base
+            .entities
+            .iter()
+            .any(|e| e.parent == Some(copy))
+    );
+    editor.delete_object(root, &mut assets)?;
+    assert!(
+        !editor
+            .document
+            .source()
+            .base
+            .entities
+            .iter()
+            .any(|e| e.id == root || e.id == child)
+    );
+    editor.document.undo()?;
+    assert!(
+        editor
+            .document
+            .source()
+            .base
+            .entities
+            .iter()
+            .any(|e| e.id == child)
+    );
+    editor.document.undo()?;
+    editor.document.undo()?;
+    editor.document.undo()?;
+    assert_eq!(editor.document.source(), before);
+    editor.start(&mut assets)?;
+    assert!(editor.create_object(None, &mut assets).is_err());
+    assert!(editor.duplicate_object(root, &mut assets).is_err());
+    assert!(editor.delete_object(root, &mut assets).is_err());
+    assert_eq!(editor.document.source(), before);
+    Ok(())
+}
+
+#[test]
 fn command_shortcuts_use_event_modifiers_even_when_released_before_the_frame() -> Result<()> {
     use comet_scene::{schema, schema::FieldValue};
     let (_temp, mut editor, mut assets) = fixture()?;

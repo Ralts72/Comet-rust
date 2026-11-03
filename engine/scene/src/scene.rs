@@ -138,26 +138,7 @@ impl SceneSnapshot {
     }
     /// Copy roots and descendants in the same scene, preserving references outside the selection.
     pub fn clone_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeMap<EntityId, EntityId>> {
-        self.validate()?;
-        let mut selected: BTreeSet<_> = roots.iter().copied().collect();
-        ensure!(selected.len() == roots.len(), "duplicate clone root");
-        for id in roots {
-            ensure!(
-                self.entities.iter().any(|e| e.id == *id),
-                "stale clone source {id}"
-            );
-        }
-        loop {
-            let before = selected.len();
-            for e in &self.entities {
-                if e.parent.is_some_and(|p| selected.contains(&p)) {
-                    selected.insert(e.id);
-                }
-            }
-            if selected.len() == before {
-                break;
-            }
-        }
+        let selected = self.subtree_ids(roots)?;
         let map: BTreeMap<_, _> = selected
             .into_iter()
             .map(|id| (id, EntityId::new()))
@@ -176,6 +157,43 @@ impl SceneSnapshot {
         candidate.canonicalize();
         *self = candidate;
         Ok(map)
+    }
+    pub fn remove_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeSet<EntityId>> {
+        let removed = self.subtree_ids(roots)?;
+        let mut candidate = self.clone();
+        candidate
+            .entities
+            .retain(|entity| !removed.contains(&entity.id));
+        for entity in &mut candidate.entities {
+            schema::clear_removed_references(entity, &removed)?;
+        }
+        candidate.validate()?;
+        candidate.canonicalize();
+        *self = candidate;
+        Ok(removed)
+    }
+    fn subtree_ids(&self, roots: &[EntityId]) -> Result<BTreeSet<EntityId>> {
+        self.validate()?;
+        let mut selected: BTreeSet<_> = roots.iter().copied().collect();
+        ensure!(selected.len() == roots.len(), "duplicate object root");
+        for id in roots {
+            ensure!(
+                self.entities.iter().any(|e| e.id == *id),
+                "stale clone source {id}"
+            );
+        }
+        loop {
+            let before = selected.len();
+            for e in &self.entities {
+                if e.parent.is_some_and(|p| selected.contains(&p)) {
+                    selected.insert(e.id);
+                }
+            }
+            if selected.len() == before {
+                break;
+            }
+        }
+        Ok(selected)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

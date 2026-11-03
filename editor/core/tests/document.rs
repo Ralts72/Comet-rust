@@ -57,7 +57,13 @@ fn clone_is_one_undo_step_and_new_edit_discards_redo() -> Result<()> {
         version: 1,
         entities: vec![a],
     })?;
-    doc.clone_subtrees(&[id])?;
+    struct NoPrefabs;
+    impl comet_scene::PrefabResolver for NoPrefabs {
+        fn prefab(&mut self, _: comet_core::AssetId) -> Result<comet_scene::ContentSource> {
+            anyhow::bail!("unexpected prefab")
+        }
+    }
+    doc.clone_subtrees(&[id], &mut NoPrefabs)?;
     assert_eq!(doc.snapshot().entities.len(), 2);
     assert_eq!(doc.history_len(), 1);
     doc.undo()?;
@@ -66,6 +72,80 @@ fn clone_is_one_undo_step_and_new_edit_discards_redo() -> Result<()> {
     doc.commit()?;
     assert!(doc.redo().is_err());
     assert_eq!(doc.snapshot().entities.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn structural_edits_preserve_prefab_declarations_and_history() -> Result<()> {
+    use comet_core::{AssetId, InstanceId};
+    use comet_scene::{ContentSource, PrefabInstance, PrefabResolver};
+    let prefab_id = AssetId::new();
+    let prefab_root = EntityData::new("prefab root");
+    let prefab = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![prefab_root],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    struct Library(AssetId, ContentSource);
+    impl PrefabResolver for Library {
+        fn prefab(&mut self, id: AssetId) -> Result<ContentSource> {
+            anyhow::ensure!(id == self.0, "missing prefab");
+            Ok(self.1.clone())
+        }
+    }
+    let mut library = Library(prefab_id, prefab);
+    let root = EntityData::new("root");
+    let root_id = root.id;
+    let instance_id = InstanceId::new();
+    let source = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![root],
+            ..Default::default()
+        },
+        instances: vec![PrefabInstance {
+            id: instance_id,
+            prefab: prefab_id,
+            parent: Some(root_id),
+            overrides: vec![],
+        }],
+        ..Default::default()
+    };
+    let mut doc = Document::open_source(source.clone())?;
+    let mut child = EntityData::new("child");
+    child.parent = Some(root_id);
+    doc.insert_entity(child, &mut library)?;
+    assert_eq!(doc.history_len(), 1);
+    doc.undo()?;
+    assert_eq!(doc.source(), source);
+    let duplicate = doc.duplicate_instance(instance_id, &mut library)?;
+    assert_eq!(doc.source().instances.len(), 2);
+    doc.remove_instance(duplicate, &mut library)?;
+    assert_eq!(doc.source(), source);
+    doc.undo()?;
+    assert_eq!(doc.source().instances.len(), 2);
+    doc.undo()?;
+    assert_eq!(doc.source(), source);
+    let copies = doc.clone_subtrees(&[root_id], &mut library)?;
+    assert_eq!(
+        doc.source()
+            .instances
+            .iter()
+            .filter(|i| i.parent == Some(copies[&root_id]))
+            .count(),
+        1
+    );
+    doc.undo()?;
+    doc.remove_subtrees(&[root_id], &mut library)?;
+    assert!(doc.source().instances.is_empty());
+    assert!(doc.source().base.entities.is_empty());
+    doc.undo()?;
+    assert_eq!(doc.source(), source);
+    let before = doc.source();
+    library.0 = AssetId::new();
+    assert!(doc.clone_subtrees(&[root_id], &mut library).is_err());
+    assert_eq!(doc.source(), before);
     Ok(())
 }
 

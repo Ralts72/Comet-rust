@@ -110,7 +110,19 @@ pub fn show(
         .default_size(220.)
         .min_size(180.)
         .show(root, |ui| {
-            ui.heading("场景");
+            ui.horizontal(|ui| {
+                ui.heading("层级");
+                if ui
+                    .add_enabled(
+                        editor.play.is_none() && !editor.export.is_running(),
+                        egui::Button::new("新建对象"),
+                    )
+                    .clicked()
+                {
+                    let result = editor.create_object(None, assets);
+                    editor.notice(result);
+                }
+            });
             ui.label(
                 editor
                     .source
@@ -135,25 +147,53 @@ pub fn show(
                 entities: &[EntityData],
                 parent: Option<EntityId>,
                 selected: &mut Option<EntityId>,
+                action: &mut Option<(u8, EntityId)>,
+                can_edit: bool,
             ) {
                 for entity in entities.iter().filter(|e| e.parent == parent) {
-                    if ui
-                        .selectable_label(*selected == Some(entity.id), &entity.name)
-                        .clicked()
-                    {
+                    let response = ui.selectable_label(*selected == Some(entity.id), &entity.name);
+                    if response.clicked() {
                         *selected = Some(entity.id);
                     }
+                    response.context_menu(|ui| {
+                        ui.add_enabled_ui(can_edit, |ui| {
+                            for (label, operation) in [("创建子对象", 0), ("复制", 1), ("删除", 2)]
+                            {
+                                if ui.button(label).clicked() {
+                                    *action = Some((operation, entity.id));
+                                    ui.close();
+                                }
+                            }
+                        });
+                    });
                     ui.indent(entity.id.to_string(), |ui| {
-                        tree(ui, entities, Some(entity.id), selected)
+                        tree(ui, entities, Some(entity.id), selected, action, can_edit)
                     });
                 }
             }
             let before = editor.selected;
+            let mut action = None;
+            let can_edit = editor.play.is_none() && !editor.export.is_running();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                tree(ui, &snapshot.entities, None, &mut editor.selected)
+                tree(
+                    ui,
+                    &snapshot.entities,
+                    None,
+                    &mut editor.selected,
+                    &mut action,
+                    can_edit,
+                )
             });
             if before != editor.selected {
                 let result = editor.commit();
+                editor.notice(result);
+            }
+            if let Some((operation, id)) = action {
+                let result = match operation {
+                    0 => editor.create_object(Some(id), assets),
+                    1 => editor.duplicate_object(id, assets),
+                    _ => editor.delete_object(id, assets),
+                };
                 editor.notice(result);
             }
         });

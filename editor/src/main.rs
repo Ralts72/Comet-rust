@@ -1,5 +1,6 @@
 mod documents;
 mod export;
+mod objects;
 mod project;
 mod scenes;
 mod session;

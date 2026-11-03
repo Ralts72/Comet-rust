@@ -396,3 +396,29 @@ pub fn remap(e: &mut EntityData, map: &BTreeMap<EntityId, EntityId>) -> Result<(
     }
     Ok(())
 }
+
+/// Deleting local objects clears local links, while external scene identities remain unchanged.
+pub(crate) fn clear_removed_references(
+    e: &mut EntityData,
+    removed: &BTreeSet<EntityId>,
+) -> Result<()> {
+    let keep = |reference: &EntityRef| !matches!(reference, EntityRef::Local { entity } if removed.contains(entity));
+    for field in FIELDS
+        .iter()
+        .filter(|field| field.references == ReferencePolicy::Entity)
+    {
+        if let Some(mut value) = field.read(e) {
+            match &mut value {
+                FieldValue::Entity(reference) => {
+                    if reference.as_ref().is_some_and(|r| !keep(r)) {
+                        *reference = None;
+                    }
+                }
+                FieldValue::Entities(references) => references.retain(keep),
+                _ => {}
+            }
+            field.write(e, value)?;
+        }
+    }
+    Ok(())
+}
