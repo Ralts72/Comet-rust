@@ -71,6 +71,7 @@ macOS 默认导出 `.app`，资源放在 `Contents/Resources`，发布前完成�
 | `tools/verify` | 工程验收、模块边界与依赖审计 |
 | `demo/assets` | 默认示例的作者资源与身份文件 |
 | `tests/fixtures` | 按功能组织的 Prefab、glTF 测试项目 |
+| 各包的 `tests/` | 集成测试、`unit/` 私有单元测试及 `support/` 共用准备代码，与 `src/` 隔离 |
 
 每个库在自己的 `Cargo.toml` 声明依赖。只有实际需要隔离的职责独立成包；不为尚未实现的功能创建空目录。
 所有 workspace 包统一设置为不可发布，仅用于完整工程内部构建。

@@ -32,6 +32,7 @@ python3 tools/verify/check_boundaries.py
 `cargo tree` 展示解析后的依赖和版本；平台条件决定实际选用的后端。审计结果写入 `target/verification/dependencies/`。
 依赖审计拒绝 cc/cmake、相关 C/C++ 构建封装与非正式图形路线，并检查 Objective-C 异常 shim 未启用。
 模块门禁还拒绝 Core 以外的正式包直接依赖 glam；模块边界约束：Scene 不依赖产品或 Store，Render 只依赖资产数据，App 不依赖编辑器、导入器和通用源图像解码库；Application 仅解码内置或包内 PNG 图标。
+门禁同时检查测试隔离：正式 `src/` 不得包含测试实现或测试辅助文件。私有单元测试通过 `#[cfg(test)]` 与 `#[path]` 从包内 `tests/unit/` 引入，保持原模块的私有访问范围；`tests/` 顶层保留面向公共 API 的集成测试。共用测试准备代码放在 `tests/support/`，这些子目录不单独声明 Cargo 测试入口。
 
 ## GitHub CI
 
@@ -49,7 +50,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 - 物理测试覆盖落体着地、完整 32 位碰撞过滤、触发进入/退出、走跑跳与落地、墙/台阶/坡道/移动平台、暂停单步、瞬移、非法命令及不同渲染帧率下的一致性；Scene 测试另验证旧版本往返、物理候选失败和保留句柄的批量姿态写回。
 - Scene 测试覆盖稳定身份、字段与引用、层级、复制、句柄失效、序列化和 Prefab 展开。
 - Document 测试覆盖预览、撤销/重做、取消、保存点、稳定只读快照和 256 条历史；结构命令验证无效候选与空操作不改变历史，Prefab 声明和子树关联可恢复。物理组件测试验证版本升级、成组变更及重复玩家拒绝。
-- Editor 的 session/tests.rs 验证世界、缓存、保存和路径；documents/tests.rs 验证场景切换与未保存确认；objects/tests.rs 验证对象命令、资源放置及保存后产品构建。ui/tests.rs 保留实际 egui 帧、快捷键、模拟授权和控件拖动测试；临时项目统一由 test_support.rs 从现有 fixtures 准备。
+- Editor 的 `tests/unit/session.rs` 验证世界、缓存、保存和路径；`documents.rs` 验证场景切换与未保存确认；`objects.rs` 验证对象命令、资源放置及保存后产品构建；`ui.rs` 验证实际 egui 帧、快捷键、模拟授权和控件拖动。临时项目统一由 `tests/support/mod.rs` 从现有 fixtures 准备。其他包的私有单元测试同样放在各自的 `tests/unit/`。
 - 资产流程测试使用 `tests/fixtures/prefab`、`tests/fixtures/gltf` 的临时副本，覆盖 metadata 身份、产品复用、失败后的索引保持、外部输入复核、glTF 多材质/子身份和坏输入。
 - 资产目录回归验证已构建源的身份和类型、同名不同类型文件、未构建资源隐藏、坏 metadata 与符号链接拒绝；构建和目录使用相同源扫描规则。
 - 默认 `demo/` 是当前示例项目，不用于测试写回。导入、保存和破坏性测试使用独立临时项目。

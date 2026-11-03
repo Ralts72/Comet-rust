@@ -73,10 +73,6 @@ impl Editor {
             .as_ref()
             .map_or(self.document.world_id(), PlaySession::world_id)
     }
-    #[cfg(test)]
-    pub fn snapshot(&mut self, assets: &mut AssetStore) -> Result<SceneSnapshot> {
-        Ok(self.shared_snapshot(assets)?.as_ref().clone())
-    }
     pub fn start(&mut self, assets: &mut AssetStore) -> Result<()> {
         self.commit()?;
         let snapshot = self.document.source().expand(assets)?;
@@ -401,4 +397,5 @@ pub(crate) fn open(
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/session.rs"]
 mod tests;

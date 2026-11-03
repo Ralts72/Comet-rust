@@ -3,6 +3,7 @@ mod hierarchy;
 mod inspector;
 mod resources;
 #[cfg(test)]
+#[path = "../../tests/unit/ui.rs"]
 mod tests;
 use crate::session::Editor;
 use anyhow::Result;

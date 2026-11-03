@@ -259,3 +259,9 @@ fn expanded_snapshot_cache_tracks_document_products_and_play_worlds() -> Result<
     ));
     Ok(())
 }
+
+impl Editor {
+    pub(crate) fn snapshot(&mut self, assets: &mut AssetStore) -> Result<SceneSnapshot> {
+        Ok(self.shared_snapshot(assets)?.as_ref().clone())
+    }
+}
