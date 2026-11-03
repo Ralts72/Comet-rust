@@ -1,12 +1,13 @@
 mod gizmo;
+mod hierarchy;
 mod inspector;
+mod resources;
 #[cfg(test)]
 mod tests;
 use crate::session::Editor;
 use anyhow::Result;
 use comet_asset::AssetStore;
-use comet_core::{ActionInput, EntityId};
-use comet_scene::EntityData;
+use comet_core::ActionInput;
 use egui::{Color32, Rect, Vec2};
 pub fn show(
     editor: &mut Editor,
@@ -106,97 +107,7 @@ pub fn show(
                 }
             });
         });
-    egui::Panel::left("scene")
-        .default_size(220.)
-        .min_size(180.)
-        .show(root, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("层级");
-                if ui
-                    .add_enabled(
-                        editor.play.is_none() && !editor.export.is_running(),
-                        egui::Button::new("新建对象"),
-                    )
-                    .clicked()
-                {
-                    let result = editor.create_object(None, assets);
-                    editor.notice(result);
-                }
-            });
-            ui.label(
-                editor
-                    .source
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            )
-            .on_hover_text(editor.source.display().to_string());
-            ui.label(
-                egui::RichText::new(if editor.play.is_some() {
-                    "运行场景"
-                } else {
-                    "编辑场景"
-                })
-                .small()
-                .weak(),
-            );
-            ui.add_space(10.);
-            let snapshot = editor.last_snapshot.clone();
-            fn tree(
-                ui: &mut egui::Ui,
-                entities: &[EntityData],
-                parent: Option<EntityId>,
-                selected: &mut Option<EntityId>,
-                action: &mut Option<(u8, EntityId)>,
-                can_edit: bool,
-            ) {
-                for entity in entities.iter().filter(|e| e.parent == parent) {
-                    let response = ui.selectable_label(*selected == Some(entity.id), &entity.name);
-                    if response.clicked() {
-                        *selected = Some(entity.id);
-                    }
-                    response.context_menu(|ui| {
-                        ui.add_enabled_ui(can_edit, |ui| {
-                            for (label, operation) in [("创建子对象", 0), ("复制", 1), ("删除", 2)]
-                            {
-                                if ui.button(label).clicked() {
-                                    *action = Some((operation, entity.id));
-                                    ui.close();
-                                }
-                            }
-                        });
-                    });
-                    ui.indent(entity.id.to_string(), |ui| {
-                        tree(ui, entities, Some(entity.id), selected, action, can_edit)
-                    });
-                }
-            }
-            let before = editor.selected;
-            let mut action = None;
-            let can_edit = editor.play.is_none() && !editor.export.is_running();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                tree(
-                    ui,
-                    &snapshot.entities,
-                    None,
-                    &mut editor.selected,
-                    &mut action,
-                    can_edit,
-                )
-            });
-            if before != editor.selected {
-                let result = editor.commit();
-                editor.notice(result);
-            }
-            if let Some((operation, id)) = action {
-                let result = match operation {
-                    0 => editor.create_object(Some(id), assets),
-                    1 => editor.duplicate_object(id, assets),
-                    _ => editor.delete_object(id, assets),
-                };
-                editor.notice(result);
-            }
-        });
+    hierarchy::show(editor, root, assets);
     egui::Panel::right("inspector")
         .default_size(280.)
         .show(root, |ui| {
@@ -224,6 +135,7 @@ pub fn show(
                     }
                 });
         });
+    resources::show(editor, root, assets);
     let mut viewport = Rect::NOTHING;
     let mut pick = None;
     let mut actions = ActionInput::default();

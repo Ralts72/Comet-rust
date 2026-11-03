@@ -1,20 +1,17 @@
-use crate::import;
+use crate::{
+    import,
+    source::{SourceMeta, scan},
+};
 use anyhow::{Context, Result, ensure};
 use comet_asset_data::product::{IndexEntry, PRODUCT_VERSION, Product, ProductFile, ProductIndex};
 use comet_core::{AssetId, atomic_write, digest};
 use comet_scene::{ContentSource, PrefabResolver};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SourceMeta {
-    pub version: u32,
-    pub id: AssetId,
-}
 #[derive(Debug, Serialize)]
 pub struct BuildReport {
     pub sources: usize,
@@ -66,28 +63,20 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
     let mut inputs = vec![];
     let mut origins = BTreeMap::new();
     for path in &paths {
-        let mut name = path.as_os_str().to_os_string();
-        name.push(".meta");
-        let meta_path = PathBuf::from(name);
+        let meta_path = SourceMeta::path(path);
         let metadata = if meta_path.try_exists()? {
             Some(fs::read(&meta_path)?)
         } else {
             None
         };
         let meta: SourceMeta = match &metadata {
-            Some(b) => serde_json::from_slice(b)
+            Some(b) => SourceMeta::from_bytes(b)
                 .with_context(|| format!("parse metadata {}", meta_path.display()))?,
             None => SourceMeta {
                 version: 1,
                 id: AssetId::new(),
             },
         };
-        ensure!(
-            meta.version == 1,
-            "unsupported metadata version {} in {}",
-            meta.version,
-            meta_path.display()
-        );
         let bytes = fs::read(path)?;
         let imported = import::bundle(path, &bytes, meta.id)
             .with_context(|| format!("import {}", path.display()))?;
@@ -238,40 +227,6 @@ fn verify_snapshot(assets: &Path, paths: &[PathBuf], inputs: &[Input]) -> Result
                 "glTF resource changed during build: {}; retry",
                 file.display()
             );
-        }
-    }
-    Ok(())
-}
-fn scan(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(root).with_context(|| format!("scan {}", root.display()))? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
-        ensure!(
-            !kind.is_symlink(),
-            "source symlinks are not supported: {}",
-            entry.path().display()
-        );
-        if kind.is_dir() {
-            scan(&entry.path(), output)?;
-        } else if kind.is_file() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            ensure!(
-                ![
-                    ".scene.json",
-                    ".prefab.json",
-                    ".mesh.json",
-                    ".material.json",
-                    ".meta.json",
-                ]
-                .iter()
-                .any(|suffix| name.ends_with(suffix)),
-                "legacy asset filename {}; use .scene/.prefab/.mesh/.material and <source-filename>.meta; rename sources and metadata together, preserving metadata IDs",
-                entry.path().display()
-            );
-            if import::supported(&entry.path()) {
-                output.push(entry.path());
-            }
         }
     }
     Ok(())

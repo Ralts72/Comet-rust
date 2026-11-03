@@ -1,7 +1,7 @@
 use crate::session::Editor;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
-use comet_core::{EntityId, InstanceId};
+use comet_core::{AssetId, EntityId, InstanceId};
 use comet_scene::{EntityData, PrefabResolver};
 
 enum Owner {
@@ -80,6 +80,23 @@ impl Editor {
         Ok(())
     }
 
+    pub(crate) fn place_resource(
+        &mut self,
+        prefab: AssetId,
+        name: &str,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.structural_edit()?;
+        let entity = EntityData::new(name);
+        let id = entity.id;
+        self.document
+            .insert_prefab(entity, prefab, assets)
+            .context("无法将资源添加到场景")?;
+        self.selected = Some(id);
+        self.status = format!("已添加资源：{name}");
+        Ok(())
+    }
+
     pub(crate) fn duplicate_object(
         &mut self,
         entity: EntityId,
@@ -116,3 +133,6 @@ impl Editor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

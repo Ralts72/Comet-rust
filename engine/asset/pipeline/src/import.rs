@@ -1,20 +1,16 @@
 use anyhow::{Context, Result, ensure};
-use comet_asset_data::product::{Product, TextureData};
+use comet_asset_data::product::{AssetKind, Product, TextureData};
 use std::{io::Cursor, path::Path};
 
-pub(crate) fn supported(path: &Path) -> bool {
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    [
-        ".scene",
-        ".prefab",
-        ".mesh",
-        ".material",
-        ".png",
-        ".gltf",
-        ".glb",
-    ]
-    .iter()
-    .any(|s| name.ends_with(s))
+pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
+    match path.extension()?.to_str()? {
+        "scene" => Some(AssetKind::Scene),
+        "prefab" | "gltf" | "glb" => Some(AssetKind::Prefab),
+        "mesh" => Some(AssetKind::Mesh),
+        "material" => Some(AssetKind::Material),
+        "png" => Some(AssetKind::Texture),
+        _ => None,
+    }
 }
 pub(crate) fn bundle(
     path: &Path,

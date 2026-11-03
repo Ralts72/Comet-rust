@@ -1,7 +1,8 @@
-use super::*;
+use crate::session::Editor;
+use comet_asset::AssetStore;
 use comet_core::math::Vec3;
 use comet_scene::schema::{self, FieldValue};
-use egui::{Pos2, Stroke};
+use egui::{Color32, Pos2, Rect, Stroke};
 pub(super) fn draw(
     editor: &mut Editor,
     ui: &mut egui::Ui,

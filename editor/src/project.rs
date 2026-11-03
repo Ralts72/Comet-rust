@@ -1,28 +1,29 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
 use comet_asset::AssetStore;
-use comet_asset_pipeline::{ProjectSettings, SourceMeta};
-use comet_core::{AssetId, ProjectPaths};
-use std::path::Path;
+use comet_asset_data::product::AssetKind;
+use comet_asset_pipeline::{ProjectSettings, SourceCatalog};
+use comet_core::ProjectPaths;
 
 pub(crate) struct ProjectPanel {
     pub open: bool,
     settings: ProjectSettings,
-    icons: Vec<(AssetId, String)>,
     error: Option<String>,
 }
 impl ProjectPanel {
     pub fn new(paths: &ProjectPaths) -> Result<Self> {
-        let mut icons = vec![];
-        collect(paths.assets(), paths, &mut icons)?;
-        icons.sort_by(|a, b| a.1.cmp(&b.1));
         Ok(Self {
             open: false,
             settings: ProjectSettings::load(paths)?,
-            icons,
             error: None,
         })
     }
-    pub fn show(&mut self, ctx: &egui::Context, paths: &ProjectPaths, assets: &mut AssetStore) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        paths: &ProjectPaths,
+        assets: &mut AssetStore,
+        sources: &SourceCatalog,
+    ) {
         if !self.open {
             return;
         }
@@ -35,16 +36,26 @@ impl ProjectPanel {
                 ui.label("从项目 PNG 资源中选择正方形图标，建议使用 1024 × 1024 像素。");
                 let mut selected = self.settings.game_icon;
                 egui::ComboBox::from_label("图标资源")
-                    .selected_text(selected.map_or("Comet 默认图标", |id| {
-                        self.icons
-                            .iter()
-                            .find(|(icon, _)| *icon == id)
-                            .map_or("图标资源已丢失", |(_, label)| label.as_str())
-                    }))
+                    .selected_text(selected.map_or_else(
+                        || "Comet 默认图标".to_owned(),
+                        |id| {
+                            sources
+                                .of_kind(AssetKind::Texture)
+                                .find(|icon| icon.id == id)
+                                .map_or_else(
+                                    || "图标资源已丢失".to_owned(),
+                                    |icon| icon.source.display().to_string(),
+                                )
+                        },
+                    ))
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut selected, None, "Comet 默认图标");
-                        for (id, label) in &self.icons {
-                            ui.selectable_value(&mut selected, Some(*id), label);
+                        for icon in sources.of_kind(AssetKind::Texture) {
+                            ui.selectable_value(
+                                &mut selected,
+                                Some(icon.id),
+                                icon.source.display().to_string(),
+                            );
                         }
                     });
                 if selected != self.settings.game_icon {
@@ -75,32 +86,4 @@ impl ProjectPanel {
             });
         self.open = open;
     }
-}
-fn collect(
-    directory: &Path,
-    paths: &ProjectPaths,
-    icons: &mut Vec<(AssetId, String)>,
-) -> Result<()> {
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        ensure!(
-            !entry.file_type()?.is_symlink(),
-            "source symlinks are not supported"
-        );
-        let path = paths.resolve_asset_path(entry.path())?;
-        if path.is_dir() {
-            collect(&path, paths, icons)?;
-        } else if path.extension().is_some_and(|e| e == "png") {
-            let meta: SourceMeta =
-                serde_json::from_slice(&std::fs::read(format!("{}.meta", path.display()))?)?;
-            icons.push((
-                meta.id,
-                path.strip_prefix(paths.assets())
-                    .context("图标资源路径")?
-                    .to_string_lossy()
-                    .into_owned(),
-            ));
-        }
-    }
-    Ok(())
 }

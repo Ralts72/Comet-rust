@@ -11,7 +11,8 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::scenes::SceneChoice;
+use comet_asset_data::product::AssetKind;
+use comet_asset_pipeline::SourceCatalog;
 pub struct ExportAction {
     pub entry: AssetId,
     pub additional: Vec<AssetId>,
@@ -31,7 +32,6 @@ pub struct ExportController {
     pub open: bool,
     pub template: Option<AppTemplate>,
     pub template_error: Option<String>,
-    pub choices: Vec<SceneChoice>,
     entry: AssetId,
     additional: BTreeSet<AssetId>,
     output: String,
@@ -43,8 +43,7 @@ pub struct ExportController {
     failure: Option<String>,
 }
 impl ExportController {
-    pub fn new(paths: &ProjectPaths, assets: &AssetStore, entry: AssetId) -> Result<Self> {
-        let choices = crate::scenes::collect(paths, assets)?;
+    pub fn new(entry: AssetId) -> Result<Self> {
         let name = if cfg!(target_os = "macos") {
             "CometGame.app"
         } else {
@@ -54,7 +53,6 @@ impl ExportController {
             open: false,
             template: None,
             template_error: None,
-            choices,
             entry,
             additional: BTreeSet::new(),
             output: Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -80,9 +78,8 @@ impl ExportController {
     pub fn entry_scene(&self) -> AssetId {
         self.entry
     }
-    pub fn select_scene(&mut self, entry: AssetId, choices: Vec<SceneChoice>) {
+    pub fn select_scene(&mut self, entry: AssetId) {
         self.entry = entry;
-        self.choices = choices;
         self.additional.clear();
         self.open = false;
         self.last_output = None;
@@ -245,7 +242,7 @@ impl ExportController {
         );
         self.last_output.clone().context("导出未生成游戏包")
     }
-    pub fn show(&mut self, ctx: &egui::Context) -> Option<ExportAction> {
+    pub fn show(&mut self, ctx: &egui::Context, sources: &SourceCatalog) -> Option<ExportAction> {
         if !self.open {
             return None;
         }
@@ -271,23 +268,33 @@ impl ExportController {
                 ui.add_enabled_ui(!busy, |ui| {
                     egui::ComboBox::from_label("启动场景")
                         .selected_text(
-                            self.choices
-                                .iter()
+                            sources
+                                .of_kind(AssetKind::Scene)
                                 .find(|s| s.id == self.entry)
-                                .map_or("未知场景", |s| s.label.as_str()),
+                                .map_or_else(
+                                    || "未知场景".to_owned(),
+                                    |s| s.source.display().to_string(),
+                                ),
                         )
                         .show_ui(ui, |ui| {
-                            for scene in &self.choices {
-                                ui.selectable_value(&mut self.entry, scene.id, &scene.label);
+                            for scene in sources.of_kind(AssetKind::Scene) {
+                                ui.selectable_value(
+                                    &mut self.entry,
+                                    scene.id,
+                                    scene.source.display().to_string(),
+                                );
                             }
                         });
                     ui.label("额外包含的场景");
-                    for scene in &self.choices {
+                    for scene in sources.of_kind(AssetKind::Scene) {
                         if scene.id == self.entry {
                             continue;
                         }
                         let mut included = self.additional.contains(&scene.id);
-                        if ui.checkbox(&mut included, &scene.label).changed() {
+                        if ui
+                            .checkbox(&mut included, scene.source.display().to_string())
+                            .changed()
+                        {
                             if included {
                                 self.additional.insert(scene.id);
                             } else {

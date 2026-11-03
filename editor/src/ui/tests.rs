@@ -1,61 +1,11 @@
 use comet_core::math::Vec3;
+use comet_scene::EntityData;
 use egui::Pos2;
 
 use super::*;
+use crate::test_support::fixture;
 use comet_application::{Application, FrameContext, ViewRequest};
-use std::{fs, path::Path};
-
-#[test]
-fn scene_object_commands_support_undo_and_are_blocked_during_play() -> Result<()> {
-    let (_temp, mut editor, mut assets) = fixture()?;
-    let before = editor.document.source();
-    editor.create_object(None, &mut assets)?;
-    let root = editor.selected.unwrap();
-    editor.create_object(Some(root), &mut assets)?;
-    let child = editor.selected.unwrap();
-    editor.duplicate_object(root, &mut assets)?;
-    let copy = editor.selected.unwrap();
-    assert_ne!(copy, root);
-    assert!(
-        editor
-            .document
-            .source()
-            .base
-            .entities
-            .iter()
-            .any(|e| e.parent == Some(copy))
-    );
-    editor.delete_object(root, &mut assets)?;
-    assert!(
-        !editor
-            .document
-            .source()
-            .base
-            .entities
-            .iter()
-            .any(|e| e.id == root || e.id == child)
-    );
-    editor.document.undo()?;
-    assert!(
-        editor
-            .document
-            .source()
-            .base
-            .entities
-            .iter()
-            .any(|e| e.id == child)
-    );
-    editor.document.undo()?;
-    editor.document.undo()?;
-    editor.document.undo()?;
-    assert_eq!(editor.document.source(), before);
-    editor.start(&mut assets)?;
-    assert!(editor.create_object(None, &mut assets).is_err());
-    assert!(editor.duplicate_object(root, &mut assets).is_err());
-    assert!(editor.delete_object(root, &mut assets).is_err());
-    assert_eq!(editor.document.source(), before);
-    Ok(())
-}
+use std::fs;
 
 #[test]
 fn command_shortcuts_use_event_modifiers_even_when_released_before_the_frame() -> Result<()> {
@@ -351,22 +301,6 @@ fn frame_with_output(
     );
     output.textures_delta.clear();
     (request.unwrap(), output)
-}
-fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
-    let temp = tempfile::tempdir()?;
-    let project = temp.path().join("project");
-    fs::create_dir_all(project.join("assets"))?;
-    for file in
-        fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/gltf/assets"))?
-    {
-        let file = file?;
-        if file.file_name() != ".assetc.lock" {
-            fs::copy(file.path(), project.join("assets").join(file.file_name()))?;
-        }
-    }
-    let (editor, assets) =
-        crate::session::open(project, temp.path().join("products"), "main.scene".into())?;
-    Ok((temp, editor, assets))
 }
 #[test]
 fn physics_parameter_drag_keeps_its_preview_and_commits_one_history_item() -> Result<()> {

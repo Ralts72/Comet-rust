@@ -17,14 +17,10 @@ pub fn create_scene(
         std::fs::symlink_metadata(&path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
         "场景位置已存在"
     );
-    let mut metadata = path.as_os_str().to_owned();
-    metadata.push(".meta");
-    let metadata = paths.resolve_asset_path(std::path::Path::new(&metadata))?;
+    let metadata = paths.resolve_asset_path(crate::SourceMeta::path(&path))?;
     match std::fs::read(&metadata) {
         Ok(bytes) => {
-            let meta: crate::SourceMeta =
-                serde_json::from_slice(&bytes).context("读取保留的场景身份失败")?;
-            ensure!(meta.version == 1, "不支持的场景身份版本");
+            crate::SourceMeta::from_bytes(&bytes).context("读取保留的场景身份失败")?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let meta = crate::SourceMeta {

@@ -1,5 +1,7 @@
-use super::*;
+use crate::session::Editor;
+use comet_asset::AssetStore;
 use comet_core::math::{EulerRot, Quat};
+use comet_scene::EntityData;
 use comet_scene::schema::{self, FieldValue};
 mod physics;
 pub(super) fn draw(

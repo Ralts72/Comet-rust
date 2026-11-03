@@ -119,6 +119,14 @@ fn structural_edits_preserve_prefab_declarations_and_history() -> Result<()> {
     assert_eq!(doc.history_len(), 1);
     doc.undo()?;
     assert_eq!(doc.source(), source);
+    let revision = doc.revision();
+    let history = doc.history_len();
+    assert!(doc.clone_subtrees(&[], &mut library)?.is_empty());
+    doc.remove_subtrees(&[], &mut library)?;
+    assert_eq!(doc.revision(), revision);
+    assert_eq!(doc.history_len(), history);
+    doc.redo()?;
+    doc.undo()?;
     let duplicate = doc.duplicate_instance(instance_id, &mut library)?;
     assert_eq!(doc.source().instances.len(), 2);
     doc.remove_instance(duplicate, &mut library)?;

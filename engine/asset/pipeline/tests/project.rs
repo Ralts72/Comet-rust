@@ -38,3 +38,67 @@ fn new_scenes_reuse_reserved_identity_and_reject_existing_or_outside_targets() -
     }
     Ok(())
 }
+
+#[test]
+fn source_catalog_uses_built_identities_and_rejects_inconsistent_metadata() -> Result<()> {
+    use comet_asset_data::product::AssetKind;
+    use comet_asset_pipeline::SourceCatalog;
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    fs::create_dir_all(project.join("assets/内容"))?;
+    let paths = ProjectPaths::open(&project)?;
+    let scene = paths.assets().join("内容/shared.scene");
+    let prefab = paths.assets().join("内容/shared.prefab");
+    let bytes = comet_scene::ContentSource::default().to_json()?;
+    fs::write(&scene, &bytes)?;
+    fs::write(&prefab, &bytes)?;
+    let products = temp.path().join("products");
+    prepare(&project, &products)?;
+    let store = comet_asset::AssetStore::open(&products)?;
+    let catalog = SourceCatalog::read(&paths, store.index())?;
+    let scene_id = catalog.of_kind(AssetKind::Scene).next().unwrap().id;
+    let prefab_id = catalog.of_kind(AssetKind::Prefab).next().unwrap().id;
+    assert_ne!(scene_id, prefab_id);
+    assert_eq!(
+        catalog.of_kind(AssetKind::Scene).next().unwrap().source,
+        Path::new("内容/shared.scene")
+    );
+    fs::write(paths.assets().join("unbuilt.scene"), &bytes)?;
+    assert_eq!(
+        SourceCatalog::read(&paths, store.index())?
+            .of_kind(AssetKind::Scene)
+            .count(),
+        1
+    );
+    let original = fs::read(SourceMeta::path(&prefab))?;
+    fs::write(
+        SourceMeta::path(&prefab),
+        serde_json::to_vec(&SourceMeta {
+            version: 1,
+            id: scene_id,
+        })?,
+    )?;
+    assert!(SourceCatalog::read(&paths, store.index()).is_err());
+    fs::write(
+        SourceMeta::path(&prefab),
+        serde_json::to_vec(&SourceMeta {
+            version: 2,
+            id: prefab_id,
+        })?,
+    )?;
+    assert!(SourceMeta::load(&prefab).is_err());
+    assert!(SourceCatalog::read(&paths, store.index()).is_err());
+    fs::write(SourceMeta::path(&prefab), &original)?;
+    assert_eq!(
+        catalog.of_kind(AssetKind::Prefab).next().unwrap().id,
+        prefab_id
+    );
+    #[cfg(unix)]
+    {
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside)?;
+        std::os::unix::fs::symlink(&outside, paths.assets().join("link"))?;
+        assert!(SourceCatalog::read(&paths, store.index()).is_err());
+    }
+    Ok(())
+}

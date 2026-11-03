@@ -11,7 +11,7 @@ engine/
   scene/                 components.rs / physics.rs / schema.rs / scene.rs / prefab.rs
   asset/data/            product.rs：CPU 产品协议
   asset/runtime/         store.rs：只读产品消费
-  asset/pipeline/        导入、构建、打包、模板与项目配置库
+  asset/pipeline/        source.rs：源目录与身份；导入、构建、打包、模板与项目配置库
   runtime/               session.rs / clock.rs / input.rs / physics.rs / character.rs：运行世界与模拟
   application/           application.rs / extract.rs / input.rs / timing.rs / icon.rs / macos.rs：宿主、采样、图标与提取
     resources/fonts/     内置中文字体与许可
@@ -21,7 +21,8 @@ engine/
     src/backend/vulkan/  renderer.rs / device.rs / resources.rs / pipeline.rs / commands.rs / ui.rs
 editor/
   core/                  document.rs：编辑文档与历史
-  src/                   session.rs / documents.rs / scenes.rs / export.rs / project.rs / ui/
+  src/                   main.rs：启动；session.rs：会话；documents.rs / objects.rs / export.rs / project.rs
+    ui/                  面板与交互；层级、资源、属性和 Gizmo 各归所属文件
   resources/icons/       编辑器原版 PNG / ICNS / ICO 图标
 app/
   src/                   游戏入口
@@ -127,9 +128,11 @@ ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Pr
 实例实体身份由实例和源实体 UUID 确定性派生，嵌套实例同理；源更新后身份稳定，覆盖重新应用。展开检查循环、缺失依赖、目标及类型，最多 64 层，不创建临时 ECS 世界收集依赖。
 当前覆盖目标是被引用 Prefab 的 base 实体，尚不支持跨层结构覆盖、移除源实体或完整结构编辑 UI。
 
-Document 拥有 Edit 场景、Prefab 声明、历史与保存点。连续预览 commit 后成为一条历史；cancel 恢复。保存先原子发布作者文件，成功后移动保存点；失败保留 dirty 状态。作者文件保留声明和覆盖，不保存为失去关系的平铺实体。
+Editor 的 main.rs 只解析启动参数并准备宿主，session.rs 协调文档、Play、产品和帧提取；documents.rs 负责文档切换，objects.rs 负责对象命令，ui/ 组织实际面板和交互。界面沿用旧版的功能目标，具体操作结合 egui 与当前工作流设计。
 
-Application 将窗口关闭请求交给应用决定，应用可以延后关闭并在确认后通知宿主退出。Editor 的 documents.rs 管理新建、打开与退出的统一未保存确认：选择或确认期间冻结 Play、禁用背景编辑和快捷键，取消保留预览；保存先停止 Play 并沿用原有事务与路径校验，失败保留窗口供重试。scenes.rs 扫描项目作者场景，供打开窗口与导出窗口共用。切换前准备独立 Editor/AssetStore 候选并完成展开与渲染提取校验，成功后才替换文档、资产与只读快照，停止旧 Play、清除选中状态并切换导出启动场景；失败保留当前文档。模板、导出目的地及已启动的独立游戏进程仍由当前 ExportController 管理。后台导出完成前禁止切换或退出。App 默认允许直接关闭。
+Document 拥有 Edit 场景、Prefab 声明、历史与保存点。连续预览 commit 后成为一条历史；cancel 恢复。保存先原子发布作者文件，成功后移动保存点；失败保留 dirty 状态。作者文件保留声明和覆盖，不保存为失去关系的平铺实体。结构命令共用候选编辑、完整展开校验、内容发布与历史记录入口；无变化不创建历史，失败不替换文档。资源放置保留 Prefab 声明，挂接到一个作者容器供整体变换和子树操作。
+
+Application 将窗口关闭请求交给应用决定，应用可以延后关闭并在确认后通知宿主退出。Editor 的 documents.rs 管理新建、打开与退出的统一未保存确认：选择或确认期间冻结 Play、禁用背景编辑和快捷键，取消保留预览；保存先停止 Play 并沿用原有事务与路径校验，失败保留窗口供重试。场景选择与导出窗口筛选同一份 SourceCatalog。切换前准备独立 Editor/AssetStore 候选并完成展开与渲染提取校验，成功后才替换文档、资产与只读快照，停止旧 Play、清除选中状态并切换导出启动场景；失败保留当前文档。模板、导出目的地及已启动的独立游戏进程仍由当前 ExportController 管理。后台导出完成前禁止切换或退出。App 默认允许直接关闭。
 
 新场景源由资产 Pipeline 创建，复用项目锁和统一路径规则。先发布稳定身份 metadata，再使用 Core 的排他文件发布保存完整空场景，已有目标不会被覆盖。中断后保留的完整 metadata 可在重试时复用其 UUID；场景创建成功但后续加载失败时，保留已创建的作者文件供修复或再次打开，不自动删除。排他发布在 macOS/Linux 使用已有的原生不覆盖重命名，Windows 以 MoveFileExW 的零标志同时保护文件和目录。
 
@@ -163,6 +166,8 @@ PhysicsBody 必须位于场景根，允许带可视子树；缩放必须为正�
 4. 产品写入 `products/<AssetId>/<SHA256>.json`，保存版本、身份、输入摘要及 CPU payload。相同内容复用文件，不就地覆盖旧版本。
 5. 最后通过同目录临时文件、sync 与 rename 原子发布 `index.json`；失败时旧索引仍可使用。当前不自动清理旧产品版本。
 6. AssetStore 只读产品目录。打开与刷新时全量校验候选索引、摘要、协议、依赖及展开，成功后切换；缓存使用 Arc，消费者已持有的旧版本继续有效。
+
+Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径和版本校验；SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与资源面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
 当前构建仍解析全部源，复用的是未变化的产品文件，尚无导入计算缓存。资产打开/刷新仍全量验证，尚未实现大场景按需流送。
 自有源、metadata、产品和索引有显式版本，未知版本/字段报错。旧 C++ 自有格式需显式单向迁移；源路径不参与资产身份。

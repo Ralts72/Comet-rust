@@ -8,5 +8,7 @@ pub use template::{AppTemplate, PackageFile};
 mod icon;
 mod import;
 mod project;
-pub use build::{BuildReport, SourceMeta, prepare};
+mod source;
+pub use build::{BuildReport, prepare};
 pub use project::{ProjectSettings, create_scene};
+pub use source::{SourceAsset, SourceCatalog, SourceMeta};
