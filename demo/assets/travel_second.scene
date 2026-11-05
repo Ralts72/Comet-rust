@@ -1,0 +1,401 @@
+{
+  "version": 1,
+  "base": {
+    "version": 5,
+    "entities": [
+      {
+        "id": "a3000000-0000-4000-8000-000000000001",
+        "name": "第二关·方塔地面",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            -0.25,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              4.0,
+              0.25,
+              3.0
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000002",
+        "name": "角色（WASD 移动，空格跳跃）",
+        "parent": null,
+        "transform": {
+          "translation": [
+            1.0,
+            1.0,
+            1.8
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "kinematic",
+          "shape": {
+            "kind": "capsule",
+            "half_height": 0.5,
+            "radius": 0.3
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "character": {
+          "player_controlled": true,
+          "move_speed": 4.0,
+          "run_multiplier": 1.75,
+          "jump_speed": 5.0,
+          "gravity": 9.81,
+          "max_slope_degrees": 45.0,
+          "step_height": 0.3,
+          "snap_distance": 0.15
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000003",
+        "name": "换关控制（E 前往另一关）",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "script": {
+          "asset": "a0000000-0000-4000-8000-000000000004",
+          "enabled": true,
+          "parameters": {
+            "next_scene": {
+              "type": "text",
+              "value": "a0000000-0000-4000-8000-000000000002"
+            },
+            "auto_after": {
+              "type": "number",
+              "value": 0.0
+            },
+            "label": {
+              "type": "text",
+              "value": "第二关·方塔"
+            }
+          }
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000004",
+        "name": "方塔标记",
+        "parent": null,
+        "transform": {
+          "translation": [
+            1.4,
+            1.0,
+            -0.7
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.4,
+              1.0,
+              0.4
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000005",
+        "name": "第二关·方塔地面 / 外观 1",
+        "parent": "a3000000-0000-4000-8000-000000000001",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            5.714285714285714,
+            0.35714285714285715,
+            4.285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000006",
+        "name": "第二关·方塔地面 / 外观 2",
+        "parent": "a3000000-0000-4000-8000-000000000001",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            5.714285714285714,
+            0.35714285714285715,
+            4.285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000007",
+        "name": "角色（WASD 移动，空格跳跃） / 外观 1",
+        "parent": "a3000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000008",
+        "name": "角色（WASD 移动，空格跳跃） / 外观 2",
+        "parent": "a3000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-000000000009",
+        "name": "方塔标记 / 外观 1",
+        "parent": "a3000000-0000-4000-8000-000000000004",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.5714285714285715,
+            1.4285714285714286,
+            0.5714285714285715
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a3000000-0000-4000-8000-00000000000a",
+        "name": "方塔标记 / 外观 2",
+        "parent": "a3000000-0000-4000-8000-000000000004",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.5714285714285715,
+            1.4285714285714286,
+            0.5714285714285715
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      }
+    ]
+  },
+  "instances": []
+}

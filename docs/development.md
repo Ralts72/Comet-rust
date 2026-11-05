@@ -4,8 +4,16 @@
 
 ## 开发环境
 
-使用 `rust-toolchain.toml` 固定的 Rust 工具链及其 rustfmt、Clippy 组件；Cargo 依赖由 `Cargo.lock` 锁定。Python 工具只使用 Python 3 标准库。编译共用根 `target/`，并行配置由 `.cargo/config.toml` 管理。macOS 需要 Xcode Command Line Tools；Windows 原生构建使用 MSVC 工具链和 Windows SDK；Windows/Linux 运行图形程序时需要系统 Vulkan loader 与驱动。
+使用 `rust-toolchain.toml` 固定的 Rust 工具链及其 rustfmt、Clippy 组件；Cargo 依赖由 `Cargo.lock` 锁定。Python 工具只使用 Python 3 标准库。编译共用根 `target/`，并行配置由 `.cargo/config.toml` 管理。macOS 最低为 14.2，需要 Xcode Command Line Tools；`.cargo/config.toml` 与 Editor/App 的 Info.plist 使用同一最低版本。Windows 原生构建使用 MSVC 工具链和 Windows SDK；Windows/Linux 运行图形程序时需要系统 Vulkan loader 与驱动。声音输出分别使用 macOS CoreAudio、Windows WASAPI、Linux ALSA；Debian/Ubuntu 构建先安装 `pkg-config` 和 `libasound2-dev`，设备与权限需由目标环境提供。
 二进制源资产使用 Git LFS，初次准备仓库时按 README 安装并拉取；不需要初始化 C++ 第三方子模块。
+
+## 构建缓存维护
+
+启动器与完整验收共用 `target/launch/slot-*/programs/`，一个槽同时保存匹配的 Editor、Release App、图标、许可和模板清单。调用方持有文件锁直到所有消费者退出；POSIX 编辑器还继承锁描述符，启动器提前退出也不会释放它正在使用的槽。连续构建优先复用编号最小的空闲槽，不再按内容 hash 新建永久目录；同时使用的会话各占一槽，退出后可复用。相同输入只校验并复用已有套件，变化或损坏时先构造并校验完整候选，再替换空闲槽；发布中断可从同槽 previous 恢复，遗留候选在下次取得该槽后回收。验收进程也持锁，防止运行中的导出与 GPU 检查被启动器覆盖。
+
+Cargo 自身的 `deps`、`.fingerprint`、`build` 和 `incremental` 仍使用其标准 hash 布局，不由启动器重命名或逐次清理。持续开发期间定期检查占用；需要清理过期 Cargo 缓存时先等 Cargo、rustc 退出，保留当前依赖产物及近期缓存。旧的 `target/editor-apps/`、`target/app-templates/`、`target/windows-programs/` 不再新增，迁移时保留已有内容；确认没有旧编辑器会话使用后再显式清理。
+
+资产产品、验收报告与截图、用户导出包和其他未知用途目录不纳入普通构建缓存清理。不要直接删除整个 `target/`；需要完全重建时再单独执行 Cargo 清理。 构建身份只注入两个程序入口，保持引擎库缓存独立；完整验收用真实 Cargo 检查比较身份变动及相同身份重复构建的 fresh 标记，防止无效重编译回归。日常入口仍只有 `start.sh`，缓存维护不增加另一套启动或构建模式。
 
 ## 验证命令
 
@@ -15,10 +23,12 @@ python3 tools/verify/verify.py --gpu
 python3 tools/verify/verify.py --native --linux --windows
 ```
 
-直接执行验证工具前确保 rustup 在 PATH 中。默认执行格式检查、全 workspace 测试、Clippy、模块边界、依赖审计、应用构建、资产构建和独立包校验。
+直接执行验证工具前确保 rustup 在 PATH 中。默认执行格式检查、全 workspace 测试、Clippy、模块边界、依赖审计、程序身份缓存复用、应用构建、资产构建和独立包校验。
 `--gpu` 增加真实离屏渲染与原生 GPU 能力检查；`--native` 还打开和关闭窗口，验证 start.sh、Release App 模板与编辑器导出的独立包。窗口烟测提交 8 帧后自动退出。
 `--smoke` 使用确定的 1/60 秒宿主帧时间，初始帧与宿主状态恢复帧为零；离屏 App 必须实际执行 7 个固定步。日常运行使用单调实时时间，烟测的确定时间不用于性能结论。
 `--linux` 对全部模块交叉编译和 Clippy，并检查目标平台的边界及依赖；需要安装对应标准库目标。它不代表已经在 Linux 上执行 GPU 工作。`--windows` 同样检查 x86_64-pc-windows-msvc 的全部模块、测试源码、Clippy、边界和依赖；不进行 Windows 链接，也不执行 Windows 程序。先运行 `rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-msvc` 准备目标标准库；在已有原生验证的平台上按需选择另一目标，避免重复相同检查。Windows 运行验证工具使用 `python tools/verify/verify.py`，启动由同一 Python 实现负责，不要求 POSIX Shell。
+
+macOS 运行 `--linux` 前使用 `brew install pkgconf` 准备 pkg-config。验证工具的 `linux_sdk.py` 自动下载固定版本和 SHA256 的真实 Debian ALSA 开发/运行包，在 `target/sysroots/` 校验、解包并复用，提供目标头文件、ELF 库及 pkg-config 元数据；首次需要联网。损坏缓存不会被复用。此 SDK 仅用于 ALSA 交叉检查；Linux 原生链接、设备与程序运行仍需对应环境验收。
 
 ## 依赖与模块审计
 
@@ -31,49 +41,140 @@ python3 tools/verify/check_boundaries.py
 
 `cargo tree` 展示解析后的依赖和版本；平台条件决定实际选用的后端。审计结果写入 `target/verification/dependencies/`。
 依赖审计拒绝 cc/cmake、相关 C/C++ 构建封装与非正式图形路线，并检查 Objective-C 异常 shim 未启用。
-模块门禁还拒绝 Core 以外的正式包直接依赖 glam；模块边界约束：Scene 不依赖产品或 Store，Render 只依赖资产数据，App 不依赖编辑器、导入器和通用源图像解码库；Application 仅解码内置或包内 PNG 图标。
+模块门禁还拒绝 Core 以外的正式包直接依赖 glam；模块边界约束：Scene 不依赖产品或 Store，Render 只依赖资产数据，App 不依赖编辑器、导入器和通用源图像解码库；Application 仅解码内置或包内 PNG 图标；Kira/CPAL 只允许在 Audio 输出包使用，Hound WAV 导入归 Pipeline，Runtime 只消费中立声音帧与 PCM 产品。
 测试采用 Rust 常见的混合布局，参见 [Rust 官方测试组织说明](https://doc.rust-lang.org/book/ch11-03-test-organization.html)：私有单元测试放在 `src/` 的所属模块内，较大测试模块拆到相邻的 `模块名/tests.rs`，通过 `#[cfg(test)] mod tests;` 按默认模块路径接入。库公共 API 的集成测试放在各包 `tests/`，由 Cargo 发现入口；集成测试共用辅助模块时使用 `tests/common/mod.rs` 等子模块。包内共享准备代码可使用受 `#[cfg(test)]` 保护的 `test_support` 模块；不为测试扩大正式 API。模块门禁检查依赖与职责边界，不强制所有测试使用同一种物理布局。
 
 ## GitHub CI
 
-[工作流](../.github/workflows/ci.yml) 仅运行 Linux，在 PR、`main/master` 推送及手动触发时执行；相同 PR 或分支的新运行会取消旧运行。使用 Ubuntu 24.04 x64，覆盖 Linux 原生测试、Vulkan 后端编译与 Clippy、资产与独立包检查、Release 游戏和资产工具构建，并交叉检查 Windows MSVC 全工程。
+[工作流](../.github/workflows/ci.yml) 仅运行 Linux，在 PR、`main/master` 推送及手动触发时执行；相同 PR 或分支的新运行会取消旧运行。使用 Ubuntu 24.04 x64，安装 `pkg-config` 与 `libasound2-dev`，覆盖 Linux 原生测试、Vulkan 后端编译与 Clippy、资产与独立包检查、Release 游戏和资产工具构建，并交叉检查 Windows MSVC 全工程。
 
 CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 测试、Clippy、模块边界、依赖审计、Debug Editor/Release App 模板准备、编辑器后台导出及产品包隔离检查。Rust 版本、rustfmt 与 Clippy 由 `rust-toolchain.toml` 自动安装，Cargo 命令使用锁文件；checkout 拉取 Git LFS 资产，不初始化 C++ 第三方子模块。首次冷编译的测试、Clippy 与应用构建各允许 15 分钟，其余检查默认 5 分钟；单个 CI job 最长 30 分钟。
 
 依赖缓存按平台、工具链和 Cargo 配置区分，只在仓库默认分支保存，PR 可以读取已有缓存。缓存不保留 workspace 自身产物、增量编译目录、资产产品或验证临时项目；CI 关闭增量编译，本地构建配置保持原有用途。日志、报告、依赖审计与源码快照在失败时也尝试上传，保留 7 天，不上传整个 `target/` 或游戏包。外部 Actions 固定到完整 commit SHA。
 
-托管 CI 不执行 `--gpu` 或 `--native`；此处的 Vulkan 检查覆盖编译和 CPU 行为，Metal、物理 GPU、呈现、多队列和显存别名需在有对应设备的环境验收。Runner 标签和架构以 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)为准。
+托管 CI 不执行 `--gpu` 或 `--native`；此处的 Vulkan 检查覆盖编译和 CPU 行为，Metal、物理 GPU、呈现、多队列和显存别名需在有对应设备的环境验收。声音 CPU 回归不要求设备；托管 CI 不作为实际出声验收。Runner 标签和架构以 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)为准。
 
 ## 内容、编辑与资产
 
-- Runtime 测试覆盖不同渲染帧率下的固定步一致性、补步上限与掉时、快速点按、事件顺序、鼠标增量仅消费一次、输入队列失败保持、暂停单步和新世界基线；宿主测试覆盖焦点/可见性恢复与 UI 键盘授权。Editor 回归通过实际 egui 帧调用同一套 Runtime。
-- 物理测试覆盖落体着地、完整 32 位碰撞过滤、触发进入/退出、走跑跳与落地、墙/台阶/坡道/移动平台、暂停单步、瞬移、非法命令及不同渲染帧率下的一致性；Scene 测试另验证旧版本往返、物理候选失败和保留句柄的批量姿态写回。
-- Scene 测试覆盖稳定身份、字段与引用、层级、复制、句柄失效、序列化和 Prefab 展开。
-- Document 测试覆盖预览、撤销/重做、取消、保存点、稳定只读快照和 256 条历史；结构命令验证无效候选与空操作不改变历史，Prefab 声明和子树关联可恢复。物理组件测试验证版本升级、成组变更及重复玩家拒绝。
-- Editor 的 `src/session/tests.rs` 验证世界、缓存、保存和路径；`documents/tests.rs` 验证场景切换与未保存确认；`objects/tests.rs` 验证对象命令、资源放置及保存后产品构建；`ui/tests.rs` 验证实际 egui 帧、快捷键、模拟授权和控件拖动。临时项目由仅在测试时启用的 `src/test_support.rs` 从现有 fixtures 准备。Core 的身份、Application 的字体与输入采样通过公共 API 在各包 `tests/` 验证；Runtime 输入缓冲、Render 和 Pipeline 模板等内部测试按所属模块就近组织。
-- 资产流程测试使用 `tests/fixtures/prefab`、`tests/fixtures/gltf` 的临时副本，覆盖 metadata 身份、产品复用、失败后的索引保持、外部输入复核、glTF 多材质/子身份和坏输入。
-- 资产目录回归验证已构建源的身份和类型、同名不同类型文件、未构建资源隐藏、坏 metadata 与符号链接拒绝；构建和目录使用相同源扫描规则。
-- 资源刷新回归检查模型外部输入更新、新源身份与目录接纳、未保存内容及保存点保留、坏导入重试、仅被 undo/redo 引用的依赖拒绝、后台期间的操作与关闭保护，以及过期文档候选拒绝。后台任务测试检查输入错误和线程 panic 能结束任务。
-- 默认 `demo/` 是当前示例项目，不用于测试写回。导入、保存和破坏性测试使用独立临时项目。
-- 路径测试覆盖越界、绝对路径、符号链接及保存前复核；发布测试覆盖未完成候选不可见、并发占位、不覆盖已有目标和失败清理。
-- 模板测试覆盖未提交源码指纹、不可变快照、摘要/架构/协议失配；打包测试覆盖额外场景独占依赖、陈旧索引及错误 App 摘要。
-- 中文字体测试检查比例/等宽字体的汉字覆盖及实际排版；字体许可随模板和导出包分发并校验摘要。界面翻译不修改作者对象名称或资产身份。
-- 退出回归使用临时项目，检查未保存预览的取消与丢弃、保存失败重试、Play 与作者保存隔离，以及确认窗口期间快捷键和模拟冻结。窗口管理器关闭按钮仍需各平台实际交互验收。
-- 场景工作流回归检查新建取消、保存失败不创建文件、创建身份重试与已有文件保护、切换后的历史及导出入口、失败时 Play/文档/产品 Store 保持不变，以及打开选择窗口的 Escape 不会取消作者预览。创建与保存测试仅使用临时项目。
-- 应用图标检查验证编辑器 App、App 模板与导出包使用各自原版图标，包含 ICNS 摘要、Info.plist 声明和签名；快照回归验证程序配对、缓存复用、图标损坏及修复。Windows 图标测试覆盖 ICO 格式、资源语言、写入失败和快照恢复，原生 Windows 环境另验证 EXE 资源写入与读回；PNG 窗口图标在原生窗口烟测中实际解码，X11 窗口图标仍需目标桌面实测。
-- 项目图标回归检查设置保存失败保留旧值、UUID 在改名后有效、错误资产拒绝、配置符号链接拒绝和原始模板不变。完整验收在临时项目中使用蓝色图标覆盖默认橙色图标，验证包内 PNG 摘要、ICNS、签名，以及移除作者源后的运行；Windows 原生导出另执行资源读回，macOS 交叉检查不能代替它。
-- Python 工具测试位于 tools/launch/tests，使用标准库 unittest；测试数量与结果以本次执行日志为准。
+测试沿用 Rust 的模块边界：私有单元测试由所属模块接入，公共 API 回归位于各包 tests，真实程序及产品搬移由完整验收编排。共用准备代码复用已有 test_support 与 tests/fixtures，不为测试扩大正式接口；完整清单以实际测试输出为准。
 
-当前默认动作采样为 WASD 移动、空格跳跃、Shift 跑步、Ctrl 蹲伏、E 交互、左键主动作和视口右拖视角增量。WASD 按相机方向驱动 Rapier 胶囊，Space 和 Shift 分别执行跳跃与跑步，右拖环绕、滚轮缩放，相机跟随角色。Ctrl/E/左键目前只传递动作，没有蹲伏、交互或攻击消费者；项目可配置按键、手柄与原生 IME 仍属后续工作。
+| 验证边界 | 主要覆盖 | 入口 |
+| --- | --- | --- |
+| 场景与引用协议 | 旧格式读取、新组件最低版本、实例词法作用域、复制重映射、删除清理、候选失败保持 | [Scene 测试](../engine/scene/tests/)、[文档协议回归](../editor/core/tests/protocols.rs) |
+| 作者文档与历史 | 组件及字段共用候选校验；多选、层级、Prefab、保存点与 undo/redo；失败保留当前预览 | [Editor Core 测试](../editor/core/tests/) |
+| 运行世界 | 固定步与输入、物理/角色、脚本意图事务、暂停/重开/换关、显式进度与作者隔离 | [Runtime 测试](../engine/runtime/tests/)、[App 会话测试](../app/src/session/) |
+| 资源身份与产品 | metadata 稳定、源改名及更新、导入失败、索引原子发布、闭包及标签剥离 | [Pipeline 测试](../engine/asset/pipeline/tests/)、[Store 测试](../engine/asset/runtime/tests/) |
+| 后台接纳与项目切换 | 文档与历史依赖、世界/revision 守卫、取消与旧候选拒绝、工作线程错误和退出 | [会话测试](../editor/src/session/tests/)、[项目加载测试](../editor/src/project/loading/tests.rs) |
+| 编辑器交互 | 真实 egui 输入下的多选、Gizmo、吸附、Inspector、拖动事务、焦点和模态隔离 | [UI 测试](../editor/src/ui/tests/)、[Inspector 测试](../editor/src/ui/inspector/) |
+| 项目与文档流程 | 路径边界、身份预留、排他创建、保存失败重试、未保存提示与 Play 隔离 | [文档流程测试](../editor/src/documents/tests/)、[Core 路径与发布测试](../engine/core/tests/) |
+| 帧与原生输出 | 场景/索引缓存身份、在途产品保活、静态及蒙皮变换、拾取、音频输出和线程关闭 | [Application 测试](../engine/application/src/)、[Render 测试](../engine/render/src/)、[Audio 测试](../engine/audio/src/) |
+| 独立程序与启动 | Editor/App 配对、缓存槽复用与恢复、程序图标、产品搬移后运行、包外存储与设置 | [启动工具测试](../tools/launch/tests/)、[完整验收](../tools/verify/verify.py)、[App 测试](../app/src/) |
+
+资产导入、保存、打包、破坏性输入和恢复测试只写临时项目，不修改 demo 作者源。模型与声音复用正式资产或既有 fixtures，修改输入时先复制；自动测试不访问玩家存档、设置或最近项目记录。
+
+Scene 与 Editor Core 负责内容规则和历史，Editor 负责产品类型及绘制预检；测试分别覆盖这些边界。字段、组件增删与插入命令按实际配置和引用值升级最低 Scene 版本；旧文档只读打开或保存保留原版本。失败不能发布半个组件、改写保存点或清除已有有效手势。
+
+Gizmo 回归重点保留世界/局部坐标、父子归并、镜像及非均匀缩放、奇异/剪切/极端尺度拒绝、零位移与回到初始值、Escape、失焦、模态和世界切换。几何、法线及蒙皮的 CPU 结果另与真实 GPU 图像比较；合成输入和窗口烟测不替代物理鼠标操作与目标桌面验收。
+
+内容与运行规则见[架构约定](architecture.md)，具体操作见 [README](../README.md)，尚未迁移的完整能力见[迁移清单](migration.md)。导航、动画、声音、脚本和检查点的专项验证在下文维护。
+
+## 项目浏览与本机记录
+
+“项目”菜单的新建/打开表单可直接输入路径，也可打开内置 egui 浏览器；新建选择父目录时保留项目名。目录页支持跳转、刷新、主目录和 Windows 驱动器，作者文件页限制在所选项目的 assets 内。单次只枚举一层，最多扫描 4096 项（包含过滤项），超限时应进入更具体的目录。选中只回填表单；取消浏览不切换项目、不等待后台读取。最终提交仍执行未保存确认、ProjectPaths 边界校验和后台候选加载。
+
+普通 GUI 在“项目 → 最近项目”保存每个项目最后成功接纳的 Scene/Prefab，按规范化根路径去重置顶，最多十项。记录仅是本机偏好，不影响启动参数、项目 metadata 或导出包。其 v1 JSON 上限为 64 KiB，位置如下：
+
+| 平台 | 记录文件 |
+| --- | --- |
+| macOS | `$HOME/Library/Application Support/Comet/editor/recent-projects.json` |
+| Windows | `%APPDATA%/Comet/editor/recent-projects.json` |
+| Linux | `$XDG_STATE_HOME/comet/editor/recent-projects.json`；变量缺失或为空时使用 `$HOME/.local/state/comet/editor/recent-projects.json` |
+
+所用环境目录必须为绝对路径；显式配置相对路径或缺少必要变量时停用记录并提示，不回退到工作目录。记录文件为符号链接、格式损坏、版本未知或超限时同样停用，保留原文件；写入失败保留旧列表，项目本身仍正常打开。非 UTF-8 项目可用浏览器的原生路径打开，记录时给出非致命提示。列表加载不扫描项目目录，失效条目可手动移除，点击后由正常加载流程报告错误。
+
+Editor 构造时默认禁用记录；headless、smoke、CLI 导出和普通测试不访问真实用户状态。记录回归使用独立临时文件，覆盖路径规则、格式/大小/符号链接拒绝、原子更新失败、最后文档更新和移除失效项目。目录及合成 UI 回归覆盖有界枚举、最新请求胜出、取消不等待、assets 越界拒绝、原生路径回填、新建父目录保名，以及成功接纳后记录失败仍保留新会话。三个平台的实际目录交互仍需分别人工验收。
+
+## 离线导航开发
+
+运行 `./start.sh --scene navigation.scene` 可打开隔墙巡逻示例。非玩家胶囊 NPC 在 A/B 实体标记间绕行，到点等待 1 秒；WASD 靠近至水平距离小于 6 米且高度差在 2 米内，触发追逐，远离超过 11 米后返回 A 点再恢复巡逻。脚本 `npc_patrol.rhai` 的 player/patrol_a/patrol_b 为实体参数，detect_distance/forget_distance/wait_seconds 控制检测、忘记距离和等待；Edit 中移动标记可调整路线，不需重烘焙。暂停/单步不跳过等待，R 重新初始化脚本和运行意图，Stop 保留作者文档。
+
+地面与墙使用真实 Fixed Box 碰撞，玩家仍用原有输入。移动固定几何或修改区域参数后，在区域属性面板指定 assets 内的 `.nav` 路径并重新烘焙，候选接纳后保存作者文档。未烘焙或陈旧配置可以保留和撤销，Play、换关与全部导出场景必须通过导航预检；运行中不允许移动区域或 Fixed 刚体。示例的巡逻/追逐/返回由 Rhai 的 `this` 编排，底层提供运行命令和路径状态，没有把玩法状态写进 Scene 或导航产品。
+
+CLI 适合处理已保存、已配置区域的原生作者文件：
+
+```sh
+cargo run -p comet-assetc --locked -- bake-navigation /path/to/project main.scene --products target/products/project --output navigation.nav
+cargo test --locked -p comet-scene -p comet-runtime -p comet-editor-core
+cargo test --locked -p comet-asset-data -p comet-asset-pipeline
+```
+
+作者文件与输出 `.nav` 路径相对项目 assets 解析；产品目录相对调用目录解析。命令发布或更新 `.nav` 及其稳定 `.meta`，完成产品准备并打印 AssetId，**不自动修改 Scene/Prefab 的 data 绑定**；回到编辑器刷新资源后选择导航数据并保存。编辑器的烘焙操作则在完成候选验证后以单个事务更新绑定，有变化时形成一条历史。文件已发布而后续准备或接纳失败时会保留完整资产，修复后可重试，不自动删除或回滚作者文件。
+
+Scene/Core 回归检查 v6 与旧格式、可空资产依赖、目标复制/删除/Prefab 重映射、区域根约束和候选失败保持。Runtime 回归用真实 Rapier 胶囊验证脚底采样、绕墙到达、速度单位、无路、玩家隔离、暂停/单步/R/换关，以及脚本和公开命令对固定姿态的原子拒绝。Data/Pipeline 回归覆盖真实 rerecast 烘焙、SDK 绕序归一化、输入摘要、资源预算、稳定 metadata、CLI 不改绑定和发布失败边界；编辑器回归覆盖两阶段守卫、候选 Store 与临时文档预检、历史保留及空闲缓存。
+
+运行命令回归另检查 Point/Entity 目标、父级目标的世界位置、真实蹲伏脚底、Stop 持续抑制作者目标、五态与离网格零速、同回调及同固定步的状态快照、R/候选切换重置，以及坏目标使字段、物理、导航、普通日志和换关请求整批失败。真实示例长步测试覆盖巡逻折返、接近追逐、离开返回、移走目标后的不可达、暂停/单步及重开；玩法回归与单独的静态几何绕墙测试分别维护。
+
+完整验收还应在临时 demo 重新烘焙并比较正式产品、保持源和 metadata 身份，拒绝额外场景的陈旧几何，再把包含导航的游戏包搬离作者与开发产品目录运行。CPU 绕墙模拟、独立包离屏渲染、人工 UI 和各平台 GPU/窗口分别记录；Windows/Linux 交叉检查不代表对应 GPU 已运行，针对性测试也不替代完整验收。
+
+## 蒙皮模型与动画验证
+
+运行 `./start.sh --scene animation.scene`，Play 后观察蒙皮模型随骨骼弯曲，再检查暂停、单步、R 重开和 Stop 后作者姿态保持。当前为一个选中 Clip 的 STEP/LINEAR TRS 播放，不含状态机、事件、根运动、重定向或 IK；角色胶囊仍独立于蒙皮几何。协议与数据所有权见[蒙皮与动画](architecture.md#蒙皮与动画)。
+
+属性面板“动画”可选同骨架片段或“不播放片段”、循环和播放速度，“骨骼绑定”按 Node 0/1/2 等名称选择目标或“未绑定”；源键集合不匹配时可显式“重建绑定表”。“蒙皮”可选择产品与同骨架控制器。直接 Prefab 配置保留已有字段覆盖，结构在源中修改；嵌套实例和 Play 配置只读，Play 显示采样时间。控件事务、未绑定重开修复和撤销回归与实际鼠标操作分别验收。
+
+官方 SimpleSkin 作者源只保留在 demo/assets/models/simple_skin，测试复制该目录到临时项目，不另存长期模型或二进制副本。来源为 [Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin)，锁定提交 8f492390ddc7a2ae221a1369ef560589cf8c70fb；Marco Hutter 的模型以 [CC0](https://github.com/KhronosGroup/glTF-Sample-Assets/blob/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin/README.md#legal) 发布。原 glTF 与四份 buffer 共 3242 字节，保持上游内容。
+
+资产回归覆盖稳定子身份、skin-local joint 顺序、逆绑定、四权重、骨架域、关键帧/时间/四元数、预算和不支持格式拒绝；失败保持索引与 metadata，包搬移并移走作者源后仍可读取完整产品。强引用有效时，明确未绑定及缺失/过期源键可构建并打开修复，原映射不会自动改写；“重建绑定表”是显式的一条可撤销操作。悬空 Local 强引用与失效 Prefab override 仍拒绝，不隐式清理或迁移。Runtime、作者事务、真实着色与变形拾取分别验证；编译、CPU 数值、GPU 离屏、实际鼠标操作及三个平台运行不互相替代。
+
+## 音频开发与验证
+
+运行 `./start.sh --scene audio.scene`，背景循环使用 `audio/ambient_loop.wav`，`scripts/audio_demo.rhai` 在启动时播放 `audio/play_chime.wav`，E 重播、Space 停止提示音。`./start.sh --scene spatial_audio.scene` 使用同一提示音循环，声源以 3 米半径移动，E 开关声音；监听器取当前成功视图的相机，可旋转视角比较声像与距离变化。R 新建运行世界并重新初始化；暂停、单步和声音面板按钮用于检查播放意图，暂停时新播放保持待播。
+
+音频作者源为 PCM16 WAV，只接收单/双声道、8–192 kHz；把 `.wav` 与其 `.meta` 一起维护。Pipeline 在资产构建时用 Hound 解码，生成 AudioData v1 的共享 i16 PCM；独立游戏只读音频产品，不需要原 WAV、作者目录或解码工具。Scene 当前为 v9（读取 v1–8），产品 v5、索引 v6；PCM 仍为 v1。缺失空间字段使用 false/1 米/30 米且不补写默认值，原 `audio.scene` 的 Scene7 作者和产品保持 2D 格式；空间或非默认距离配置才升级，撤销可回到 Scene7。生产工具从合法旧缓存重建时保留 metadata 身份，Runtime 不直接读取旧产品。
+
+```sh
+cargo test --locked -p comet-audio -p comet-runtime
+cargo test --locked -p comet-scene -p comet-editor-core -p comet-asset-data -p comet-asset-pipeline
+```
+
+属性面板“声音”可为作者对象添加/移除组件，选择已构建音频并编辑音量、循环、自动播放、空间开关与近远距离；直接 Prefab 使用源 UUID 字段覆盖，组件结构在源中维护。距离为世界米数，要求有限的 0≤近距<远距，跨度不能下溢为次正规数；对象缩放不改变距离参数。Play 配置只读，“播放声音／停止声音”仅修改当前运行世界。编辑器回归检查连续音量/距离事务、取消及旧版本恢复、最小覆盖、错误资源拒绝与后台/模态守卫，实际鼠标操作单独验收。
+
+Audio 包使用 Kira 官方 MockBackend 检查控制状态，并由测试专用 backend 接收官方 Renderer 生成实际离线 PCM，覆盖有限非零输出、声道和采样率转换、音量、循环、暂停、停止、同代次幂等及设备错误。空间声覆盖左右声像、监听旋转、近/中/远衰减、源移动及 stereo downmix；Kira 使用固定分贝线性曲线，中点幅度约 0.0316，到远距后静音。适配内以监听器为坐标原点，先用 f64 做差，检查 f32 中心与耳位距离运算的余量；可表示的大世界平移保持结果，危险相对跨度须在设备修改前拒绝，不允许截断后继续。
+
+帧回归检查 64 voice、唯一 clip 总样本预算及冲突产品身份；单 clip 上限 8,388,608 样本，总上限 16,777,216 样本按唯一 clip 计一次。输出缓存和 Runtime 批次共享 Arc；仅有空间源且 Scene revision 改变时提取世界位置，位置未变复用批次，移动和相机旋转不重播同代声音或重扫 PCM。
+
+Runtime 与脚本回归检查独立世界、自动播放、显式重播代次、停止与音量、暂停/单步新代等待恢复、重开及候选换关。候选仅准备资源与意图，不打开设备或发声；坏目标、音量或代次溢出必须使同回调的字段、物理、导航、声音、普通日志及换关请求一起失败。Scene/Core/Pipeline 分别覆盖新旧格式、直接 Prefab 字段覆盖、历史、音频类型、WAV 格式与 metadata 保留。声音自然结束由输出消费同一代次，运行意图不会导致逐帧重播。
+
+Host 在最终视图提取成功后核对 World，并从相机填入监听姿态再提交声音，失败视图与旧世界不能打开设备或发布新声音；停止 Play、换世界及退出会停止旧句柄。没有设备或空间数字范围不安全时报告 Unavailable 并继续图形流程，错误只提示一次；初次空闲不打开设备。报告的 `audio` 保存设备状态、监听器、空间源与相对位置、代次、待播数量及实际播放位置，停止后保留最后错误和观测。完整包验收移走作者 WAV 和开发产品，逐字节对照包内 PCM，并运行搬移后的游戏；2D Scene7 和空间 Scene8 分别验证。
+
+headless 与 smoke 同时启用时，GPU 帧可能先于设备首次回调完成；退出前最多等待 500 ms，每 2 ms 读取真实设备报告，不推进模拟或重放声音意图。验收仍要求实际播放位置大于零，等待超时也判失败，不能仅凭 Ready 和已创建句柄认定回调发生。
+
+离线 PCM、空间声像/衰减计算、设备回调进度、GPU/窗口与人工试听分别记录。纯 PCM 非零、交叉编译或句柄推进不代表实际已听到声音；Windows/Linux 原生设备与三平台人工试听仍待验收。流式播放、遮挡、多监听器及完整旧关卡的脚步/战斗声音尚未迁移。
 
 ## 渲染、脚本入口与独立包
 
 Render 单元测试编译共享 Shader 的两种输出，检查帧布局、CPU 拾取、背压、失败反馈与关闭路径。
+
+Application 的提取缓存回归检查同一场景/索引 Arc 命中、选择及后代高亮更新、新场景和产品版本、相同摘要的新 Store 隔离、旧批次保活，以及坏层级、变换或资产候选失败后的重试；宿主帧准备另检查复用 Draw 时，相机、世界、视口和拾取仍使用当前请求。Asset Runtime 的公共测试检查索引身份、驻留产品复用、淘汰后消费者有效及失败刷新不改变已接纳状态；索引未变时也必须完整验证磁盘候选。
+
+CPU 提取计时诊断默认以 ignored 测试跳过，按需手动执行：
+
+```sh
+cargo test --locked -p comet-application extract::tests::extraction_cache_cpu_profile -- --ignored --exact --nocapture
+```
+
+诊断使用预热的产品 Store，分别测完整提取、静态命中和仅选择变化；不包含 GPU、Gizmo、UI 或物理工作，也不测总帧率。计时结果以本次实际运行和构建配置为准，不能由缓存正确性回归推导性能数字。
+
 GPU 验收检查 9 次场景绘制（原示例 5 次，加上落体和角色的两组多材质网格）、专用渲染线程、零尺寸不呈现、目标代次变化、PNG 读回和窗口 resize。产品独立 App 的离屏烟测还检查角色确实受到重力推进。
 原生编辑器测试使用 `start.sh`；它准备并启动 Debug Editor，同时固化 Release App。游戏测试启动编辑器导出的包，不再提供独立游戏构建启动脚本。
 
-默认验证复制 demo 到临时项目，增加一个独立的空场景，通过编辑器同一导出实现打包两场景及 13 个产品；默认 demo 单场景的闭包仍为 12 个产品。验证模板失配和已有输出拒绝。macOS 在临时 `.app` 完成签名与校验，Linux 验证目录包。验收将包搬移，移除本次临时作者源和开发产品，从空工作目录检查产品并启动包内游戏，验证没有作者源与 cwd 依赖。
+默认验证复制 demo 到临时项目，增加一个独立的空场景，通过编辑器同一导出实现打包主场景、空场景、关节、换关、导航和声音示例，核对实际场景名单及产品依赖闭包，并验证模板失配和已有输出拒绝。macOS 在临时 `.app` 完成签名与校验，Linux 验证目录包。验收将包搬移，移除本次临时作者源和开发产品，从空工作目录检查产品并启动包内游戏，验证没有作者源与 cwd 依赖。
+另通过真实资产 CLI 创建全新空项目，经 Editor 导出一个入口 Scene 产品；搬移包并移除作者/开发产品后再次检查和展开。GPU 验收还运行空 Editor 与空 App，验证零对象绘制、渲染线程和有效 PNG；空场景不套用 demo 的角色或颜色丰富度断言。
 可执行文件从 Cargo JSON 产物消息获取，兼容 Cargo 的 target 目录和构建目标配置，不手工拼接 Debug/Release 可执行文件路径。
+
+缩放数值验收使用生成在 `target/verification` 的独立三角形项目：小缩放配大网格、大缩放配小网格、镜像、subnormal 法线、旋转非均匀缩放，以及极大/极小 glTF 缺失法线的完整导入。世界几何与法线方向保持相同，默认 CPU 验收只真实构建及检查产品；`--gpu` / `--native` 使用已准备 Release App 离屏运行，要求 Draw=1、中心区域有三角形，并比较等价几何的像素覆盖与颜色。测试数据不复制默认 demo，也不进入版本控制；这属于实际本机 GPU 回归，不替代目标平台窗口验收。
+
+Application 的内容恢复回归直接执行生产 CPU 帧准备，检查一次恢复、默认错误传播、fallback 失败及字体 delta 在关闭/失败/恢复分支的所有权。Editor 回归保留作者事务、历史、文件和选择，停止出错 Play 并退休旧拾取。`--gpu` / `--native` 另运行需本机 GPU 的 ignored 回归：实际进入无法渲染的 Play，首帧仍提交完整 UI，随后返回正常作者场景，报告与截图在 `target/verification/editor-view-recovery.*`。默认 CPU 测试跳过此 GPU 用例。 同时执行局部旋转离屏用例，实际绘制选中模型和局部环，截图与报告保存为 editor-local-rotation.*，检查作者文件、选择和保存状态保持。GPU 用例要求精确执行一项测试并更新报告，不能把过滤到零测试或旧报告当作新证据。
 
 ## 原生 GPU 能力
 
@@ -99,6 +200,63 @@ macOS、Windows、Linux 均为正式支持目标，新增功能需要维护相�
 每个功能分别记录三平台的实际证据；只有编译检查通过时，不能标记为完整的平台验收。通用功能同步推进，原生系统或硬件能力的差异要明确说明，不静默跳过。Windows EXE 图标写入及读回已接入，原生资源 API 和资源管理器显示等待 Windows 实机验收；Linux 桌面菜单入口和系统 IME 等尚未完成的接入继续按功能补齐。
 
 macOS Metal 已有实际窗口和 GPU 运行；Windows/Linux 的原生 Vulkan 设备运行、Windows 原生链接、实体手柄、系统中文输入候选窗和物理鼠标 Gizmo 拖动仍需设备验收。合成 egui 拖动测试与真实鼠标操作分开记录。
-烟测的零尺寸帧由程序主动注入，不代表已经验收系统最小化、跨屏或设备丢失。当前视口 Gizmo 只支持平移，旋转和缩放使用 Inspector。
+烟测的零尺寸帧由程序主动注入，不代表已经验收系统最小化、跨屏或设备丢失。视口 Gizmo 支持世界轴平移、旋转，以及本地轴和统一缩放；移动和旋转共用世界/局部选择，Scale 使用独立局部仿射基。
 任何未执行、环境不具备或检查失败的项目，必须保留状态，不用编译通过或另一平台结果代替。
 当前发布物支持可搬移目录与 macOS ad-hoc 签名 `.app`；开发者证书签名、公证与安装器尚未实现。
+
+## 游戏脚本开发
+
+将 `.rhai` 源与生成的 `.meta` 一起保存到项目 `assets/`，刷新资源后为作者对象选择脚本并配置参数。Play 启动重新编译已接纳的源码产品，运行状态不写回作者文件；修改源码后停止、刷新、重新运行。语法/签名错误阻止候选接纳，回调执行错误则停止对应绑定，在“脚本日志”查看实体、资源、步数和阶段。导出会校验所选场景依赖闭包，包内携带源码产品，不依赖开发目录。
+
+```rhai
+fn on_start(ctx) { this.distance = 0.0; }
+fn on_fixed_update(ctx, dt) {
+    let movement = ctx.param("speed") * dt;
+    this.distance += movement;
+    ctx.translate_local(ctx.entity(), movement, 0, 0);
+    ctx.rotate_local(ctx.entity(), 0, 1, 0, dt);
+}
+fn on_stop(ctx) { ctx.log("运行结束"); }
+```
+
+示例需给非物理作者对象配置数值 `speed`；物理体使用 `teleport`、`set_velocity` 或 `impulse`，不能普通写 Transform。`this` 的状态仅属于当前绑定。触发回调 `on_trigger(ctx, other, entered)` 在传感器实体自己的脚本上调用，动作输入使用 `pressed/held/released`。全部命令延后到回调成功校验后发布，位置查询返回当前回调开始时的局部坐标，停止回调只允许查询与日志。接口、预算和协议见[脚本生命周期](architecture.md#脚本生命周期)。
+
+脚本相关 CPU 回归可运行 `cargo test --locked -p comet-runtime -p comet-scene -p comet-editor-core -p comet-asset-pipeline -p comet-editor`。完整验收同时检查源码产品闭包、搬移后 App 的启停日志及无脚本错误；GPU/窗口结果按实际运行环境记录。
+
+脚本变换读写以父级局部坐标为准：`rotation(entity)` 返回 xyzw，`scale(entity)` 返回 XYZ；`set_rotation` 接收近单位 xyzw，`rotate_local` 接收单位局部轴及弧度，`set_scale` 接收有限绝对值（可为零或负）。多次 `rotate_local` 依次后乘暂存旋转；同回调的 getter 始终读取入口快照，因此连续增量应直接排队。物理实体允许查询，旋转和缩放写入需由物理系统控制；停止回调只读。错误输入、物理目标或最终世界矩阵溢出会丢弃整批世界修改并隔离该绑定。
+
+换关回归分别覆盖 Runtime 请求事务及旧请求拒绝、Editor 原文档/历史隔离和 App 包场景名单。`travel.scene` / `travel_second.scene` 复用已有模型，`next_scene` 是 UUID 文本参数，导出时需明确包含两关；`auto_after` 默认 0，只在验收临时副本设为正数。完整验收移走作者目录和构建缓存后，从导出包启动第一关，离屏运行实际进入第二关，核对新 WorldId、入关时间、生命周期日志和绘制结果。同步加载可能停顿，真实按键与目标平台窗口交互继续单独验收。
+
+### 收集示例与 HUD
+
+运行 `./start.sh --scene collect.scene`，Play 后旁边的蒙皮模型停在初始姿态；用 WASD 走近金色目标，观察 HUD 从 0/1 变为 1/1、目标外观消失、蒙皮动作开始及一次提示音。等非循环动作结束、HUD 显示完成，再重新按 E 进入现有第二关；收集前、动作中或动作结束边沿按 E，以及一直按住 E，都不会跳关。退出再进入目标不重复计数或重播，R 重开恢复本次入关进度；正常新 Play 从空进度开始，Stop 不修改作者文档。导出须明确包含 collect、travel_second 及它返回的 travel 三个场景。collected 通过显式进度记录，继续时已收集目标隐藏、动作停在初始姿态，不重播提示音，HUD 可直接接受新的 E；示例不替代旧多目标关卡。
+
+脚本用 `ctx.set_hud(text)` / `ctx.clear_hud()` 维护自身拥有者的一条纯文字；HUD 随成功回调发布，沿游戏视口裁剪，不消费游戏输入。世界、条目和文字预算及失败语义见[游戏 HUD](architecture.md#游戏-hud)。运行报告在停止前保存 HUD 观测，再记录 on_stop，不能用 Stop 后的空列表冒充运行显示结果。
+
+`demo_collect` CPU 回归读取正式场景与脚本，验证初始暂停、真实胶囊移动进入、非玩家过滤、退出/重入幂等、完整动作结束门槛、持续 E 与新按下、换关清理及暂停/重开/Stop；动画键直接复用唯一 SimpleSkin 源，声音使用已准备的小 PCM，导入、解码和设备输出分别验证。搬移包验收仅在临时项目副本把玩家放入 Sensor，让短帧运行观察实际 entered 回调、动作播放中的 1/1 文字、减少的目标绘制、共享 Prefab 实例节点的蒙皮姿态和真实 Cue 播放进度；正式作者起点仍在 Sensor 外，不加入自动收集参数，不复制模型或 WAV。文字形状/字体/裁剪、设备回调、三平台实际输入及人工试听分别记录。
+
+单片段脚本控制使用 `ctx.play_animation(entity)`（包含从头重播）、`pause_animation`、`resume_animation`、`set_animation_speed` 和 `animation_state`。状态字段与重播发布时点见[蒙皮与动画](architecture.md#蒙皮与动画)。collect 的首次触发在第一个固定步采样后请求播放，下一步发布 0，七步 smoke 观测到五个推进步；短帧验收不声称已验证完整动作结束或真实换关，完整门槛由 CPU 场景回归验证。独立 `animation.scene` 保持无脚本自动播放，继续验证源曲线插值；两个场景共享同一批产品，不新增模型或音频副本。
+
+### 检查点与显式进度
+
+运行 collect 后按 F5 保存，走到其他位置或换关后按 F9 继续：角色从保存关卡入口开始，已收集目标保持隐藏，提示音和收集动作不重播。R 仍恢复本次入关基线，不能当作读取最近存档；新 Play 不自动继续。Editor 的单槽仅存在于当前 Play 内存，Stop 后清空；Prefab 预览不支持。F5/F9 可在全局暂停时使用，输入被文字控件、模态、后台任务或失焦阻挡时，需先释放再按。
+
+导出 App 使用包内稳定 GameId，用户存档位于包外：
+
+| 平台 | 根目录，后接 `GameId/checkpoint.json` 或 `GameId/settings.json` |
+| --- | --- |
+| macOS | 系统用户 `Application Support/Comet/games` |
+| Windows | 系统 `Saved Games/Comet` |
+| Linux | 绝对 `XDG_DATA_HOME/comet/games`，否则 `HOME/.local/share/comet/games` |
+
+App 的 `--data-dir <目录>` 将存档与设置共同的根替换为显式目录，仍按 GameId 隔离，适合测试或自选数据位置；需要导出包，单独指定产品没有持久游戏身份。headless/smoke 默认使用内存槽，测试磁盘时必须指向临时目录，不读写真实用户数据。缺档读取不创建目录；坏、超限或外来身份的文件不删除，失败后原运行世界保持。包外路径及完整协议见[游戏检查点与进度](architecture.md#游戏检查点与进度)。
+
+脚本用 `ctx.progress("collected", false)` 读取，缺失只返回默认值；`ctx.set_progress("collected", true)` 与收集反馈同回调提交，必要时可 `remove_progress`。值按场景和脚本拥有者隔离，只接受四种叶子类型，this、Entity 句柄及任意容器不进入存档。CPU 回归分别检查事务失败、跨关与入关基线、collect 的继续行为；App/Editor 再检查单槽、候选失败及输入隔离，实际磁盘回归使用临时数据目录。GameId 迁移测试覆盖 v1/缺文件只读、Editor 准备时一次初始化、失败重试、配置竞态及旧面板不可降级；产品和配置的路径迁移不更换身份。目标平台实际按键、磁盘权限与完整旧关卡仍分别验收。
+
+### 独立 App 菜单与设置
+
+导出并运行游戏后，按 Esc 打开菜单：返回游戏、保存检查点、继续存档、设置或退出。打开和关闭的当帧都不会推进游戏或消费角色输入，关闭后下一帧恢复；原有 Runtime 暂停和宿主冻结状态不会被菜单改写。保存检查点后留在菜单，继续存档成功才返回游戏；失败保留原运行和菜单提示。菜单打开时 F5/F9 不穿透，可使用对应按钮。
+
+“设置”页只修改草稿；点击“应用”成功后生效并保存，停留当前页，未再修改时按钮禁用。失败保留当前值和草稿供重试；返回或无编辑时按 Esc 会放弃未应用内容回主菜单。音量手势编辑中的 Esc 先取消该次修改，IME 输入中的 Esc 不关闭菜单。主音量为有限 0～1、默认 1，统一影响 2D/空间声音，不改各源音量或重播声音；方向光阴影默认开启，关闭后仍保留方向光照。此偏好不代表旧版 MSAA、渲染比例、TAA 或完整画质设置已迁移，Editor 也不加载这份 App 偏好。
+
+启动读取独立 settings.json，私有 v1 封装校验 GameId 和全部字段，最多 4 KiB；缺文件只使用默认值，不创建目录。坏、超限、未知版本或外来身份保留文件、使用默认设置并提示，应用也不会覆盖错误文件，需修复或移走后重试。设置与 checkpoint.json 共用同一 Store 的路径和原子写入边界，但文件独立；修改设置、R、换关或继续都不改变检查点的含义。存储与设置单元回归分别检查严格格式、大小上限、两槽隔离、坏文件/符号链接与失败保留；真实 egui 回归检查草稿、应用/返回、焦点和按键生命周期。Audio 的真实 Kira 离线 PCM 回归检查主音量比例及代次/缓存保持，原生设备进度和三平台人工试听继续单独验收，AudioReport.master_gain 只说明已接纳目标。

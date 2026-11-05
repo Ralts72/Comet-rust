@@ -1,0 +1,295 @@
+use anyhow::{Context, Result};
+use comet_core::{AssetId, EntityId, InstanceId};
+use comet_editor_core::{Document, FieldEdit, FieldTarget, JointEdit};
+use comet_scene::{
+    BodyMotion, ContentSource, EntityData, FieldOverride, Model, PhysicsBody, PointJoint,
+    PrefabInstance, PrefabResolver, SceneSnapshot, Script, Surface,
+    schema::{self, FieldValue},
+};
+use std::{collections::BTreeMap, fs, sync::Arc};
+
+struct Library(BTreeMap<AssetId, ContentSource>);
+impl PrefabResolver for Library {
+    fn prefab(&mut self, id: AssetId) -> Result<ContentSource> {
+        self.0.get(&id).cloned().context("missing prefab")
+    }
+}
+fn instance(prefab: AssetId) -> PrefabInstance {
+    PrefabInstance {
+        id: InstanceId::new(),
+        prefab,
+        parent: None,
+        overrides: vec![],
+    }
+}
+fn source(entity: EntityData) -> ContentSource {
+    ContentSource {
+        base: SceneSnapshot {
+            entities: vec![entity],
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+#[test]
+fn root_scoped_structural_failures_preserve_source_history_savepoint_and_redo() -> Result<()> {
+    let root = AssetId::new();
+    let branch = AssetId::new();
+    let entity = EntityData::new("source root");
+    let id = entity.id;
+    let source = source(entity);
+    let mut library = Library(BTreeMap::from([
+        (root, source.clone()),
+        (
+            branch,
+            ContentSource {
+                instances: vec![instance(root)],
+                ..Default::default()
+            },
+        ),
+    ]));
+    let mut document = Document::open_prefab(root, source.clone(), &mut library)?;
+    assert_eq!(document.prefab_asset(), Some(root));
+    document.begin()?;
+    document.preview_name(id, "accepted edit".into())?;
+    document.commit()?;
+    let redo = document.shared_source();
+    document.undo()?;
+    let before = document.shared_source();
+    let revision = document.revision();
+    let state = document.state_id();
+    let world = document.world_id();
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("source.prefab");
+    document.save(&path)?;
+    let saved = fs::read(&path)?;
+    for target in [root, branch] {
+        let mut invalid = source.clone();
+        invalid.instances.push(instance(target));
+        assert!(invalid.expand(&mut library).is_ok());
+        assert!(Document::open_prefab(root, invalid.clone(), &mut library).is_err());
+        let scene = Document::open_source(invalid)?;
+        assert_eq!(scene.prefab_asset(), None);
+        scene.expand(&mut library)?;
+        for container in [None, Some(EntityData::new("candidate container"))] {
+            let error = document
+                .insert_prefab(container, target, &mut library)
+                .unwrap_err();
+            assert!(format!("{error:#}").contains("cycle"));
+            assert!(Arc::ptr_eq(&before, &document.shared_source()));
+            assert_eq!(
+                (
+                    document.revision(),
+                    document.state_id(),
+                    document.world_id()
+                ),
+                (revision, state, world)
+            );
+            assert_eq!(document.history_len(), 0);
+            assert!(!document.is_dirty() && !document.is_editing());
+            assert_eq!(document.expand(&mut library)?, source.base);
+            assert_eq!(fs::read(&path)?, saved);
+        }
+    }
+    document.redo()?;
+    assert_eq!(document.shared_source(), redo);
+    assert!(document.is_dirty());
+    assert_eq!(document.prefab_asset(), Some(root));
+    Ok(())
+}
+
+#[test]
+fn every_resolved_preview_keeps_its_accepted_candidate_when_the_root_would_recur() -> Result<()> {
+    let root = AssetId::new();
+    let branch = AssetId::new();
+    let mut entity = EntityData::new("source body");
+    entity.physics = Some(PhysicsBody {
+        motion: BodyMotion::Dynamic,
+        ..Default::default()
+    });
+    let id = entity.id;
+    let initial = source(entity);
+    let mut old_product = initial.clone();
+    old_product.base.entities[0].physics = None;
+    let mut library = Library(BTreeMap::from([
+        (root, old_product),
+        (branch, ContentSource::default()),
+    ]));
+    let mut document = Document::open_prefab(root, initial, &mut library)?;
+    document.insert_prefab(Some(EntityData::new("child mount")), branch, &mut library)?;
+    let committed = document.shared_source();
+    document.begin()?;
+    document.preview_name(id, "accepted preview".into())?;
+    let accepted = document.shared_source();
+    let revision = document.revision();
+    let state = document.state_id();
+    library
+        .0
+        .get_mut(&branch)
+        .unwrap()
+        .instances
+        .push(instance(root));
+    assert!(
+        accepted.expand(&mut library).is_ok(),
+        "old root product would mask this cycle"
+    );
+    assert!(document.expand(&mut library).is_err());
+    type Preview = fn(&mut Document, EntityId, &mut Library) -> Result<()>;
+    let edits: [Preview; 7] = [
+        |doc, id, resolver| {
+            doc.preview_fields(
+                &[FieldEdit {
+                    target: FieldTarget::Authored(id),
+                    field: schema::TRANSLATION,
+                    value: FieldValue::Vec3([2., 0., 0.]),
+                }],
+                resolver,
+            )
+        },
+        |doc, id, resolver| {
+            doc.preview_field_values(
+                &[FieldEdit {
+                    target: FieldTarget::Authored(id),
+                    field: schema::TRANSLATION,
+                    value: FieldValue::Vec3([3., 0., 0.]),
+                }],
+                resolver,
+            )
+        },
+        |doc, id, resolver| {
+            doc.preview_fields_from_baseline(
+                &[FieldEdit {
+                    target: FieldTarget::Authored(id),
+                    field: schema::TRANSLATION,
+                    value: FieldValue::Vec3([4., 0., 0.]),
+                }],
+                resolver,
+            )
+        },
+        |doc, id, resolver| {
+            doc.preview_physics(
+                id,
+                Some(PhysicsBody {
+                    motion: BodyMotion::Dynamic,
+                    ..Default::default()
+                }),
+                None,
+                resolver,
+            )
+        },
+        |doc, id, resolver| {
+            doc.preview_model(
+                id,
+                Some(Model {
+                    mesh: AssetId::new(),
+                    surface: Surface {
+                        material: AssetId::new(),
+                        roughness: 0.5,
+                    },
+                }),
+                resolver,
+            )
+        },
+        |doc, id, resolver| doc.preview_script(id, Some(Script::new(AssetId::new())), resolver),
+        |doc, id, resolver| {
+            doc.preview_joint(id, JointEdit::Point(Some(PointJoint::default())), resolver)
+        },
+    ];
+    for preview in edits {
+        let error = preview(&mut document, id, &mut library).unwrap_err();
+        assert!(format!("{error:#}").contains("cycle"));
+        assert!(Arc::ptr_eq(&accepted, &document.shared_source()));
+        assert_eq!(
+            (document.revision(), document.state_id()),
+            (revision, state)
+        );
+        assert_eq!(document.history_len(), 1);
+        assert!(document.is_dirty() && document.is_editing());
+    }
+    library.0.get_mut(&branch).unwrap().instances.clear();
+    document.cancel()?;
+    assert_eq!(document.shared_source(), committed);
+    document.undo()?;
+    assert!(!document.is_dirty());
+    document.redo()?;
+    assert_eq!(document.shared_source(), committed);
+    assert_eq!(document.prefab_asset(), Some(root));
+    document.expand(&mut library)?;
+    Ok(())
+}
+
+#[test]
+fn multiple_root_prefab_documents_save_and_reopen_without_remapping_source_identity() -> Result<()>
+{
+    let root = AssetId::new();
+    let child = AssetId::new();
+    let first = EntityData::new("first root");
+    let second = EntityData::new("second root");
+    let nested = EntityData::new("nested source");
+    let (first_id, second_id, nested_id) = (first.id, second.id, nested.id);
+    let mount = instance(child);
+    let instance_id = mount.id;
+    let content = ContentSource {
+        base: SceneSnapshot {
+            version: 1,
+            entities: vec![first, second],
+        },
+        instances: vec![PrefabInstance {
+            parent: Some(first_id),
+            overrides: vec![FieldOverride {
+                entity: nested_id,
+                field: schema::TRANSLATION,
+                value: FieldValue::Vec3([2., 0., 0.]),
+            }],
+            ..mount
+        }],
+        ..Default::default()
+    };
+    let mut library = Library(BTreeMap::from([(child, source(nested))]));
+    let mut document = Document::open_prefab(root, content, &mut library)?;
+    let world = document.world_id();
+    document.begin()?;
+    document.preview_name(first_id, "edited root".into())?;
+    document.commit()?;
+    let expected = document.shared_source();
+    let expanded = document.expand(&mut library)?;
+    assert_eq!(expanded.entities.len(), 3);
+    for id in [first_id, second_id] {
+        assert!(
+            expanded
+                .entities
+                .iter()
+                .any(|entity| entity.id == id && entity.parent.is_none())
+        );
+    }
+    let nested = expanded
+        .entities
+        .iter()
+        .find(|entity| entity.id == nested_id.in_instance(instance_id))
+        .unwrap();
+    assert_eq!(nested.parent, Some(first_id));
+    assert_eq!(nested.transform.translation, [2., 0., 0.]);
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("source.prefab");
+    document.save(&path)?;
+    assert!(!document.is_dirty());
+    let bytes = fs::read(&path)?;
+    assert!(
+        !String::from_utf8(bytes.clone())?.contains(&root.to_string()),
+        "validation context is not serialized"
+    );
+    let reopened = Document::open_prefab(root, ContentSource::from_json(&bytes)?, &mut library)?;
+    assert_eq!(reopened.prefab_asset(), Some(root));
+    assert_ne!(reopened.world_id(), world);
+    assert_eq!(reopened.shared_source(), expected);
+    assert_eq!(reopened.expand(&mut library)?, expanded);
+    assert_eq!(reopened.source().base.version, 1);
+    assert!(!reopened.is_dirty());
+    assert_eq!(reopened.history_len(), 0);
+    assert!(
+        Document::load(&path)?.prefab_asset().is_none(),
+        "generic load retains its Scene contract"
+    );
+    Ok(())
+}

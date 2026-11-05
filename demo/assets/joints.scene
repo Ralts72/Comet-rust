@@ -1,0 +1,566 @@
+{
+  "version": 1,
+  "base": {
+    "version": 5,
+    "entities": [
+      {
+        "id": "a1000000-0000-4000-8000-000000000001",
+        "name": "地面",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0,
+            -0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              4,
+              0.25,
+              3
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000002",
+        "name": "点约束 · 自由摆动",
+        "parent": null,
+        "transform": {
+          "translation": [
+            -2,
+            1.8,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0.22310636213174545,
+            0.9747941070689433
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "dynamic",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.35,
+              0.6,
+              0.35
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "point_joint": {
+          "settings": {
+            "enabled": true,
+            "connection": {
+              "kind": "world"
+            },
+            "contacts_enabled": false
+          },
+          "anchor": [
+            0,
+            0.6,
+            0
+          ],
+          "connected_anchor": [
+            -2.2609793204667383,
+            2.340268261411606,
+            0
+          ]
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000003",
+        "name": "铰链 · 限角摆动",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0,
+            1.8,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            -0.19866933079506122,
+            0.9800665778412416
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "dynamic",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.25,
+              0.7,
+              0.25
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "hinge_joint": {
+          "settings": {
+            "enabled": true,
+            "connection": {
+              "kind": "world"
+            },
+            "contacts_enabled": false
+          },
+          "frame": {
+            "anchor": [
+              0,
+              0.7,
+              0
+            ],
+            "rotation": [
+              0,
+              -0.7071067811865476,
+              0,
+              0.7071067811865476
+            ]
+          },
+          "connected_frame": {
+            "anchor": [
+              0.27259283961605535,
+              2.4447426958020193,
+              0
+            ],
+            "rotation": [
+              0,
+              -0.7071067811865476,
+              0,
+              0.7071067811865476
+            ]
+          },
+          "limits": {
+            "min": -0.7,
+            "max": 0.7
+          },
+          "motor": null
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000004",
+        "name": "滑轨 · 位置马达",
+        "parent": null,
+        "transform": {
+          "translation": [
+            2,
+            1.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "dynamic",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.45,
+              0.3,
+              0.35
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "slider_joint": {
+          "settings": {
+            "enabled": true,
+            "connection": {
+              "kind": "world"
+            },
+            "contacts_enabled": false
+          },
+          "frame": {
+            "anchor": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ]
+          },
+          "connected_frame": {
+            "anchor": [
+              2,
+              1.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ]
+          },
+          "limits": {
+            "min": -0.8,
+            "max": 0.8
+          },
+          "motor": {
+            "mode": "position",
+            "target": 0.65,
+            "frequency_hz": 1.5,
+            "damping_ratio": 0.7,
+            "max_effort": 30.0
+          }
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000010",
+        "name": "地面 / 0",
+        "parent": "a1000000-0000-4000-8000-000000000001",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            5.714285714285714,
+            0.35714285714285715,
+            4.285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000011",
+        "name": "地面 / 1",
+        "parent": "a1000000-0000-4000-8000-000000000001",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            5.714285714285714,
+            0.35714285714285715,
+            4.285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000012",
+        "name": "点约束 · 自由摆动 / 0",
+        "parent": "a1000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.5,
+            0.8571428571428572,
+            0.5
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000013",
+        "name": "点约束 · 自由摆动 / 1",
+        "parent": "a1000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.5,
+            0.8571428571428572,
+            0.5
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000014",
+        "name": "铰链 · 限角摆动 / 0",
+        "parent": "a1000000-0000-4000-8000-000000000003",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.35714285714285715,
+            1.0,
+            0.35714285714285715
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000015",
+        "name": "铰链 · 限角摆动 / 1",
+        "parent": "a1000000-0000-4000-8000-000000000003",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.35714285714285715,
+            1.0,
+            0.35714285714285715
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000016",
+        "name": "滑轨 · 位置马达 / 0",
+        "parent": "a1000000-0000-4000-8000-000000000004",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.6428571428571429,
+            0.4285714285714286,
+            0.5
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "a1000000-0000-4000-8000-000000000017",
+        "name": "滑轨 · 位置马达 / 1",
+        "parent": "a1000000-0000-4000-8000-000000000004",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.6428571428571429,
+            0.4285714285714286,
+            0.5
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      }
+    ]
+  },
+  "instances": []
+}

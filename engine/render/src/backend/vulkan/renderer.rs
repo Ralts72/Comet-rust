@@ -4,7 +4,7 @@ use super::pipeline::Pipelines;
 use super::resources::*;
 use crate::{
     FramePacket, Surface,
-    shader::{Globals, Object},
+    shader::{Globals, Object, Palette},
     worker::FrameRenderer,
 };
 use anyhow::{Context, Result};
@@ -18,6 +18,7 @@ use std::{
 struct Mesh {
     vertices: Buffer,
     indices: Buffer,
+    influences: Option<Buffer>,
     count: u32,
 }
 pub(crate) struct Renderer {
@@ -85,7 +86,7 @@ impl Renderer {
                     .upload(delta.pos.unwrap_or([0, 0]), image.size, &rgba)?;
             }
         }
-        for draw in &frame.draws {
+        for draw in frame.draws.iter() {
             let key = (draw.mesh.id, draw.mesh_revision.clone());
             if !self.meshes.contains_key(&key) {
                 let Product::Mesh(mesh) = &draw.mesh.payload else {
@@ -106,6 +107,15 @@ impl Renderer {
                             vk::BufferUsageFlags::INDEX_BUFFER,
                         )?,
                         count: mesh.indices.len() as u32,
+                        influences: crate::shader::influences(mesh)
+                            .map(|values| {
+                                Buffer::from_slice(
+                                    self.ctx.clone(),
+                                    &values,
+                                    vk::BufferUsageFlags::VERTEX_BUFFER,
+                                )
+                            })
+                            .transpose()?,
                     },
                 );
             }
@@ -138,16 +148,17 @@ impl Renderer {
         shadow: bool,
     ) {
         unsafe {
-            self.ctx.handle.cmd_bind_pipeline(
-                command,
-                vk::PipelineBindPoint::GRAPHICS,
-                if shadow {
-                    self.pipelines.shadow
-                } else {
-                    self.pipelines.scene
-                },
-            );
             for (draw, set) in frame.draws.iter().zip(sets) {
+                self.ctx.handle.cmd_bind_pipeline(
+                    command,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    match (shadow, draw.skin.is_some()) {
+                        (false, false) => self.pipelines.scene,
+                        (true, false) => self.pipelines.shadow,
+                        (false, true) => self.pipelines.skinned_scene,
+                        (true, true) => self.pipelines.skinned_shadow,
+                    },
+                );
                 let mesh = &self.meshes[&(draw.mesh.id, draw.mesh_revision.clone())];
                 self.ctx.handle.cmd_bind_descriptor_sets(
                     command,
@@ -160,6 +171,18 @@ impl Renderer {
                 self.ctx
                     .handle
                     .cmd_bind_vertex_buffers(command, 0, &[mesh.vertices.handle], &[0]);
+                if draw.skin.is_some() {
+                    self.ctx.handle.cmd_bind_vertex_buffers(
+                        command,
+                        1,
+                        &[mesh
+                            .influences
+                            .as_ref()
+                            .expect("prepared skin vertex stream")
+                            .handle],
+                        &[0],
+                    );
+                }
                 self.ctx.handle.cmd_bind_index_buffer(
                     command,
                     mesh.indices.handle,
@@ -251,7 +274,7 @@ impl Renderer {
         )?;
         let mut keep = vec![global];
         let mut sets = vec![];
-        for draw in &frame.draws {
+        for draw in frame.draws.iter() {
             let object = Object::for_draw(draw, frame.shadows)?;
             let buffer = Buffer::from_slice(
                 self.ctx.clone(),
@@ -263,11 +286,29 @@ impl Renderer {
             } else {
                 &self.white
             };
-            sets.push(
-                self.pipelines
-                    .scene_set(&pool, &keep[0], &buffer, image, &self.shadow)?,
-            );
+            let palette = draw
+                .skin
+                .as_ref()
+                .map(|skin| {
+                    Buffer::from_slice(
+                        self.ctx.clone(),
+                        &[Palette::new(Some(skin))],
+                        vk::BufferUsageFlags::UNIFORM_BUFFER,
+                    )
+                })
+                .transpose()?;
+            sets.push(self.pipelines.scene_set(
+                &pool,
+                &keep[0],
+                &buffer,
+                image,
+                &self.shadow,
+                palette.as_ref(),
+            )?);
             keep.push(buffer);
+            if let Some(palette) = palette {
+                keep.push(palette);
+            }
         }
         let command = self.ctx.begin()?;
         let query = Timestamp::new(self.ctx.clone())?;

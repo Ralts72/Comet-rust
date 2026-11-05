@@ -1,8 +1,20 @@
+mod documents;
+mod gizmo;
+mod hierarchy;
+mod inspector;
+mod project;
+mod rename;
+mod resources;
+mod restart;
+mod selection;
+mod viewport;
+
 use comet_core::math::Vec3;
 use comet_scene::EntityData;
-use egui::Pos2;
+use egui::{Pos2, Rect, Vec2};
 
 use super::*;
+use crate::selection::SelectMode;
 use crate::test_support::fixture;
 use comet_application::{Application, FrameContext, ViewRequest};
 use std::fs;
@@ -118,7 +130,9 @@ fn cancelling_the_scene_browser_preserves_an_active_document_preview() -> Result
     )?;
     let preview = editor.document.shared_source();
     let saved = fs::read(&editor.source)?;
-    editor.documents.open_browser(true);
+    editor
+        .documents
+        .open_browser(crate::documents::BrowserMode::NewScene);
     let ctx = egui::Context::default();
     comet_application::configure_ui(&ctx);
     frame(&ctx, &mut editor, &mut assets, 0, vec![]);
@@ -321,7 +335,7 @@ fn physics_parameter_drag_keeps_its_preview_and_commits_one_history_item() -> Re
     entity.character = Some(Character::default());
     source.base.entities.push(entity);
     editor.document = comet_editor_core::Document::open_source(source)?;
-    editor.selected = Some(id);
+    editor.selection.replace([id]);
     let before = editor.document.shared_source();
     let ctx = egui::Context::default();
     comet_application::configure_ui(&ctx);
@@ -398,7 +412,7 @@ fn gizmo_drag_holds_its_value_and_commits_one_history_item() -> Result<()> {
         .find(|e| e.name == "Amber cube")
         .unwrap()
         .id;
-    editor.selected = Some(selected);
+    editor.selection.replace([selected]);
     let ctx = egui::Context::default();
     ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
     let first = frame(&ctx, &mut editor, &mut assets, 0, vec![]);

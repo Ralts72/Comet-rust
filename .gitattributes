@@ -4,6 +4,8 @@
 *.prefab text
 *.mesh text
 *.material text
+*.nav text
+*.rhai text
 *.meta text
 *.gltf text
 

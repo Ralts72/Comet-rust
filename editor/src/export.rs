@@ -19,15 +19,22 @@ pub struct ExportAction {
     pub output: PathBuf,
     pub run: bool,
 }
+pub struct ExportIdentity {
+    pub game_id: comet_core::GameId,
+    pub prefab_asset: Option<AssetId>,
+}
 struct ExportJob {
     task: Job<(PackageOutput, AssetStore)>,
     run: bool,
+    paths: ProjectPaths,
+    source: PathBuf,
+    prefab_asset: Option<AssetId>,
 }
 pub struct ExportController {
     pub open: bool,
     pub template: Option<AppTemplate>,
     pub template_error: Option<String>,
-    entry: AssetId,
+    entry: Option<AssetId>,
     additional: BTreeSet<AssetId>,
     output: String,
     job: Option<ExportJob>,
@@ -38,25 +45,28 @@ pub struct ExportController {
     failure: Option<String>,
 }
 impl ExportController {
-    pub fn new(entry: AssetId) -> Result<Self> {
+    fn default_output() -> Result<String> {
         let name = if cfg!(target_os = "macos") {
             "CometGame.app"
         } else {
             "CometGame"
         };
+        Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .context("workspace directory")?
+            .join("target/exports")
+            .join(name)
+            .to_string_lossy()
+            .into_owned())
+    }
+    pub fn new(entry: Option<AssetId>) -> Result<Self> {
         Ok(Self {
             open: false,
             template: None,
             template_error: None,
             entry,
             additional: BTreeSet::new(),
-            output: Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .context("workspace directory")?
-                .join("target/exports")
-                .join(name)
-                .to_string_lossy()
-                .into_owned(),
+            output: Self::default_output()?,
             job: None,
             children: vec![],
             logs: VecDeque::new(),
@@ -70,16 +80,40 @@ impl ExportController {
         self.log(error.clone());
         self.failure = Some(error);
     }
-    pub fn entry_scene(&self) -> AssetId {
+    pub fn entry_scene(&self) -> Option<AssetId> {
         self.entry
     }
-    pub fn select_scene(&mut self, entry: AssetId) {
+    pub fn select_scene(&mut self, entry: Option<AssetId>) {
         self.entry = entry;
         self.additional.clear();
         self.open = false;
         self.last_output = None;
         self.failure = None;
         self.stage = "就绪".into();
+    }
+    pub(crate) fn reset_project(&mut self, entry: Option<AssetId>) -> Result<()> {
+        ensure!(!self.is_running(), "请等待导出完成，再切换项目");
+        let output = Self::default_output()?;
+        self.select_scene(entry);
+        self.output = output;
+        self.open = false;
+        self.logs.clear();
+        Ok(())
+    }
+    pub(crate) fn retain_scenes(&mut self, sources: &SourceCatalog) {
+        let first = sources
+            .of_kind(AssetKind::Scene)
+            .next()
+            .map(|source| source.id);
+        let scenes: BTreeSet<_> = sources
+            .of_kind(AssetKind::Scene)
+            .map(|source| source.id)
+            .collect();
+        if self.entry.is_none_or(|entry| !scenes.contains(&entry)) {
+            self.entry = first;
+        }
+        self.additional
+            .retain(|id| scenes.contains(id) && Some(*id) != self.entry);
     }
     pub fn is_running(&self) -> bool {
         self.job.is_some()
@@ -97,7 +131,12 @@ impl ExportController {
         source: &Path,
         action: ExportAction,
         retained: Vec<Arc<comet_scene::ContentSource>>,
+        identity: ExportIdentity,
     ) -> Result<()> {
+        let ExportIdentity {
+            game_id: expected_game_id,
+            prefab_asset,
+        } = identity;
         ensure!(!self.is_running(), "已有导出任务正在进行");
         let template = self
             .template
@@ -111,48 +150,61 @@ impl ExportController {
             "输出位置已存在，请选择一个新位置"
         );
         let source = paths.resolve_asset_path(source)?;
+        let job_source = source.clone();
+        let job_paths = paths.clone();
+        let origin = paths.clone();
         let saved_digest = comet_core::digest(&std::fs::read(&source)?);
         let project = paths.root().to_owned();
         let settings = comet_asset_pipeline::ProjectSettings::load(paths)?;
+        ensure!(
+            settings.game_id == Some(expected_game_id),
+            "项目游戏身份已变化，请重新打开项目"
+        );
         let products = products.to_owned();
         let task = Job::spawn("comet-export", move |sender| {
+            crate::project::verify_prefab_identity(&origin, &source, prefab_asset)?;
             let _ = sender.send(Event::Stage("正在构建项目资源".into()));
             ensure!(
                 comet_core::digest(&std::fs::read(&source)?) == saved_digest,
-                "作者场景在保存后发生变化，请重新导出"
+                "作者文件在保存后发生变化，请重新导出"
             );
             let report =
                 comet_asset_pipeline::prepare(&project, &products).context("项目资源构建失败")?;
             ensure!(
                 comet_core::digest(&std::fs::read(&source)?) == saved_digest,
-                "作者场景在导出期间发生变化，请重新导出"
+                "作者文件在导出期间发生变化，请重新导出"
             );
+            crate::project::verify_prefab_identity(&origin, &source, prefab_asset)?;
             let _ = sender.send(Event::Stage(format!(
                 "资源构建完成：{} 个产品，{} 个更新，{} 个复用",
                 report.products, report.changed, report.reused
             )));
             let _ = sender.send(Event::Stage("正在打包所选场景与 Release App".into()));
             let mut assets = AssetStore::open(&products).context("读取资源产品失败")?;
-            crate::resources::validate_sources(&retained, &mut assets)?;
+            crate::resources::validate_sources(&retained, &mut assets, prefab_asset)?;
             ensure!(
                 comet_asset_pipeline::ProjectSettings::load(&ProjectPaths::open(&project)?)?
                     == settings,
                 "项目设置在导出期间发生变化，请重新导出"
             );
-            let output = comet_asset_pipeline::package_scenes(PackageRequest {
-                products: &products,
-                index_revision: Some(assets.revision()),
-                entry_scene: action.entry,
-                additional_scenes: &action.additional,
-                app: template.app(),
-                runtime: Some(template.identity().clone()),
-                app_digest: Some(template.app_digest()),
-                notices: template.notices(),
-                app_icon: Some(template.app_icon()),
-                game_icon: settings.game_icon,
-                output: &output,
-            })
-            .context("游戏打包失败")?;
+            let revision = assets.revision().to_owned();
+            let output = package_export(
+                &mut assets,
+                PackageRequest {
+                    products: &products,
+                    game_id: expected_game_id,
+                    index_revision: Some(&revision),
+                    entry_scene: action.entry,
+                    additional_scenes: &action.additional,
+                    app: template.app(),
+                    runtime: Some(template.identity().clone()),
+                    app_digest: Some(template.app_digest()),
+                    notices: template.notices(),
+                    app_icon: Some(template.app_icon()),
+                    game_icon: settings.game_icon,
+                    output: &output,
+                },
+            )?;
             Ok((output, assets))
         })?;
         self.logs.clear();
@@ -162,6 +214,9 @@ impl ExportController {
         self.job = Some(ExportJob {
             task,
             run: action.run,
+            paths: job_paths,
+            source: job_source,
+            prefab_asset,
         });
         Ok(())
     }
@@ -174,14 +229,33 @@ impl ExportController {
                 }
                 Some(Event::Finished(result)) => {
                     let job = self.job.take().context("export job")?;
-                    let run = job.run;
-                    drop(job);
+                    let ExportJob {
+                        task,
+                        run,
+                        paths,
+                        source,
+                        prefab_asset,
+                    } = job;
+                    drop(task);
                     match result {
                         Ok((output, candidate)) => {
-                            *assets = candidate;
                             self.stage = "导出完成".into();
                             self.log(format!("已导出：{}", output.root.display()));
                             self.last_output = Some(output.clone());
+                            if let Err(error) = crate::project::verify_prefab_identity(
+                                &paths,
+                                &source,
+                                prefab_asset,
+                            ) {
+                                self.stage = "导出完成，资源未接纳".into();
+                                let message = format!(
+                                    "游戏包已生成，但作者身份变化，当前资源未切换，请重新打开文档：{error:#}"
+                                );
+                                self.log(message.clone());
+                                self.failure = Some(message);
+                                continue;
+                            }
+                            *assets = candidate;
                             if run {
                                 match std::process::Command::new(&output.executable)
                                     .current_dir(&output.root)
@@ -240,7 +314,10 @@ impl ExportController {
             .open(&mut open)
             .default_width(560.)
             .show(ctx, |ui| {
-                ui.label("保存作者场景、构建资源并导出独立游戏。");
+                ui.label("保存当前作者文件、构建资源并导出独立游戏。");
+                if self.entry.is_none() {
+                    ui.weak("项目中没有可导出的场景，请先新建 .scene 文件。");
+                }
                 if let Some(error) = &self.template_error {
                     ui.colored_label(
                         egui::Color32::LIGHT_RED,
@@ -257,9 +334,9 @@ impl ExportController {
                         .selected_text(
                             sources
                                 .of_kind(AssetKind::Scene)
-                                .find(|s| s.id == self.entry)
+                                .find(|s| Some(s.id) == self.entry)
                                 .map_or_else(
-                                    || "未知场景".to_owned(),
+                                    || "请选择启动场景".to_owned(),
                                     |s| s.source.display().to_string(),
                                 ),
                         )
@@ -267,14 +344,14 @@ impl ExportController {
                             for scene in sources.of_kind(AssetKind::Scene) {
                                 ui.selectable_value(
                                     &mut self.entry,
-                                    scene.id,
+                                    Some(scene.id),
                                     scene.source.display().to_string(),
                                 );
                             }
                         });
                     ui.label("额外包含的场景");
                     for scene in sources.of_kind(AssetKind::Scene) {
-                        if scene.id == self.entry {
+                        if Some(scene.id) == self.entry {
                             continue;
                         }
                         let mut included = self.additional.contains(&scene.id);
@@ -296,16 +373,19 @@ impl ExportController {
                     ui.horizontal(|ui| {
                         for (label, run) in [("导出", false), ("导出并运行", true)] {
                             if ui
-                                .add_enabled(self.template.is_some(), egui::Button::new(label))
+                                .add_enabled(
+                                    self.template.is_some() && self.entry.is_some(),
+                                    egui::Button::new(label),
+                                )
                                 .clicked()
                             {
                                 action = Some(ExportAction {
-                                    entry: self.entry,
+                                    entry: self.entry.unwrap(),
                                     additional: self
                                         .additional
                                         .iter()
                                         .copied()
-                                        .filter(|id| *id != self.entry)
+                                        .filter(|id| Some(*id) != self.entry)
                                         .collect(),
                                     output: self.output.clone().into(),
                                     run,
@@ -343,3 +423,51 @@ impl ExportController {
         action
     }
 }
+
+fn package_export(assets: &mut AssetStore, request: PackageRequest<'_>) -> Result<PackageOutput> {
+    validate_export_scenes(assets, request.entry_scene, request.additional_scenes)?;
+    comet_asset_pipeline::package_scenes(request).context("游戏打包失败")
+}
+
+fn validate_export_scenes(
+    assets: &mut AssetStore,
+    entry: AssetId,
+    additional: &[AssetId],
+) -> Result<()> {
+    let mut closure = BTreeSet::new();
+    for scene in std::iter::once(entry).chain(additional.iter().copied()) {
+        ensure!(
+            assets
+                .index()
+                .products
+                .get(&scene)
+                .is_some_and(|product| product.kind == AssetKind::Scene),
+            "导出资源 {scene} 不是场景"
+        );
+        closure.extend(assets.dependency_closure(scene)?);
+    }
+    let mut validator = comet_runtime::ScriptValidator::default();
+    for id in closure {
+        if assets.index().products[&id].kind != AssetKind::Scene {
+            continue;
+        }
+        let snapshot = assets.expand_scene(id)?;
+        comet_application::extract(&snapshot, assets, &[])
+            .with_context(|| format!("导出场景 {id} 的绘制或骨骼绑定校验失败"))?;
+        let (skeletons, animations) = assets.animation_sources(&snapshot)?;
+        comet_runtime::validate_animations(&snapshot, &skeletons, &animations)
+            .with_context(|| format!("导出场景 {id} 的动画校验失败"))?;
+        let navigation = assets.navigation_data(&snapshot)?;
+        comet_runtime::validate_navigation(&snapshot, navigation.as_deref())
+            .with_context(|| format!("导出场景 {id} 的导航校验失败，请先烘焙匹配的导航数据"))?;
+        comet_runtime::validate_audio(&snapshot, &assets.audio_sources(&snapshot)?)
+            .with_context(|| format!("导出场景 {id} 的音频校验失败"))?;
+        validator
+            .validate(&snapshot, &assets.script_sources(&snapshot)?)
+            .with_context(|| format!("导出场景 {id} 的脚本校验失败"))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

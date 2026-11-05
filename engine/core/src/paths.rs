@@ -16,11 +16,7 @@ impl ProjectPaths {
             .as_ref()
             .canonicalize()
             .context("resolve project directory")?;
-        let assets = root
-            .join("assets")
-            .canonicalize()
-            .context("resolve project assets")?;
-        ensure!(assets.is_dir(), "project assets must be a directory");
+        let assets = assets_directory(&root)?;
         Ok(Self { root, assets })
     }
     pub fn root(&self) -> &Path {
@@ -31,6 +27,7 @@ impl ProjectPaths {
     }
     /// Existing paths follow symlinks. New paths resolve their existing ancestors first.
     pub fn resolve_asset_path(&self, path: impl AsRef<Path>) -> Result<PathBuf> {
+        self.check_assets_directory()?;
         let path = path.as_ref();
         ensure!(!path.as_os_str().is_empty(), "asset path cannot be empty");
         let path = if path.is_absolute() {
@@ -47,6 +44,7 @@ impl ProjectPaths {
         Ok(resolved)
     }
     pub fn export_destination(&self, output: impl AsRef<Path>, products: &Path) -> Result<PathBuf> {
+        self.check_assets_directory()?;
         let output = resolve_destination(output.as_ref())?;
         let products = resolve_destination(products)?;
         // Reject both nesting directions: publishing must not capture or replace its inputs.
@@ -59,6 +57,27 @@ impl ProjectPaths {
         }
         Ok(output)
     }
+    fn check_assets_directory(&self) -> Result<()> {
+        // An assets alias may have been replaced since the project was opened.
+        ensure!(
+            assets_directory(&self.root)? == self.assets,
+            "project assets directory changed; reopen the project"
+        );
+        Ok(())
+    }
+}
+
+fn assets_directory(root: &Path) -> Result<PathBuf> {
+    let assets = root
+        .join("assets")
+        .canonicalize()
+        .context("resolve project assets")?;
+    ensure!(assets.is_dir(), "project assets must be a directory");
+    ensure!(
+        assets != root && assets.starts_with(root),
+        "project assets must remain inside the project directory"
+    );
+    Ok(assets)
 }
 
 /// Resolve a destination without requiring its final components to exist.

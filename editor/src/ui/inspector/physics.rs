@@ -177,6 +177,20 @@ pub(super) fn draw(
                     edit.number(ui, "移动速度", &mut controller.move_speed, 0.001, f32::MAX);
                     edit.number(
                         ui,
+                        "蹲伏速度",
+                        &mut controller.crouch_speed,
+                        0.001,
+                        f32::MAX,
+                    );
+                    edit.number(
+                        ui,
+                        "蹲伏高度比例",
+                        &mut controller.crouch_height_ratio,
+                        0.001,
+                        1.,
+                    );
+                    edit.number(
+                        ui,
                         "跑步倍率",
                         &mut controller.run_multiplier,
                         0.001,
@@ -211,7 +225,7 @@ pub(super) fn draw(
                 let result = editor.edit_physics(entity.id, Some(body), character, assets);
                 editor.notice(result);
             }
-            if edit.finish {
+            if edit.finish && ui.is_enabled() {
                 let result = editor.commit();
                 editor.notice(result);
             }
@@ -266,6 +280,21 @@ fn prefab_fields(
     entity: &EntityData,
 ) {
     ui.weak("Prefab 实例的组件结构请在源 Prefab 中编辑。");
+    let target = if editor.play.is_none() {
+        Some(super::overrides::target(editor, ui, assets, entity.id))
+    } else {
+        None
+    };
+    if let Some(Err(error)) = &target {
+        ui.weak("嵌套实例的物理配置请在源 Prefab 中编辑。")
+            .on_hover_text(error);
+    }
+    let editable = matches!(
+        target,
+        Some(Ok(comet_editor_core::FieldTarget::Prefab { .. }))
+    ) && !editor.is_busy()
+        && !editor.documents.is_blocking()
+        && ui.is_enabled();
     if let Some(body) = &entity.physics {
         ui.label(format!(
             "{} · {}",
@@ -279,6 +308,8 @@ fn prefab_fields(
         ("摩擦系数", schema::FRICTION),
         ("移动速度", schema::MOVE_SPEED),
         ("跳跃速度", schema::JUMP_SPEED),
+        ("蹲伏速度", schema::CROUCH_SPEED),
+        ("蹲伏高度比例", schema::CROUCH_HEIGHT_RATIO),
     ] {
         let Some(schema::FieldValue::Scalar(mut value)) =
             schema::descriptor(key).unwrap().read(entity)
@@ -286,7 +317,7 @@ fn prefab_fields(
             continue;
         };
         let response = ui.add_enabled(
-            editor.play.is_none(),
+            editable,
             egui::DragValue::new(&mut value)
                 .prefix(format!("{label} "))
                 .speed(0.05),
@@ -295,7 +326,7 @@ fn prefab_fields(
             let result = editor.edit(entity.id, key, schema::FieldValue::Scalar(value), assets);
             editor.notice(result);
         }
-        if response.drag_stopped() || response.lost_focus() {
+        if editable && (response.drag_stopped() || response.lost_focus()) {
             let result = editor.commit();
             editor.notice(result);
         }

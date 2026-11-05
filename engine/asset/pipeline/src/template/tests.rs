@@ -1,6 +1,6 @@
 use super::*;
 #[test]
-fn templates_reject_mismatched_builds_protocols_editor_and_changed_apps() -> Result<()> {
+fn templates_match_explicit_program_identity_and_verify_all_snapshot_inputs() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let root = temp.path();
     let app = root.join("comet-app");
@@ -12,8 +12,7 @@ fn templates_reject_mismatched_builds_protocols_editor_and_changed_apps() -> Res
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&app, fs::Permissions::from_mode(0o755))?;
     }
-    let mut identity = RuntimeIdentity::current();
-    identity.build_id = "a".repeat(64);
+    let identity = RuntimeIdentity::for_build("a".repeat(64), "fixture-target");
     fs::create_dir(root.join("licenses"))?;
     fs::write(root.join("licenses/font.txt"), b"font license")?;
     fs::create_dir(root.join("icons"))?;
@@ -30,7 +29,18 @@ fn templates_reject_mismatched_builds_protocols_editor_and_changed_apps() -> Res
     };
     let path = root.join("template.json");
     fs::write(&path, serde_json::to_vec(&manifest)?)?;
-    let template = AppTemplate::open_for(&path, &editor, &identity)?;
+    let template = AppTemplate::open(&path, &editor, &identity)?;
+    assert_eq!(template.identity(), &identity);
+    for mutate in 0..4 {
+        let mut expected = identity.clone();
+        match mutate {
+            0 => expected.build_id = "b".repeat(64),
+            1 => expected.target = "other-target".into(),
+            2 => expected.os = "other-os".into(),
+            _ => expected.arch = "other-arch".into(),
+        }
+        assert!(AppTemplate::open(&path, &editor, &expected).is_err());
+    }
     fs::write(root.join("icons/app.icns"), b"changed icon")?;
     assert!(template.verify().is_err());
     fs::write(root.join("icons/app.icns"), b"app icon")?;
@@ -38,22 +48,24 @@ fn templates_reject_mismatched_builds_protocols_editor_and_changed_apps() -> Res
     assert!(template.verify().is_err());
     fs::write(root.join("licenses/font.txt"), b"font license")?;
     template.verify()?;
-    for mutate in 0..6 {
+    for mutate in 0..8 {
         let mut candidate = manifest.clone();
         match mutate {
             0 => candidate.identity.build_id = "b".repeat(64),
-            1 => candidate.identity.arch = "other".into(),
-            2 => candidate.identity.protocols.scene += 1,
-            3 => candidate.profile = "dev".into(),
-            4 => candidate.app = "../outside".into(),
+            1 => candidate.identity.target = "other-target".into(),
+            2 => candidate.identity.os = "other-os".into(),
+            3 => candidate.identity.arch = "other-arch".into(),
+            4 => candidate.identity.protocols.scene += 1,
+            5 => candidate.profile = "dev".into(),
+            6 => candidate.app = "../outside".into(),
             _ => candidate.version = 3,
         }
         fs::write(&path, serde_json::to_vec(&candidate)?)?;
-        assert!(AppTemplate::open_for(&path, &editor, &identity).is_err());
+        assert!(AppTemplate::open(&path, &editor, &identity).is_err());
     }
     fs::write(&path, serde_json::to_vec(&manifest)?)?;
     fs::write(&editor, b"another editor")?;
-    assert!(AppTemplate::open_for(&path, &editor, &identity).is_err());
+    assert!(AppTemplate::open(&path, &editor, &identity).is_err());
     fs::write(&app, b"overwritten cargo binary")?;
     assert!(template.verify().is_err());
     fs::remove_file(&app)?;

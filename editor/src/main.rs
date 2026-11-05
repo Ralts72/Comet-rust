@@ -1,18 +1,33 @@
+mod animation;
+mod audio;
+mod console;
 mod documents;
 mod export;
+mod fields;
 mod jobs;
+mod joints;
+mod models;
+mod navigation;
 mod objects;
+mod picking;
 mod project;
 mod resources;
+mod scripts;
+mod selection;
 mod session;
 #[cfg(test)]
 mod test_support;
+mod transform;
 mod ui;
 use anyhow::{Context, Result, ensure};
 use comet_application::HostOptions;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
+    let identity = comet_asset_data::package::RuntimeIdentity::for_build(
+        env!("COMET_PROGRAM_BUILD_ID"),
+        env!("COMET_PROGRAM_BUILD_TARGET"),
+    );
     let mut options = HostOptions::new("Comet · 场景编辑器");
     options.icon = Some(
         include_bytes!("../resources/icons/editor.png")
@@ -62,7 +77,11 @@ fn main() -> Result<()> {
     }
     let (mut editor, mut assets) = session::open(project, products, source)?;
     if let Some(template) = template {
-        match comet_asset_pipeline::AppTemplate::open(&template, &std::env::current_exe()?) {
+        match comet_asset_pipeline::AppTemplate::open(
+            &template,
+            &std::env::current_exe()?,
+            &identity,
+        ) {
             Ok(template) => editor.export.template = Some(template),
             Err(error) => editor.export.template_error = Some(format!("{error:#}")),
         }
@@ -71,7 +90,10 @@ fn main() -> Result<()> {
         editor.begin_export(
             &mut assets,
             crate::export::ExportAction {
-                entry: editor.export.entry_scene(),
+                entry: editor
+                    .export
+                    .entry_scene()
+                    .context("项目中没有可导出的启动场景")?,
                 additional: include_scenes,
                 output,
                 run: false,
@@ -84,6 +106,9 @@ fn main() -> Result<()> {
         }
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
+    }
+    if !options.headless && !options.smoke {
+        editor.enable_recents();
     }
     comet_application::run(options, assets, editor)
 }

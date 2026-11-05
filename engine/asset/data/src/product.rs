@@ -1,11 +1,17 @@
 //! Versioned, CPU-only products. No importer or GPU handles appear in this protocol.
+use crate::animation::{AnimationClipData, MAX_SKIN_VERTICES, SkeletonData, SkinData};
+pub use crate::{audio::AudioData, navigation::NavigationData};
 use anyhow::{Context, Result, ensure};
 use comet_core::{AssetId, validate_digest};
 use comet_scene::{ContentSource, EntityRef, schema};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const PRODUCT_VERSION: u32 = 1;
+pub const PRODUCT_VERSION: u32 = 5;
+pub const INDEX_VERSION: u32 = 6;
+pub const SCRIPT_VERSION: u32 = 1;
+pub const MAX_SCRIPT_BYTES: usize = 64 * 1024;
+pub const MAX_EDITOR_LABEL_BYTES: usize = 4 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetKind {
@@ -14,6 +20,30 @@ pub enum AssetKind {
     Mesh,
     Material,
     Texture,
+    Script,
+    Navigation,
+    Audio,
+    Skeleton,
+    Skin,
+    AnimationClip,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScriptData {
+    pub version: u32,
+    pub source: String,
+}
+impl ScriptData {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(self.version == SCRIPT_VERSION, "unsupported script version");
+        ensure!(!self.source.trim().is_empty(), "script source is empty");
+        ensure!(!self.source.contains('\0'), "script source contains NUL");
+        ensure!(
+            self.source.len() <= MAX_SCRIPT_BYTES,
+            "script source exceeds 64 KiB"
+        );
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,10 +53,60 @@ pub struct MeshData {
     pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null_attribute"
+    )]
+    pub joints: Option<Vec<[u16; 4]>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null_attribute"
+    )]
+    pub weights: Option<Vec<[f32; 4]>>,
+}
+fn non_null_attribute<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 impl MeshData {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == 1, "unsupported mesh version");
+        ensure!(matches!(self.version, 1 | 2), "unsupported mesh version");
+        ensure!(
+            self.version == 2 || (self.joints.is_none() && self.weights.is_none()),
+            "mesh v1 cannot contain skin attributes"
+        );
+        match (&self.joints, &self.weights) {
+            (None, None) => {}
+            (Some(joints), Some(weights)) => {
+                ensure!(
+                    self.positions.len() <= MAX_SKIN_VERTICES
+                        && joints.len() == self.positions.len()
+                        && weights.len() == self.positions.len(),
+                    "skin vertex attribute count/budget mismatch"
+                );
+                for (joints, weights) in joints.iter().zip(weights) {
+                    ensure!(
+                        weights.iter().all(|v| v.is_finite() && *v >= 0.),
+                        "invalid skin weight"
+                    );
+                    let sum: f64 = weights.iter().map(|v| f64::from(*v)).sum();
+                    ensure!((sum - 1.).abs() <= 1e-5, "skin weights must be normalized");
+                    let mut active = BTreeSet::new();
+                    for (joint, weight) in joints.iter().zip(weights) {
+                        ensure!(
+                            *weight == 0. || active.insert(joint),
+                            "duplicate active joint influence"
+                        );
+                    }
+                }
+            }
+            _ => anyhow::bail!("skin joint/weight attributes must be paired"),
+        }
         ensure!(!self.positions.is_empty(), "empty mesh");
         ensure!(
             self.positions.len() == self.normals.len() && self.positions.len() == self.uvs.len(),
@@ -109,6 +189,12 @@ pub enum Product {
     Mesh(MeshData),
     Material(MaterialData),
     Texture(TextureData),
+    Script(ScriptData),
+    Navigation(NavigationData),
+    Audio(AudioData),
+    Skeleton(SkeletonData),
+    Skin(SkinData),
+    AnimationClip(AnimationClipData),
 }
 impl Product {
     pub fn kind(&self) -> AssetKind {
@@ -118,6 +204,12 @@ impl Product {
             Self::Mesh(_) => AssetKind::Mesh,
             Self::Material(_) => AssetKind::Material,
             Self::Texture(_) => AssetKind::Texture,
+            Self::Script(_) => AssetKind::Script,
+            Self::Navigation(_) => AssetKind::Navigation,
+            Self::Audio(_) => AssetKind::Audio,
+            Self::Skeleton(_) => AssetKind::Skeleton,
+            Self::Skin(_) => AssetKind::Skin,
+            Self::AnimationClip(_) => AssetKind::AnimationClip,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -126,12 +218,20 @@ impl Product {
             Self::Mesh(m) => m.validate(),
             Self::Material(m) => m.validate(),
             Self::Texture(t) => t.validate(),
+            Self::Script(s) => s.validate(),
+            Self::Navigation(n) => n.validate(),
+            Self::Audio(audio) => audio.validate(),
+            Self::Skeleton(value) => value.validate(),
+            Self::Skin(value) => value.validate(),
+            Self::AnimationClip(value) => value.validate(),
         }
     }
     pub fn dependencies(&self) -> BTreeSet<AssetId> {
         match self {
             Self::Scene(s) | Self::Prefab(s) => s.dependencies(),
             Self::Material(m) => m.base_color_texture.into_iter().collect(),
+            Self::Skin(value) => [value.skeleton].into_iter().collect(),
+            Self::AnimationClip(value) => [value.skeleton].into_iter().collect(),
             _ => BTreeSet::new(),
         }
     }
@@ -154,6 +254,25 @@ impl Product {
                         expect(m.mesh, AssetKind::Mesh)?;
                         expect(m.surface.material, AssetKind::Material)?;
                     }
+                    if let Some(script) = &e.script {
+                        expect(script.asset, AssetKind::Script)?;
+                    }
+                    if let Some(animator) = &e.animator {
+                        expect(animator.skeleton, AssetKind::Skeleton)?;
+                        if let Some(clip) = animator.clip {
+                            expect(clip, AssetKind::AnimationClip)?;
+                        }
+                    }
+                    if let Some(skin) = &e.skin {
+                        expect(skin.skin, AssetKind::Skin)?;
+                    }
+                    if let Some(audio) = &e.audio_source {
+                        expect(audio.clip, AssetKind::Audio)?;
+                    }
+                    if let Some(data) = e.navigation_region.as_ref().and_then(|region| region.data)
+                    {
+                        expect(data, AssetKind::Navigation)?;
+                    }
                     for r in schema::entity_references(e) {
                         if let EntityRef::External { scene, .. } = r {
                             expect(scene, AssetKind::Scene)?;
@@ -163,6 +282,14 @@ impl Product {
                 for i in &s.instances {
                     expect(i.prefab, AssetKind::Prefab)?;
                     for o in &i.overrides {
+                        if let schema::FieldValue::OptionalAsset(Some(id)) = o.value {
+                            if o.field == schema::NAVIGATION_DATA {
+                                expect(id, AssetKind::Navigation)?;
+                            }
+                            if o.field == schema::ANIMATOR_CLIP {
+                                expect(id, AssetKind::AnimationClip)?;
+                            }
+                        }
                         if let schema::FieldValue::Asset(id) = o.value {
                             if o.field == schema::MESH {
                                 expect(id, AssetKind::Mesh)?;
@@ -170,10 +297,24 @@ impl Product {
                             if o.field == schema::MATERIAL {
                                 expect(id, AssetKind::Material)?;
                             }
+                            if o.field == schema::SCRIPT_ASSET {
+                                expect(id, AssetKind::Script)?;
+                            }
+                            if o.field == schema::ANIMATOR_SKELETON {
+                                expect(id, AssetKind::Skeleton)?;
+                            }
+                            if o.field == schema::SKIN_ASSET {
+                                expect(id, AssetKind::Skin)?;
+                            }
+                            if o.field == schema::AUDIO_CLIP {
+                                expect(id, AssetKind::Audio)?;
+                            }
                         }
                     }
                 }
             }
+            Self::Skin(value) => expect(value.skeleton, AssetKind::Skeleton)?,
+            Self::AnimationClip(value) => expect(value.skeleton, AssetKind::Skeleton)?,
             Self::Material(m) => {
                 if let Some(id) = m.base_color_texture {
                     expect(id, AssetKind::Texture)?;
@@ -196,7 +337,7 @@ impl ProductFile {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.version == PRODUCT_VERSION,
-            "unsupported product version {}",
+            "unsupported product version {}; rebuild products from authoring sources",
             self.version
         );
         validate_digest(&self.source_digest)?;
@@ -205,10 +346,27 @@ impl ProductFile {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct EditorProvenance {
+    /// Authoring source identity, not a runtime dependency.
+    pub source: AssetId,
+    pub label: String,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IndexEntry {
     pub digest: String,
     pub kind: AssetKind,
     pub dependencies: BTreeSet<AssetId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<EditorProvenance>,
+}
+impl IndexEntry {
+    /// Display metadata does not change the immutable product or its runtime dependencies.
+    pub fn same_product(&self, other: &Self) -> bool {
+        self.digest == other.digest
+            && self.kind == other.kind
+            && self.dependencies == other.dependencies
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -219,12 +377,28 @@ pub struct ProductIndex {
 impl ProductIndex {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 1,
-            "unsupported index version {}",
+            self.version == INDEX_VERSION,
+            "unsupported index version {}; rebuild products from authoring sources",
             self.version
         );
         for (id, e) in &self.products {
             validate_digest(&e.digest)?;
+            if let Some(editor) = &e.editor {
+                ensure!(
+                    !editor.label.trim().is_empty()
+                        && editor.label.len() <= MAX_EDITOR_LABEL_BYTES
+                        && !editor.label.contains('\0'),
+                    "asset {id} has an invalid editor label"
+                );
+                ensure!(
+                    self.products
+                        .get(&editor.source)
+                        .and_then(|source| source.editor.as_ref())
+                        .is_some_and(|source| source.source == editor.source),
+                    "asset {id} has no editor source root {}",
+                    editor.source
+                );
+            }
             for dep in &e.dependencies {
                 ensure!(
                     self.products.contains_key(dep),

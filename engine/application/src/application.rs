@@ -2,7 +2,10 @@ use crate::timing::FrameTiming;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_core::{EntityId, WorldId};
-use comet_render::{Camera, FrameFeedback, FramePacket, RenderWorker, Surface, UiFrame, ViewToken};
+use comet_render::{
+    Camera, Draw, FrameFeedback, FramePacket, PickRequest, RenderWorker, Surface, UiFrame,
+    ViewToken,
+};
 use comet_scene::SceneSnapshot;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use winit::{
@@ -44,11 +47,13 @@ pub struct FrameContext {
 }
 pub struct ViewRequest {
     pub world: WorldId,
+    pub hud: Option<comet_core::HudFrame>,
     pub snapshot: Arc<SceneSnapshot>,
     pub viewport: egui::Rect,
     pub camera: Camera,
-    pub selected: Option<EntityId>,
-    pub pick: Option<[f32; 2]>,
+    /// Selected objects; extraction highlights their rendered descendants as well.
+    pub selected: Vec<EntityId>,
+    pub pick: Option<PickRequest>,
     pub shadows: bool,
 }
 pub trait Application {
@@ -65,9 +70,46 @@ pub trait Application {
         assets: &mut AssetStore,
         context: &FrameContext,
     ) -> Result<ViewRequest>;
+    /// Recover application content errors; renderer and worker failures remain fatal.
+    fn view_error(&mut self, error: anyhow::Error) -> Result<ViewRequest> {
+        Err(error)
+    }
     fn feedback(&mut self, _feedback: &FrameFeedback) {}
+    fn audio_frame(&mut self) -> Result<Option<comet_audio::AudioFrame>> {
+        Ok(None)
+    }
+    /// Accepted host output volume, independent of runtime pause and individual sound sources.
+    fn audio_master_gain(&self) -> f32 {
+        1.
+    }
+    fn audio_error(&mut self, error: &str) {
+        eprintln!("音频输出不可用：{error}");
+    }
     fn report(&mut self) -> serde_json::Value {
         serde_json::json!({})
+    }
+}
+fn prepare_view(
+    app: &mut impl Application,
+    assets: &mut AssetStore,
+    request: Result<ViewRequest>,
+    extractor: &mut crate::extract::SceneExtractor,
+) -> Result<(ViewRequest, Arc<[Draw]>)> {
+    let mut extract = |view: ViewRequest| -> Result<_> {
+        if let Some(hud) = &view.hud {
+            ensure!(
+                hud.world == view.world,
+                "HUD does not belong to the accepted view world"
+            );
+            hud.validate()?;
+        }
+        let draws = extractor.extract(&view.snapshot, assets, &view.selected)?;
+        Ok((view, draws))
+    };
+    let result = request.and_then(&mut extract);
+    match result {
+        Ok(prepared) => Ok(prepared),
+        Err(error) => extract(app.view_error(error)?),
     }
 }
 struct Host<A: Application> {
@@ -77,6 +119,9 @@ struct Host<A: Application> {
     options: HostOptions,
     app: A,
     assets: AssetStore,
+    extractor: crate::extract::SceneExtractor,
+    audio: crate::audio::AudioHost,
+    final_audio: Option<comet_audio::AudioReport>,
     ctx: egui::Context,
     number: u64,
     generation: u64,
@@ -101,6 +146,9 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         options,
         app,
         assets,
+        extractor: Default::default(),
+        audio: Default::default(),
+        final_audio: None,
         ctx,
         number: 0,
         generation: 1,
@@ -116,6 +164,10 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         for _ in 0..8 {
             host.draw()?;
         }
+        if host.options.smoke {
+            host.audio
+                .wait_for_progress(std::time::Duration::from_millis(500));
+        }
     } else {
         #[cfg(target_os = "macos")]
         crate::macos::prepare()?;
@@ -125,6 +177,12 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
     if let Some(worker) = host.worker.as_mut() {
         worker.close()?;
     }
+    host.shutdown_audio();
+    let audio = host
+        .final_audio
+        .take()
+        .unwrap_or_else(|| host.audio.report());
+    let audio_stopped = host.audio.report();
     if let Some(error) = host.error {
         anyhow::bail!(error);
     }
@@ -135,13 +193,19 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         std::fs::write(
             report,
             serde_json::to_vec_pretty(
-                &serde_json::json!({"frames":host.feedback,"submitted_frames":host.number,"application":host.app.report(),"headless":headless}),
+                &serde_json::json!({"frames":host.feedback,"submitted_frames":host.number,"application":host.app.report(),"audio":audio,"audio_shutdown":audio_stopped.active_voices == 0 && audio_stopped.pending_voices == 0,"headless":headless}),
             )?,
         )?;
     }
     Ok(())
 }
 impl<A: Application> Host<A> {
+    fn shutdown_audio(&mut self) {
+        if self.final_audio.is_none() {
+            self.final_audio = Some(self.audio.report());
+        }
+        self.audio.shutdown();
+    }
     fn setup(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
         let icon = self
             .options
@@ -241,51 +305,10 @@ impl<A: Application> Host<A> {
                 ..Default::default()
             }
         };
-        let mut request = None;
-        let mut output = self.ctx.run_ui(raw, |ui| {
-            request = Some(self.app.frame(ui, &mut self.assets, &input));
-        });
-        if let (Some(window), Some(state)) = (&self.window, &mut self.state) {
-            state.handle_platform_output(window, output.platform_output.clone());
-        }
-        let view = request.context("application did not produce a view")??;
-        if self.app.close_ready() {
-            self.closing = true;
+        let Some(frame) = self.prepare_frame(raw, &input)? else {
             return Ok(true);
-        }
-        let ppp = output.pixels_per_point;
-        let rect = view.viewport * ppp;
-        let x = rect.min.x.clamp(0., size[0] as f32) as u32;
-        let y = rect.min.y.clamp(0., size[1] as f32) as u32;
-        let w = (rect.width().max(0.) as u32).min(size[0] - x);
-        let h = (rect.height().max(0.) as u32).min(size[1] - y);
-        let token = ViewToken {
-            world: view.world,
-            view: 1,
-            target_generation: self.generation,
         };
-        self.token = Some(token);
         let done = self.number == 7 && (self.options.smoke || self.options.headless);
-        let frame = FramePacket {
-            number: self.number,
-            token,
-            size,
-            viewport: [x, y, w, h],
-            camera: view.camera,
-            draws: crate::extract(&view.snapshot, &mut self.assets, view.selected)?,
-            ui: UiFrame {
-                primitives: self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp),
-                textures: std::mem::take(&mut output.textures_delta),
-                pixels_per_point: ppp,
-            },
-            pick: view.pick,
-            capture: if done {
-                self.options.capture.clone()
-            } else {
-                None
-            },
-            shadows: view.shadows,
-        };
         self.worker.as_ref().unwrap().submit(frame)?;
         if done {
             let feedback = self.worker.as_ref().unwrap().wait(self.number)?;
@@ -301,6 +324,78 @@ impl<A: Application> Host<A> {
         }
         Ok(done)
     }
+    fn prepare_frame(
+        &mut self,
+        raw: egui::RawInput,
+        input: &FrameContext,
+    ) -> Result<Option<FramePacket>> {
+        let mut prepared = None;
+        let mut output = self.ctx.run_ui(raw, |ui| {
+            let request = self.app.frame(ui, &mut self.assets, input);
+            prepared = Some(if self.app.close_ready() {
+                Ok(None)
+            } else {
+                prepare_view(
+                    &mut self.app,
+                    &mut self.assets,
+                    request,
+                    &mut self.extractor,
+                )
+                .map(|(view, draws)| {
+                    if let Some(hud) = &view.hud {
+                        crate::hud::paint(ui, view.viewport, hud);
+                    }
+                    Some((view, draws))
+                })
+            });
+        });
+        // UiFrame acknowledges unsubmitted updates on fatal errors or approved close.
+        let mut ui_frame = UiFrame {
+            textures: std::mem::take(&mut output.textures_delta),
+            pixels_per_point: output.pixels_per_point,
+            primitives: vec![],
+        };
+        if let (Some(window), Some(state)) = (&self.window, &mut self.state) {
+            state.handle_platform_output(window, output.platform_output.clone());
+        }
+        let Some((view, draws)) = prepared.context("application did not prepare a view")?? else {
+            self.closing = true;
+            return Ok(None);
+        };
+        self.audio
+            .submit(&mut self.app, view.world, view.camera, input.active);
+        let ppp = output.pixels_per_point;
+        let size = input.size;
+        let rect = view.viewport * ppp;
+        let x = rect.min.x.clamp(0., size[0] as f32) as u32;
+        let y = rect.min.y.clamp(0., size[1] as f32) as u32;
+        let w = (rect.width().max(0.) as u32).min(size[0] - x);
+        let h = (rect.height().max(0.) as u32).min(size[1] - y);
+        let token = ViewToken {
+            world: view.world,
+            view: 1,
+            target_generation: input.target_generation,
+        };
+        self.token = Some(token);
+        let done = input.number == 7 && (self.options.smoke || self.options.headless);
+        ui_frame.primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
+        Ok(Some(FramePacket {
+            number: input.number,
+            token,
+            size,
+            viewport: [x, y, w, h],
+            camera: view.camera,
+            draws,
+            ui: ui_frame,
+            pick: view.pick,
+            capture: if done {
+                self.options.capture.clone()
+            } else {
+                None
+            },
+            shadows: view.shadows,
+        }))
+    }
 }
 impl<A: Application> ApplicationHandler for Host<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -314,6 +409,7 @@ impl<A: Application> ApplicationHandler for Host<A> {
     }
     fn suspended(&mut self, _: &ActiveEventLoop) {
         self.timing.suspended(true);
+        self.audio.pause(&mut self.app);
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         if let (Some(window), Some(state)) = (&self.window, &mut self.state) {
@@ -355,8 +451,12 @@ impl<A: Application> ApplicationHandler for Host<A> {
             }
             _ => {}
         }
+        if !self.timing.active() {
+            self.audio.pause(&mut self.app);
+        }
     }
     fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.shutdown_audio();
         if let Some(worker) = &mut self.worker
             && let Err(error) = worker.close()
         {
@@ -403,3 +503,6 @@ pub fn parse_common(
     ensure!(!options.title.is_empty(), "window title is empty");
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests;

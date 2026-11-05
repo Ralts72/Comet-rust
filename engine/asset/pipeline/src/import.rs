@@ -1,6 +1,23 @@
 use anyhow::{Context, Result, ensure};
-use comet_asset_data::product::{AssetKind, Product, TextureData};
-use std::{io::Cursor, path::Path};
+use comet_asset_data::product::{
+    AssetKind, MAX_SCRIPT_BYTES, Product, SCRIPT_VERSION, ScriptData, TextureData,
+};
+use comet_core::AssetId;
+use std::{
+    collections::BTreeMap,
+    io::{Cursor, Read},
+    path::{Path, PathBuf},
+};
+
+pub(crate) struct ImportedProduct {
+    pub id: AssetId,
+    pub payload: Product,
+    pub label: String,
+}
+pub(crate) struct Imported {
+    pub products: Vec<ImportedProduct>,
+    pub files: BTreeMap<PathBuf, String>,
+}
 
 pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
     match path.extension()?.to_str()? {
@@ -9,19 +26,26 @@ pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
         "mesh" => Some(AssetKind::Mesh),
         "material" => Some(AssetKind::Material),
         "png" => Some(AssetKind::Texture),
+        "rhai" => Some(AssetKind::Script),
+        "nav" => Some(AssetKind::Navigation),
+        "wav" => Some(AssetKind::Audio),
         _ => None,
     }
 }
-pub(crate) fn bundle(
-    path: &Path,
-    bytes: &[u8],
-    id: comet_core::AssetId,
-) -> Result<crate::gltf::Imported> {
+pub(crate) fn bundle(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported> {
     if path.extension().is_some_and(|e| e == "gltf" || e == "glb") {
         crate::gltf::import(path, bytes, id)
     } else {
-        Ok(crate::gltf::Imported {
-            products: vec![(id, import(path, bytes)?)],
+        Ok(Imported {
+            products: vec![ImportedProduct {
+                id,
+                payload: import(path, bytes)?,
+                label: path
+                    .file_name()
+                    .context("missing source filename")?
+                    .to_string_lossy()
+                    .into_owned(),
+            }],
             files: Default::default(),
         })
     }
@@ -41,11 +65,58 @@ pub(crate) fn import(path: &Path, bytes: &[u8]) -> Result<Product> {
         Product::Material(serde_json::from_slice(bytes)?)
     } else if name.ends_with(".png") {
         Product::Texture(png(bytes)?)
+    } else if name.ends_with(".rhai") {
+        anyhow::ensure!(
+            bytes.len() <= MAX_SCRIPT_BYTES,
+            "script source exceeds 64 KiB"
+        );
+        Product::Script(ScriptData {
+            version: SCRIPT_VERSION,
+            source: std::str::from_utf8(bytes)
+                .context("script source must be UTF-8")?
+                .to_owned(),
+        })
+    } else if name.ends_with(".wav") {
+        Product::Audio(crate::audio::import(bytes)?)
+    } else if name.ends_with(".nav") {
+        ensure!(
+            bytes.len() <= comet_asset_data::navigation::MAX_NAVIGATION_BYTES,
+            "navigation source exceeds its size budget"
+        );
+        Product::Navigation(serde_json::from_slice(bytes)?)
     } else {
         anyhow::bail!("unsupported source {}", path.display())
     };
     value.validate()?;
     Ok(value)
+}
+pub(crate) fn read(path: &Path) -> Result<Vec<u8>> {
+    if path.extension().is_some_and(|extension| extension == "wav") {
+        crate::audio::read(path)
+    } else if path
+        .extension()
+        .is_some_and(|extension| extension == "gltf" || extension == "glb")
+    {
+        read_bounded(path, comet_asset_data::MAX_ANIMATION_BYTES)
+    } else {
+        std::fs::read(path).with_context(|| format!("read {}", path.display()))
+    }
+}
+pub(super) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
+    let file = std::fs::File::open(path).with_context(|| format!("read {}", path.display()))?;
+    ensure!(
+        file.metadata()?.len() <= limit as u64,
+        "source byte budget exceeded: {}",
+        path.display()
+    );
+    let mut bytes = Vec::new();
+    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= limit,
+        "source grew beyond byte budget: {}",
+        path.display()
+    );
+    Ok(bytes)
 }
 fn png(bytes: &[u8]) -> Result<TextureData> {
     let mut decoder = png::Decoder::new(Cursor::new(bytes));

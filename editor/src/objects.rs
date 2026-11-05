@@ -2,17 +2,49 @@ use crate::session::Editor;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_core::{AssetId, EntityId, InstanceId};
-use comet_scene::{EntityData, PrefabResolver};
+use comet_editor_core::ObjectTarget;
+use comet_scene::{EntityData, PrefabResolver, PrefabRoot};
+use std::collections::{BTreeMap, btree_map::Entry};
 
 enum Owner {
     Authored,
-    Instance { id: InstanceId, root: EntityId },
+    Instance {
+        id: InstanceId,
+        roots: Vec<PrefabRoot>,
+    },
 }
 
 impl Editor {
-    fn structural_edit(&mut self) -> Result<()> {
+    pub(crate) fn rename_object(&mut self, id: EntityId, name: String) -> Result<()> {
+        ensure!(self.play.is_none(), "请先停止运行，再重命名作者对象");
+        ensure!(!self.is_busy(), "请等待后台任务完成，再重命名对象");
+        ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
+        ensure!(
+            self.document
+                .shared_source()
+                .base
+                .entities
+                .iter()
+                .any(|entity| entity.id == id),
+            "Prefab 内部对象的名称需要在源文件中编辑"
+        );
+        if !self.document.is_editing() {
+            self.picking.clear();
+            self.document.begin()?;
+        }
+        self.document.preview_name(id, name)
+    }
+
+    fn ensure_structural_editable(&self) -> Result<()> {
         ensure!(self.play.is_none(), "请先停止运行，再编辑场景结构");
         ensure!(!self.is_busy(), "请等待后台任务完成，再编辑场景结构");
+        ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
+        Ok(())
+    }
+
+    fn structural_edit(&mut self) -> Result<()> {
+        self.ensure_structural_editable()?;
+        self.picking.clear();
         self.commit()
     }
 
@@ -21,29 +53,31 @@ impl Editor {
         if source.base.entities.iter().any(|e| e.id == id) {
             return Ok(Owner::Authored);
         }
-        for instance in &source.instances {
-            let prefab = assets.prefab(instance.prefab)?;
-            let roots: Vec<_> = prefab
-                .base
-                .entities
-                .iter()
-                .filter(|e| e.parent.is_none())
-                .collect();
-            for root in &roots {
-                if root.id.in_instance(instance.id) == id {
-                    ensure!(
-                        roots.len() == 1
-                            && !prefab.instances.iter().any(|child| child.parent.is_none()),
-                        "多根 Prefab 请在源文件中编辑结构"
-                    );
-                    return Ok(Owner::Instance {
+        self.instance_owners(assets)?
+            .remove(&id)
+            .context("Prefab 内部对象的结构需要在源 Prefab 中编辑")
+    }
+
+    fn instance_owners(&self, assets: &mut AssetStore) -> Result<BTreeMap<EntityId, Owner>> {
+        // This command-local index shares source metadata between instances and selected roots.
+        let mut sources = BTreeMap::new();
+        let mut owners = BTreeMap::new();
+        for instance in &self.document.shared_source().instances {
+            if let Entry::Vacant(entry) = sources.entry(instance.prefab) {
+                let prefab = assets.prefab(instance.prefab)?;
+                entry.insert(prefab.prefab_roots(assets)?);
+            }
+            for root in &sources[&instance.prefab] {
+                owners.insert(
+                    root.in_instance(instance.id),
+                    Owner::Instance {
                         id: instance.id,
-                        root: root.id,
-                    });
-                }
+                        roots: vec![root.clone()],
+                    },
+                );
             }
         }
-        anyhow::bail!("Prefab 内部对象的结构需要在源 Prefab 中编辑")
+        Ok(owners)
     }
 
     pub(crate) fn create_object(
@@ -75,7 +109,7 @@ impl Editor {
         entity.parent = parent;
         let id = entity.id;
         self.document.insert_entity(entity, assets)?;
-        self.selected = Some(id);
+        self.selection.replace([id]);
         self.status = "已创建对象".into();
         Ok(())
     }
@@ -86,13 +120,23 @@ impl Editor {
         name: &str,
         assets: &mut AssetStore,
     ) -> Result<()> {
+        self.ensure_structural_editable()?;
+        let source = assets.prefab(prefab)?;
+        let roots = source.prefab_roots(assets)?;
+        let unparented = roots.iter().any(PrefabRoot::requires_scene_root);
+        let entity = (!unparented).then(|| EntityData::new(name));
+        let id = entity.as_ref().map(|entity| entity.id);
         self.structural_edit()?;
-        let entity = EntityData::new(name);
-        let id = entity.id;
-        self.document
+        let instance = self
+            .document
             .insert_prefab(entity, prefab, assets)
             .context("无法将资源添加到场景")?;
-        self.selected = Some(id);
+        if unparented {
+            self.selection
+                .replace(roots.iter().map(|root| root.in_instance(instance)));
+        } else {
+            self.selection.replace(id);
+        }
         self.status = format!("已添加资源：{name}");
         Ok(())
     }
@@ -103,17 +147,21 @@ impl Editor {
         assets: &mut AssetStore,
     ) -> Result<()> {
         self.structural_edit()?;
-        let selected = match self.object_owner(entity, assets)? {
-            Owner::Authored => *self
-                .document
-                .clone_subtrees(&[entity], assets)?
-                .get(&entity)
-                .context("对象复制失败")?,
-            Owner::Instance { id, root } => {
-                root.in_instance(self.document.duplicate_instance(id, assets)?)
+        let owners = self.operation_roots(entity, assets)?;
+        let targets: Vec<_> = owners.iter().map(|(id, owner)| owner.target(*id)).collect();
+        let map = self.document.clone_selection(&targets, assets)?;
+        let mut selected = Vec::new();
+        for (entity, owner) in owners {
+            match owner {
+                Owner::Authored => selected.push(map.entities[&entity]),
+                Owner::Instance { id, roots } => selected.extend(
+                    roots
+                        .iter()
+                        .map(|root| root.in_instance(map.instances[&id])),
+                ),
             }
-        };
-        self.selected = Some(selected);
+        }
+        self.selection.replace(selected);
         self.status = "已复制对象".into();
         Ok(())
     }
@@ -124,13 +172,122 @@ impl Editor {
         assets: &mut AssetStore,
     ) -> Result<()> {
         self.structural_edit()?;
-        match self.object_owner(entity, assets)? {
-            Owner::Authored => self.document.remove_subtrees(&[entity], assets)?,
-            Owner::Instance { id, .. } => self.document.remove_instance(id, assets)?,
-        }
-        self.selected = None;
+        let owners = self.operation_roots(entity, assets)?;
+        let targets: Vec<_> = owners.iter().map(|(id, owner)| owner.target(*id)).collect();
+        self.document.remove_selection(&targets, assets)?;
+        self.selection.clear();
         self.status = "已删除对象".into();
         Ok(())
+    }
+
+    pub(crate) fn reparent_object(
+        &mut self,
+        entity: EntityId,
+        parent: Option<EntityId>,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.structural_edit()?;
+        let owners = self.operation_roots(entity, assets)?;
+        ensure!(
+            owners
+                .iter()
+                .all(|(_, owner)| matches!(owner, Owner::Authored)),
+            "请移动资源的作者容器，Prefab 的内部结构需要在源文件中编辑"
+        );
+        if let Some(parent) = parent {
+            ensure!(
+                matches!(self.object_owner(parent, assets)?, Owner::Authored),
+                "不能将对象挂接到 Prefab 内部，请选择作者对象"
+            );
+        }
+        self.document
+            .reparent_entities(
+                &owners.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+                parent,
+                assets,
+            )
+            .context("无法调整父级；请检查层级循环、物理根节点和变换是否可保留")?;
+        if !self.selection.contains(entity) {
+            self.selection.replace([entity]);
+        }
+        self.status = "父级已更新，世界变换保持不变".into();
+        Ok(())
+    }
+
+    fn operation_roots(
+        &self,
+        clicked: EntityId,
+        assets: &mut AssetStore,
+    ) -> Result<Vec<(EntityId, Owner)>> {
+        let mut ids = if self.selection.contains(clicked) {
+            self.selection.ids()
+        } else {
+            vec![clicked]
+        };
+        // Keep the clicked/active root last so copies retain a predictable Gizmo anchor.
+        ids.retain(|id| *id != clicked);
+        ids.push(clicked);
+        let selected: std::collections::BTreeSet<_> = ids.iter().copied().collect();
+        let snapshot = self.document.expand(assets)?;
+        let parents: std::collections::BTreeMap<_, _> =
+            snapshot.entities.iter().map(|e| (e.id, e.parent)).collect();
+        let mut roots: Vec<(EntityId, Owner)> = Vec::new();
+        let authored: std::collections::BTreeSet<_> = self
+            .document
+            .shared_source()
+            .base
+            .entities
+            .iter()
+            .map(|entity| entity.id)
+            .collect();
+        let mut instances = None;
+        for id in ids {
+            let mut parent = *parents.get(&id).context("选中的对象已不存在")?;
+            let mut covered = false;
+            while let Some(ancestor) = parent {
+                if selected.contains(&ancestor) {
+                    covered = true;
+                    break;
+                }
+                parent = parents[&ancestor];
+            }
+            if !covered {
+                let mut owner = if authored.contains(&id) {
+                    Owner::Authored
+                } else {
+                    if instances.is_none() {
+                        instances = Some(self.instance_owners(assets)?);
+                    }
+                    instances
+                        .as_mut()
+                        .unwrap()
+                        .remove(&id)
+                        .context("Prefab 内部对象的结构需要在源 Prefab 中编辑")?
+                };
+                if let Owner::Instance {
+                    id: instance,
+                    roots: selected,
+                } = &mut owner
+                    && let Some(index) = roots.iter().position(|(_, previous)| matches!(previous, Owner::Instance { id, .. } if *id == *instance))
+                {
+                    let (_, Owner::Instance { roots: mut previous, .. }) = roots.remove(index) else { unreachable!() };
+                    // The clicked root is last, including within a merged instance selection.
+                    previous.append(selected);
+                    *selected = previous;
+                }
+                roots.push((id, owner));
+            }
+        }
+        Ok(roots)
+    }
+}
+
+impl Owner {
+    fn target(&self, entity: EntityId) -> ObjectTarget {
+        match self {
+            Self::Authored => ObjectTarget::Authored(entity),
+            Self::Instance { id, .. } => ObjectTarget::Prefab(*id),
+        }
     }
 }
 

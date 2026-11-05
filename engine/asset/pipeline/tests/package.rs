@@ -1,5 +1,6 @@
 use anyhow::Result;
 use comet_asset::AssetStore;
+use comet_asset_data::package::RuntimeIdentity;
 use comet_asset_pipeline::{PackageRequest, package_scenes};
 use comet_core::{AssetId, digest};
 use comet_scene::{ContentSource, EntityData, Model, Surface};
@@ -58,8 +59,10 @@ fn project_icons_are_persistent_portable_and_never_modify_the_app_template() -> 
     let app = std::env::current_exe()?;
     let app_hash = digest(&fs::read(&app)?);
     let output = temp.path().join("export");
+    let game_id = comet_core::GameId::new();
     let request = |id| PackageRequest {
         products: &products,
+        game_id,
         index_revision: None,
         entry_scene: scene,
         additional_scenes: &[],
@@ -87,6 +90,7 @@ fn project_icons_are_persistent_portable_and_never_modify_the_app_template() -> 
     let manifest: comet_asset_data::package::PackageManifest =
         serde_json::from_slice(&fs::read(output.join("package.json"))?)?;
     assert_eq!(manifest.game_icon_sha256, Some(digest(&image)));
+    assert_eq!(manifest.game_id, game_id);
     assert_eq!(digest(&fs::read(&app)?), app_hash);
     assert_eq!(
         AssetStore::open(package.products)?.index().products.len(),
@@ -157,13 +161,16 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
         path: icon_path.clone(),
         sha256: digest(icon_bytes),
     };
+    let identity = RuntimeIdentity::for_build("a".repeat(64), "fixture-target");
+    let game_id = comet_core::GameId::new();
     let request = |revision, hash| PackageRequest {
         products: &products,
+        game_id,
         index_revision: revision,
         entry_scene: main,
         additional_scenes: std::slice::from_ref(&additional),
         app: &app,
-        runtime: None,
+        runtime: Some(identity.clone()),
         app_digest: hash,
         notices: &notices,
         app_icon: Some(&icon),
@@ -171,6 +178,10 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
         output: &output,
     };
     assert!(package_scenes(request(Some("stale index"), None)).is_err());
+    assert!(!output.exists());
+    let mut invalid_identity = request(None, None);
+    invalid_identity.runtime.as_mut().unwrap().build_id = "unprepared".into();
+    assert!(package_scenes(invalid_identity).is_err());
     assert!(!output.exists());
     let bad_hash = "0".repeat(64);
     let app_hash = digest(b"external binary");
@@ -195,11 +206,40 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
     let manifest: comet_asset_data::package::PackageManifest =
         serde_json::from_slice(&fs::read(output.join("package.json"))?)?;
     manifest.validate()?;
+    manifest.validate_for(&identity)?;
+    assert_eq!(manifest.runtime.as_ref(), Some(&identity));
     assert_eq!(manifest.scenes.len(), 2);
     assert_eq!(manifest.entry_scene, main);
+    assert_eq!(manifest.game_id, game_id);
     let sentinel = fs::read(output.join("package.json"))?;
     assert!(package_scenes(request(None, None)).is_err());
     assert_eq!(fs::read(output.join("package.json"))?, sentinel);
+    let moved = temp.path().join("relocated/changed-entry");
+    fs::create_dir(moved.parent().unwrap())?;
+    let alternate = temp.path().join("alternate");
+    let additional_scenes = [main];
+    let mut next = request(None, Some(&app_hash));
+    next.output = &alternate;
+    next.entry_scene = additional;
+    next.additional_scenes = &additional_scenes;
+    next.runtime.as_mut().unwrap().build_id = "b".repeat(64);
+    package_scenes(next)?;
+    fs::rename(alternate, &moved)?;
+    fs::remove_dir_all(&project)?;
+    fs::remove_dir_all(&products)?;
+    let relocated: comet_asset_data::package::PackageManifest =
+        serde_json::from_slice(&fs::read(moved.join("package.json"))?)?;
+    relocated.validate()?;
+    assert_eq!(relocated.entry_scene, additional);
+    assert_eq!(relocated.game_id, game_id);
+    assert_ne!(relocated.runtime, manifest.runtime);
+    assert_eq!(
+        AssetStore::open(moved.join("products"))?
+            .index()
+            .products
+            .len(),
+        4
+    );
     assert!(fs::read_dir(temp.path())?.all(|p| {
         !p.unwrap()
             .file_name()

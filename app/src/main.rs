@@ -1,57 +1,22 @@
 use anyhow::{Context, Result, ensure};
-use comet_application::{Application, FrameContext, HostOptions, ViewRequest};
+use comet_application::HostOptions;
 use comet_asset::AssetStore;
 use comet_asset_data::package::{PackageManifest, RuntimeIdentity};
-use comet_runtime::PlaySession;
+use session::App;
 use std::path::PathBuf;
-struct App {
-    play: PlaySession,
-    camera: comet_application::Camera,
-}
-impl Application for App {
-    fn frame(
-        &mut self,
-        ui: &mut egui::Ui,
-        _: &mut AssetStore,
-        input: &FrameContext,
-    ) -> Result<ViewRequest> {
-        let viewport = ui.max_rect();
-        let response = ui.allocate_rect(viewport, egui::Sense::click_and_drag());
-        if response.clicked() {
-            response.request_focus();
-        }
-        comet_application::orbit(&mut self.camera, &response);
-        let previous_position = self.play.player_character().map(|c| c.position);
-        self.play
-            .synchronize_host(input.active, input.activity_changed);
-        self.play.advance_with_input(
-            input.dt,
-            comet_application::sample_actions(&response, input.active, self.camera),
-        )?;
-        comet_application::follow_target(
-            &mut self.camera,
-            previous_position,
-            self.play.player_character().map(|c| c.position),
-        );
-        Ok(ViewRequest {
-            world: self.play.world_id(),
-            snapshot: self.play.shared_snapshot(),
-            viewport,
-            camera: self.camera,
-            selected: None,
-            pick: None,
-            shadows: true,
-        })
-    }
-    fn report(&mut self) -> serde_json::Value {
-        serde_json::json!({"elapsed":self.play.elapsed(),"steps":self.play.steps(),"world":self.play.world_id(),"frame_steps":self.play.frame_steps(),"dropped_time":self.play.dropped_time(),"interpolation_alpha":self.play.interpolation_alpha(),"suspended":self.play.is_suspended(),"character":self.play.player_character().map(|c| serde_json::json!({"position":c.position,"grounded":c.grounded,"vertical_velocity":c.vertical_velocity}))})
-    }
-}
+mod menu;
+mod session;
+mod settings;
+mod storage;
 fn main() -> Result<()> {
+    let identity = RuntimeIdentity::for_build(
+        env!("COMET_PROGRAM_BUILD_ID"),
+        env!("COMET_PROGRAM_BUILD_TARGET"),
+    );
     if std::env::args().nth(1).as_deref() == Some("--template-info") {
         println!(
             "{}",
-            serde_json::json!({"identity":RuntimeIdentity::current(),"debug":cfg!(debug_assertions)})
+            serde_json::json!({"identity":&identity,"debug":cfg!(debug_assertions)})
         );
         return Ok(());
     }
@@ -63,9 +28,17 @@ fn main() -> Result<()> {
     );
     let mut products = None;
     let mut scene = None;
+    let mut allowed_scenes = None;
+    let mut game_id = None;
+    let mut data_directory = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--data-dir" => {
+                data_directory = Some(comet_core::resolve_destination(&PathBuf::from(
+                    args.next().context("--data-dir requires a path")?,
+                ))?)
+            }
             "--products" => {
                 products = Some(PathBuf::from(
                     args.next().context("--products requires a path")?,
@@ -100,7 +73,8 @@ fn main() -> Result<()> {
             &std::fs::read(resources.join("package.json"))
                 .context("App requires an exported package or explicit --products and --scene")?,
         )?;
-        manifest.validate()?;
+        manifest.validate_for(&identity)?;
+        game_id = Some(manifest.game_id);
         if let Some(expected) = &manifest.game_icon_sha256 {
             let path = resources.join("game-icon.png").canonicalize()?;
             ensure!(
@@ -119,16 +93,25 @@ fn main() -> Result<()> {
         } else {
             scene = Some(manifest.entry_scene);
         }
+        allowed_scenes = Some(manifest.scenes.into_iter().collect());
         products = Some(resources.join("products"));
     }
     let mut assets = AssetStore::open(products.context("missing App products")?)?;
     let scene = scene.context("pass --scene <asset UUID>")?;
-    let play = PlaySession::start(assets.expand_scene(scene)?)?;
-    let mut camera = comet_application::Camera::default();
-    comet_application::follow_target(
-        &mut camera,
-        None,
-        play.player_character().map(|c| c.position),
+    ensure!(
+        game_id.is_some() || data_directory.is_none(),
+        "--data-dir 需要导出游戏包中的游戏身份"
     );
-    comet_application::run(options, assets, App { play, camera })
+    let checkpoints = match (game_id, data_directory) {
+        (Some(id), Some(directory)) => storage::Store::directory(id, directory),
+        (Some(id), None) if options.headless || options.smoke => Ok(storage::Store::memory(id)),
+        (Some(id), None) => storage::Store::for_user(id),
+        (None, None) => Err(anyhow::anyhow!(
+            "独立产品运行没有游戏身份，请通过编辑器导出游戏后使用存档"
+        )),
+        (None, Some(_)) => unreachable!("game identity checked above"),
+    }
+    .map_err(|error| format!("存档不可用：{error:#}"));
+    let app = App::new(scene, &mut assets, allowed_scenes, checkpoints)?;
+    comet_application::run(options, assets, app)
 }

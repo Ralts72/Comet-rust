@@ -1,0 +1,15 @@
+[package]
+name = "comet-audio"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+comet-core = { path = "../core" }
+comet-asset-data = { path = "../asset/data" }
+anyhow.workspace = true
+serde.workspace = true
+kira.workspace = true
+cpal.workspace = true

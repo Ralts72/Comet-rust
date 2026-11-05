@@ -192,3 +192,103 @@ fn invalid_component_candidates_preserve_last_preview_and_reject_prefab_ownershi
     assert_eq!(doc.history_len(), 0);
     Ok(())
 }
+
+#[test]
+fn crouch_fields_upgrade_authored_and_prefab_versions_with_undo_and_save() -> Result<()> {
+    use comet_scene::{
+        FieldOverride,
+        schema::{self, FieldValue},
+    };
+    let mut character = EntityData::new("legacy character");
+    character.physics = Some(capsule());
+    character.character = Some(Character::default());
+    let id = character.id;
+    let snapshot = SceneSnapshot {
+        version: 2,
+        entities: vec![character],
+    };
+    let mut doc = Document::open(snapshot.clone())?;
+    let legacy = doc.shared_source();
+    assert!(!String::from_utf8(legacy.to_json()?)?.contains("crouch_"));
+    doc.begin()?;
+    doc.preview_field(&[id], schema::CROUCH_SPEED, FieldValue::Scalar(1.5))?;
+    doc.commit()?;
+    assert_eq!(doc.source().base.version, 3);
+    assert_eq!(
+        doc.source().base.entities[0]
+            .character
+            .as_ref()
+            .unwrap()
+            .crouch_speed,
+        1.5
+    );
+    doc.undo()?;
+    assert_eq!(doc.shared_source(), legacy);
+    doc.redo()?;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("new.scene");
+    doc.save(&path)?;
+    assert_eq!(Document::load(&path)?.shared_source(), doc.shared_source());
+
+    let prefab = AssetId::new();
+    let instance = InstanceId::new();
+    struct Resolver(AssetId, ContentSource);
+    impl PrefabResolver for Resolver {
+        fn prefab(&mut self, id: AssetId) -> Result<ContentSource> {
+            ensure!(id == self.0);
+            Ok(self.1.clone())
+        }
+    }
+    let mut resolver = Resolver(
+        prefab,
+        ContentSource {
+            base: snapshot,
+            ..Default::default()
+        },
+    );
+    let mut doc = Document::open_source(ContentSource {
+        base: SceneSnapshot {
+            version: 2,
+            entities: vec![],
+        },
+        instances: vec![PrefabInstance {
+            id: instance,
+            prefab,
+            parent: None,
+            overrides: vec![],
+        }],
+        ..Default::default()
+    })?;
+    let original = doc.shared_source();
+    doc.begin()?;
+    doc.preview_override(
+        instance,
+        FieldOverride {
+            entity: id,
+            field: schema::CROUCH_HEIGHT_RATIO,
+            value: FieldValue::Scalar(0.5),
+        },
+        &mut resolver,
+    )?;
+    doc.commit()?;
+    assert_eq!(doc.source().base.version, 3);
+    let expanded = doc.source().expand(&mut resolver)?;
+    assert_eq!(expanded.version, 3);
+    assert_eq!(
+        expanded.entities[0]
+            .character
+            .as_ref()
+            .unwrap()
+            .crouch_height_ratio,
+        0.5
+    );
+    doc.undo()?;
+    assert_eq!(doc.shared_source(), original);
+    doc.redo()?;
+    doc.save(&path)?;
+    assert_eq!(
+        Document::load(&path)?.source().expand(&mut resolver)?,
+        expanded
+    );
+    Ok(())
+}

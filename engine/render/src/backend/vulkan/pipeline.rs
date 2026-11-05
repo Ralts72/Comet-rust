@@ -14,6 +14,8 @@ pub(super) struct Pipelines {
     pub ui_pass: vk::RenderPass,
     pub scene: vk::Pipeline,
     pub shadow: vk::Pipeline,
+    pub skinned_scene: vk::Pipeline,
+    pub skinned_shadow: vk::Pipeline,
     pub ui: vk::Pipeline,
     pub sampler: vk::Sampler,
     pub shadow_sampler: vk::Sampler,
@@ -27,6 +29,7 @@ impl Pipelines {
         object: &Buffer,
         image: &Image,
         shadow: &Image,
+        palette: Option<&Buffer>,
     ) -> Result<vk::DescriptorSet> {
         let set = pool.allocate(self.scene_set)?;
         let buffers = [
@@ -74,6 +77,22 @@ impl Pipelines {
                     .image_info(&images[i..i + 1]),
             );
         }
+        let palette_info = palette.map(|buffer| {
+            [vk::DescriptorBufferInfo {
+                buffer: buffer.handle,
+                offset: 0,
+                range: buffer.size as u64,
+            }]
+        });
+        if let Some(info) = &palette_info {
+            writes.push(
+                vk::WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .dst_binding(6)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                    .buffer_info(info),
+            );
+        }
         unsafe {
             self.ctx.handle.update_descriptor_sets(&writes, &[]);
         }
@@ -92,6 +111,8 @@ impl Pipelines {
             ui_pass: vk::RenderPass::null(),
             scene: vk::Pipeline::null(),
             shadow: vk::Pipeline::null(),
+            skinned_scene: vk::Pipeline::null(),
+            skinned_shadow: vk::Pipeline::null(),
             ui: vk::Pipeline::null(),
             sampler: vk::Sampler::null(),
             shadow_sampler: vk::Sampler::null(),
@@ -105,6 +126,7 @@ impl Pipelines {
             vk::DescriptorType::SAMPLED_IMAGE,
             vk::DescriptorType::SAMPLER,
         ];
+        let scene_types = [&scene_types[..], &[vk::DescriptorType::UNIFORM_BUFFER]].concat();
         p.scene_set = p.set_layout(&scene_types)?;
         p.ui_set = p.set_layout(&[
             vk::DescriptorType::UNIFORM_BUFFER,
@@ -139,6 +161,22 @@ impl Pipelines {
         p.shadow = p.pipeline(
             &scene,
             "shadow_vs",
+            None,
+            p.shadow_pass,
+            p.scene_layout,
+            false,
+        )?;
+        p.skinned_scene = p.pipeline(
+            &scene,
+            "skinned_scene_vs",
+            Some("scene_fs"),
+            p.main_pass,
+            p.scene_layout,
+            false,
+        )?;
+        p.skinned_shadow = p.pipeline(
+            &scene,
+            "skinned_shadow_vs",
             None,
             p.shadow_pass,
             p.scene_layout,
@@ -346,12 +384,12 @@ impl Pipelines {
                         .name(name),
                 );
             }
-            let binding = [vk::VertexInputBindingDescription {
+            let mut binding = vec![vk::VertexInputBindingDescription {
                 binding: 0,
                 stride: 32,
                 input_rate: vk::VertexInputRate::VERTEX,
             }];
-            let attrs: Vec<_> = (if ui {
+            let mut attrs: Vec<_> = (if ui {
                 vec![
                     (0, vk::Format::R32G32_SFLOAT),
                     (8, vk::Format::R32G32_SFLOAT),
@@ -375,6 +413,27 @@ impl Pipelines {
                 },
             )
             .collect();
+            if vertex.starts_with("skinned_") {
+                binding.push(vk::VertexInputBindingDescription {
+                    binding: 1,
+                    stride: 32,
+                    input_rate: vk::VertexInputRate::VERTEX,
+                });
+                attrs.extend([
+                    vk::VertexInputAttributeDescription {
+                        location: 3,
+                        binding: 1,
+                        format: vk::Format::R32G32B32A32_UINT,
+                        offset: 0,
+                    },
+                    vk::VertexInputAttributeDescription {
+                        location: 4,
+                        binding: 1,
+                        format: vk::Format::R32G32B32A32_SFLOAT,
+                        offset: 16,
+                    },
+                ]);
+            }
             let vertex = vk::PipelineVertexInputStateCreateInfo::default()
                 .vertex_binding_descriptions(&binding)
                 .vertex_attribute_descriptions(&attrs);
@@ -451,7 +510,13 @@ impl Pipelines {
 impl Drop for Pipelines {
     fn drop(&mut self) {
         unsafe {
-            for p in [self.scene, self.shadow, self.ui] {
+            for p in [
+                self.scene,
+                self.shadow,
+                self.skinned_scene,
+                self.skinned_shadow,
+                self.ui,
+            ] {
                 self.ctx.handle.destroy_pipeline(p, None);
             }
             for l in [self.scene_layout, self.ui_layout] {

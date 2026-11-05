@@ -68,6 +68,38 @@ pub struct Character {
     pub max_slope_degrees: f32,
     pub step_height: f32,
     pub snap_distance: f32,
+    #[serde(
+        default = "default_crouch_speed",
+        skip_serializing_if = "is_default_crouch_speed"
+    )]
+    pub crouch_speed: f32,
+    /// Total capsule height ratio; the radius sets the minimum possible height.
+    #[serde(
+        default = "default_crouch_height_ratio",
+        skip_serializing_if = "is_default_crouch_height_ratio"
+    )]
+    pub crouch_height_ratio: f32,
+}
+fn default_crouch_speed() -> f32 {
+    2.
+}
+fn default_crouch_height_ratio() -> f32 {
+    0.6
+}
+fn is_default_crouch_speed(value: &f32) -> bool {
+    *value == default_crouch_speed()
+}
+fn is_default_crouch_height_ratio(value: &f32) -> bool {
+    *value == default_crouch_height_ratio()
+}
+impl Character {
+    pub fn required_scene_version(&self) -> u32 {
+        if self.has_custom_crouch() { 3 } else { 2 }
+    }
+    pub(crate) fn has_custom_crouch(&self) -> bool {
+        !is_default_crouch_speed(&self.crouch_speed)
+            || !is_default_crouch_height_ratio(&self.crouch_height_ratio)
+    }
 }
 impl Default for Character {
     fn default() -> Self {
@@ -80,6 +112,8 @@ impl Default for Character {
             max_slope_degrees: 45.,
             step_height: 0.3,
             snap_distance: 0.15,
+            crouch_speed: default_crouch_speed(),
+            crouch_height_ratio: default_crouch_height_ratio(),
         }
     }
 }
@@ -130,7 +164,7 @@ pub(crate) fn validate(entity: &EntityData) -> Result<()> {
                 "invalid radius"
             );
             ensure!(
-                (scale[0] - scale[1]).abs() < 1e-6 && (scale[0] - scale[2]).abs() < 1e-6,
+                scale.into_iter().all(|s| (s / scale[0] - 1.).abs() < 1e-6),
                 "sphere and capsule require uniform scale"
             );
         }
@@ -160,10 +194,20 @@ pub(crate) fn validate(entity: &EntityData) -> Result<()> {
             "character must remain upright"
         );
         ensure!(
-            [c.move_speed, c.run_multiplier, c.jump_speed, c.gravity]
-                .into_iter()
-                .all(positive),
+            [
+                c.move_speed,
+                c.run_multiplier,
+                c.jump_speed,
+                c.gravity,
+                c.crouch_speed
+            ]
+            .into_iter()
+            .all(positive),
             "invalid character speed or gravity"
+        );
+        ensure!(
+            c.crouch_height_ratio.is_finite() && (0.1..=1.).contains(&c.crouch_height_ratio),
+            "invalid character crouch height ratio"
         );
         ensure!(
             c.max_slope_degrees.is_finite() && (0. ..90.).contains(&c.max_slope_degrees),

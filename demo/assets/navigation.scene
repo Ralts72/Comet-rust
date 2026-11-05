@@ -1,0 +1,755 @@
+{
+  "version": 1,
+  "base": {
+    "version": 6,
+    "entities": [
+      {
+        "id": "b1000000-0000-4000-8000-000000000001",
+        "name": "导航烘焙区域",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "navigation_region": {
+          "data": "a0000000-0000-4000-8000-000000000006",
+          "half_extents": [
+            10.0,
+            2.0,
+            10.0
+          ],
+          "cell_size": 0.2,
+          "agent_radius": 0.4,
+          "agent_height": 1.8,
+          "max_climb": 0.25,
+          "max_slope_degrees": 40.0
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000002",
+        "name": "碰撞地面",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            -0.1,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              10.0,
+              0.1,
+              10.0
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000003",
+        "name": "静态隔墙",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            1.25,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.3,
+              1.25,
+              2.0
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000004",
+        "name": "巡逻角色",
+        "parent": null,
+        "transform": {
+          "translation": [
+            -3.0,
+            0.82,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "kinematic",
+          "shape": {
+            "kind": "capsule",
+            "half_height": 0.5,
+            "radius": 0.3
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "character": {
+          "player_controlled": false,
+          "move_speed": 3.0,
+          "run_multiplier": 1.75,
+          "jump_speed": 5.0,
+          "gravity": 9.81,
+          "max_slope_degrees": 45.0,
+          "step_height": 0.3,
+          "snap_distance": 0.15
+        },
+        "navigation_agent": {
+          "enabled": true,
+          "target": {
+            "scope": "local",
+            "entity": "b1000000-0000-4000-8000-000000000005"
+          },
+          "arrival_distance": 0.2
+        },
+        "script": {
+          "asset": "a0000000-0000-4000-8000-000000000007",
+          "enabled": true,
+          "parameters": {
+            "player": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "b1000000-0000-4000-8000-000000000006"
+              }
+            },
+            "patrol_a": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "b1000000-0000-4000-8000-000000000007"
+              }
+            },
+            "patrol_b": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "b1000000-0000-4000-8000-000000000005"
+              }
+            },
+            "detect_distance": {
+              "type": "number",
+              "value": 6.0
+            },
+            "forget_distance": {
+              "type": "number",
+              "value": 11.0
+            },
+            "wait_seconds": {
+              "type": "number",
+              "value": 1.0
+            }
+          }
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000005",
+        "name": "巡逻点 B",
+        "parent": null,
+        "transform": {
+          "translation": [
+            3.0,
+            0.1,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000006",
+        "name": "玩家角色",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            0.82,
+            8.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "kinematic",
+          "shape": {
+            "kind": "capsule",
+            "half_height": 0.5,
+            "radius": 0.3
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "character": {
+          "player_controlled": true,
+          "move_speed": 4.0,
+          "run_multiplier": 1.75,
+          "jump_speed": 5.0,
+          "gravity": 9.81,
+          "max_slope_degrees": 45.0,
+          "step_height": 0.3,
+          "snap_distance": 0.15
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000007",
+        "name": "巡逻点 A",
+        "parent": null,
+        "transform": {
+          "translation": [
+            -3.0,
+            0.1,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-00000000000a",
+        "name": "碰撞地面 / 表面1",
+        "parent": "b1000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            14.285714285714286,
+            0.14285714285714288,
+            14.285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "b396e96f-8969-5af4-8de2-9ebeea4ef160",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-00000000000b",
+        "name": "碰撞地面 / 表面2",
+        "parent": "b1000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            14.285714285714286,
+            0.14285714285714288,
+            14.285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "b396e96f-8969-5af4-8de2-9ebeea4ef160",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-00000000000c",
+        "name": "静态隔墙 / 表面1",
+        "parent": "b1000000-0000-4000-8000-000000000003",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.7857142857142858,
+            2.857142857142857
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-00000000000d",
+        "name": "静态隔墙 / 表面2",
+        "parent": "b1000000-0000-4000-8000-000000000003",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.7857142857142858,
+            2.857142857142857
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-00000000000e",
+        "name": "导航角色 / 表面1",
+        "parent": "b1000000-0000-4000-8000-000000000004",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-00000000000f",
+        "name": "导航角色 / 表面2",
+        "parent": "b1000000-0000-4000-8000-000000000004",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000010",
+        "name": "目标标记 / 表面1",
+        "parent": "b1000000-0000-4000-8000-000000000005",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.14285714285714288,
+            0.14285714285714288,
+            0.14285714285714288
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000011",
+        "name": "目标标记 / 表面2",
+        "parent": "b1000000-0000-4000-8000-000000000005",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.14285714285714288,
+            0.14285714285714288,
+            0.14285714285714288
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000012",
+        "name": "玩家角色 / 表面1",
+        "parent": "b1000000-0000-4000-8000-000000000006",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000013",
+        "name": "玩家角色 / 表面2",
+        "parent": "b1000000-0000-4000-8000-000000000006",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000014",
+        "name": "巡逻点 A / 表面1",
+        "parent": "b1000000-0000-4000-8000-000000000007",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.14285714285714288,
+            0.14285714285714288,
+            0.14285714285714288
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1000000-0000-4000-8000-000000000015",
+        "name": "巡逻点 A / 表面2",
+        "parent": "b1000000-0000-4000-8000-000000000007",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.14285714285714288,
+            0.14285714285714288,
+            0.14285714285714288
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "10dbd2c4-d445-521c-8847-6cbf763e0270",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      }
+    ]
+  },
+  "instances": []
+}

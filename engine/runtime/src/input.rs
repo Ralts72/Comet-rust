@@ -4,6 +4,7 @@ use comet_core::{Action, ActionEvent, ActionInput, MAX_INPUT_EVENTS};
 pub(crate) struct InputBuffer {
     pending: ActionInput,
     needs_baseline: bool,
+    restart_held: Option<bool>,
 }
 
 impl Default for InputBuffer {
@@ -11,12 +12,29 @@ impl Default for InputBuffer {
         Self {
             pending: ActionInput::default(),
             needs_baseline: true,
+            restart_held: None,
         }
     }
 }
 impl InputBuffer {
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+    /// Session control is available while paused, without replaying simulation actions.
+    pub fn restart_requested(&self, sample: &ActionInput) -> bool {
+        if !sample.enabled {
+            return false;
+        }
+        let current = sample.held.contains(Action::Restart);
+        let Some(mut held) = self.restart_held else {
+            return false;
+        };
+        let mut pressed = false;
+        for event in sample.events.iter().filter(|e| e.action == Action::Restart) {
+            pressed |= event.pressed && !held;
+            held = event.pressed;
+        }
+        pressed || (current && !held)
     }
     /// Paused frames retain current holds, never actions from before a manual step.
     pub fn synchronize(&mut self, mut sample: ActionInput) -> Result<()> {
@@ -26,6 +44,9 @@ impl InputBuffer {
         }
         sample.events.clear();
         sample.look_delta = [0.; 2];
+        self.restart_held = sample
+            .enabled
+            .then_some(sample.held.contains(Action::Restart));
         self.pending = sample;
         self.needs_baseline = true;
         Ok(())
@@ -62,6 +83,7 @@ impl InputBuffer {
             next.events.len() <= MAX_INPUT_EVENTS,
             "pending input event limit exceeded"
         );
+        self.restart_held = Some(sample.held.contains(Action::Restart));
         self.pending = next;
         Ok(())
     }

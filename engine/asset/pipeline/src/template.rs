@@ -21,10 +21,7 @@ pub struct AppTemplate {
     app_icon: PackageFile,
 }
 impl AppTemplate {
-    pub fn open(path: &Path, editor: &Path) -> Result<Self> {
-        Self::open_for(path, editor, &RuntimeIdentity::current())
-    }
-    fn open_for(path: &Path, editor: &Path, expected: &RuntimeIdentity) -> Result<Self> {
+    pub fn open(path: &Path, editor: &Path, expected: &RuntimeIdentity) -> Result<Self> {
         let manifest: AppTemplateManifest =
             serde_json::from_slice(&fs::read(path).context("read App template; run ./start.sh")?)?;
         manifest

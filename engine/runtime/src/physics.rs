@@ -7,12 +7,23 @@ use comet_scene::{BodyMotion, ColliderShape, PhysicsBody, PoseUpdate, Scene, Sce
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+// Collect sensor transitions at each solver interval, including short crossings.
+// Gameplay callbacks and character intent still run once per fixed tick.
+const PHYSICS_SUBSTEPS: usize = 4;
+mod joints;
+pub use joints::{JointKind, JointStatus};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TriggerEvent {
     pub trigger: EntityId,
     pub other: EntityId,
     pub entered: bool,
     pub tick: u64,
+}
+pub(crate) enum PhysicsCommand {
+    Teleport(PoseUpdate),
+    Velocity(EntityId, [f32; 3]),
+    Impulse(EntityId, [f32; 3]),
 }
 struct Body {
     handle: RigidBodyHandle,
@@ -26,6 +37,8 @@ pub(crate) struct Physics {
     collider_ids: HashMap<ColliderHandle, EntityId>,
     overlaps: BTreeSet<(EntityId, EntityId)>,
     events: Vec<TriggerEvent>,
+    joints: joints::Joints,
+    navigation_static: bool,
 }
 fn groups(body: &PhysicsBody) -> InteractionGroups {
     InteractionGroups::new(
@@ -41,10 +54,60 @@ fn pose(translation: [f32; 3], rotation: [f32; 4]) -> Pose {
     )
 }
 impl Physics {
+    pub(crate) fn validate_commands(&self, commands: &[PhysicsCommand]) -> Result<()> {
+        let mut candidates = BTreeMap::new();
+        for command in commands {
+            let (id, value) = match command {
+                PhysicsCommand::Teleport(pose) => (pose.entity, pose.translation),
+                PhysicsCommand::Velocity(id, value) | PhysicsCommand::Impulse(id, value) => {
+                    (*id, *value)
+                }
+            };
+            ensure!(
+                value.into_iter().all(f32::is_finite),
+                "physical script command must be finite"
+            );
+            let body = self.bodies.get(&id).context("entity has no physics body")?;
+            let candidate = candidates
+                .entry(id)
+                .or_insert_with(|| self.world.bodies[body.handle].clone());
+            match command {
+                PhysicsCommand::Teleport(update) => {
+                    ensure!(
+                        !self.navigation_static || body.motion != BodyMotion::Fixed,
+                        "navigation freezes fixed body poses"
+                    );
+                    candidate.set_position(pose(update.translation, update.rotation), true);
+                    candidate.set_linvel(Vector::ZERO, true);
+                    candidate.set_angvel(Vector::ZERO, true);
+                }
+                PhysicsCommand::Velocity(..) => {
+                    ensure!(
+                        body.motion != BodyMotion::Fixed && body.motor.is_none(),
+                        "velocity requires a non-character moving body"
+                    );
+                    candidate.set_linvel(Vector::from_array(value), true);
+                }
+                PhysicsCommand::Impulse(..) => {
+                    ensure!(
+                        body.motion == BodyMotion::Dynamic,
+                        "impulse requires a dynamic body"
+                    );
+                    candidate.apply_impulse(Vector::from_array(value), true);
+                }
+            }
+            ensure!(
+                candidate.linvel().is_finite(),
+                "physical script command overflows velocity"
+            );
+        }
+        Ok(())
+    }
     pub fn new(snapshot: &SceneSnapshot) -> Result<Self> {
         snapshot.validate()?;
         let mut world = PhysicsWorld::new();
-        world.integration_parameters.dt = FIXED_DELTA as f32;
+        world.integration_parameters.dt = FIXED_DELTA as f32 / PHYSICS_SUBSTEPS as f32;
+        world.integration_parameters.num_solver_iterations = 1;
         let mut bodies = BTreeMap::new();
         let mut collider_ids = HashMap::new();
         // Stable insertion order also makes source entity ordering irrelevant to simulation.
@@ -81,6 +144,21 @@ impl Physics {
             .collision_groups(groups(config))
             .active_collision_types(ActiveCollisionTypes::all());
             let (handle, collider) = world.insert(builder, shape);
+            let motor = if let Some(config) = &e.character {
+                let capsule = world.colliders[collider]
+                    .shape()
+                    .as_capsule()
+                    .context("character requires a capsule")?;
+                Some(Motor::new(
+                    config.clone(),
+                    e.id,
+                    e.transform.translation,
+                    capsule.half_height(),
+                    capsule.radius,
+                ))
+            } else {
+                None
+            };
             collider_ids.insert(collider, e.id);
             bodies.insert(
                 e.id,
@@ -88,18 +166,11 @@ impl Physics {
                     handle,
                     collider,
                     motion: config.motion,
-                    motor: e.character.as_ref().map(|c| Motor {
-                        config: c.clone(),
-                        state: CharacterState {
-                            entity: e.id,
-                            position: e.transform.translation,
-                            grounded: false,
-                            vertical_velocity: 0.,
-                        },
-                    }),
+                    motor,
                 },
             );
         }
+        let joints = joints::Joints::new(&mut world, &bodies, snapshot)?;
         refresh_queries(&mut world);
         Ok(Self {
             world,
@@ -107,6 +178,11 @@ impl Physics {
             collider_ids,
             overlaps: BTreeSet::new(),
             events: vec![],
+            joints,
+            navigation_static: snapshot
+                .entities
+                .iter()
+                .any(|e| e.navigation_region.is_some()),
         })
     }
     pub fn begin_frame(&mut self) {
@@ -114,6 +190,9 @@ impl Physics {
     }
     pub fn events(&self) -> &[TriggerEvent] {
         &self.events
+    }
+    pub fn joint_status(&self, entity: EntityId, kind: JointKind) -> Option<JointStatus> {
+        self.joints.status(entity, kind)
     }
     pub fn player(&self) -> Option<&CharacterState> {
         self.bodies
@@ -125,21 +204,66 @@ impl Physics {
     pub fn character(&self, id: EntityId) -> Option<&CharacterState> {
         self.bodies.get(&id)?.motor.as_ref().map(|m| &m.state)
     }
+    /// Actual feet and velocity, not the previous navigation command.
+    pub(crate) fn character_motion(&self, id: EntityId) -> Option<([f32; 3], [f32; 3], f32, f32)> {
+        let body = self.bodies.get(&id)?;
+        body.motor.as_ref()?;
+        let capsule = self.world.colliders[body.collider].shape().as_capsule()?;
+        let height = 2. * (capsule.half_height() + capsule.radius);
+        let rigid = &self.world.bodies[body.handle];
+        let mut feet = rigid.position().translation.to_array();
+        feet[1] -= height * 0.5;
+        Some((feet, rigid.linvel().to_array(), capsule.radius, height))
+    }
     pub fn contains(&self, id: EntityId) -> bool {
         self.bodies.contains_key(&id)
     }
-    pub fn step(&mut self, input: &ActionInput, tick: u64, scene: &mut Scene) -> Result<()> {
+    pub fn step(
+        &mut self,
+        input: &ActionInput,
+        tick: u64,
+        scene: &mut Scene,
+        navigation: Option<&BTreeMap<EntityId, [f32; 3]>>,
+    ) -> Result<()> {
         for body in self.bodies.values_mut() {
-            if let Some(motor) = &mut body.motor {
-                let next = motor.next_pose(&self.world, body.handle, body.collider, input);
-                self.world.bodies[body.handle].set_next_kinematic_position(next);
+            if let Some(motor) = &mut body.motor
+                && motor.update_posture(&mut self.world, body.handle, body.collider, input)
+            {
+                refresh_queries(&mut self.world);
             }
         }
-        self.world.step();
-        ensure!(
-            self.world.quarantine().is_empty(),
-            "physics quarantined invalid simulation state"
-        );
+        let mut targets = vec![];
+        for (id, body) in &mut self.bodies {
+            if let Some(motor) = &mut body.motor {
+                let start = *self.world.bodies[body.handle].position();
+                let next = motor.next_pose(
+                    &self.world,
+                    body.handle,
+                    body.collider,
+                    input,
+                    navigation
+                        .and_then(|velocities| velocities.get(id))
+                        .copied(),
+                );
+                targets.push((body.handle, start, next));
+            }
+        }
+        for substep in 1..=PHYSICS_SUBSTEPS {
+            for &(handle, start, next) in &targets {
+                let target = if substep == PHYSICS_SUBSTEPS {
+                    next
+                } else {
+                    start.lerp(&next, substep as f32 / PHYSICS_SUBSTEPS as f32)
+                };
+                self.world.bodies[handle].set_next_kinematic_position(target);
+            }
+            self.world.step();
+            ensure!(
+                self.world.quarantine().is_empty(),
+                "physics quarantined invalid simulation state"
+            );
+            self.collect_events(tick);
+        }
         let mut updates = vec![];
         for (id, body) in &mut self.bodies {
             let position = self.world.bodies[body.handle].position();
@@ -157,7 +281,6 @@ impl Physics {
             });
         }
         scene.update_poses(&updates)?;
-        self.collect_events(tick);
         Ok(())
     }
     fn collect_events(&mut self, tick: u64) {
@@ -222,6 +345,10 @@ impl Physics {
             .get_mut(&update.entity)
             .context("entity has no physics body")?;
         let rb = &mut self.world.bodies[body.handle];
+        ensure!(
+            !self.navigation_static || body.motion != BodyMotion::Fixed,
+            "navigation freezes fixed body poses"
+        );
         let position = pose(update.translation, update.rotation);
         rb.set_position(position, true);
         rb.set_next_kinematic_position(position);

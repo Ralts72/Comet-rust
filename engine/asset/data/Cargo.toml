@@ -10,3 +10,5 @@ comet-core = { path = "../../core" }
 comet-scene = { path = "../../scene" }
 anyhow.workspace = true
 serde.workspace = true
+[dev-dependencies]
+serde_json.workspace = true

@@ -76,6 +76,59 @@ fn symlink_escape_is_rechecked_for_reads_and_saves() -> Result<()> {
     );
     Ok(())
 }
+#[cfg(unix)]
+#[test]
+fn the_assets_directory_itself_must_stay_inside_the_project() -> Result<()> {
+    use std::os::unix::fs::symlink;
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    let outside = temp.path().join("outside");
+    fs::create_dir(&project)?;
+    fs::create_dir(&outside)?;
+    fs::write(outside.join("main.scene"), b"outside")?;
+    symlink(&outside, project.join("assets"))?;
+    assert!(ProjectPaths::open(&project).is_err());
+    assert_eq!(fs::read(outside.join("main.scene"))?, b"outside");
+    fs::remove_file(project.join("assets"))?;
+    symlink(&project, project.join("assets"))?;
+    assert!(ProjectPaths::open(&project).is_err());
+    Ok(())
+}
+#[cfg(unix)]
+#[test]
+fn project_and_internal_assets_aliases_work_but_retargeted_assets_are_rejected() -> Result<()> {
+    use std::os::unix::fs::symlink;
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    let sources = project.join("source-data");
+    let alias = temp.path().join("project-alias");
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(&sources)?;
+    fs::create_dir(&outside)?;
+    fs::write(sources.join("main.scene"), b"inside")?;
+    symlink(&sources, project.join("assets"))?;
+    symlink(&project, &alias)?;
+    let paths = ProjectPaths::open(&alias)?;
+    assert_eq!(paths.root(), project.canonicalize()?);
+    assert_eq!(paths.assets(), sources.canonicalize()?);
+    assert_eq!(
+        paths.resolve_asset_path("main.scene")?,
+        sources.join("main.scene").canonicalize()?
+    );
+    let saved = paths.resolve_asset_path("new.scene")?;
+    fs::remove_file(project.join("assets"))?;
+    symlink(&outside, project.join("assets"))?;
+    assert!(paths.resolve_asset_path("main.scene").is_err());
+    assert!(paths.resolve_asset_path(saved).is_err());
+    assert!(
+        paths
+            .export_destination(temp.path().join("export"), &project.join("products"))
+            .is_err()
+    );
+    assert_eq!(fs::read(sources.join("main.scene"))?, b"inside");
+    assert!(fs::read_dir(&outside)?.next().is_none());
+    Ok(())
+}
 #[test]
 fn directory_publication_is_atomic_exclusive_and_only_cleans_its_own_candidate() -> Result<()> {
     let temp = tempfile::tempdir()?;

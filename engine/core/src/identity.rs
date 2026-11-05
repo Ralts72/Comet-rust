@@ -55,6 +55,7 @@ identity!(EntityId);
 identity!(AssetId);
 identity!(InstanceId);
 identity!(WorldId);
+identity!(GameId);
 
 impl EntityId {
     pub fn in_asset(asset: AssetId, key: &str) -> Self {

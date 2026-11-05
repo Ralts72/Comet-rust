@@ -1,17 +1,18 @@
 use anyhow::{Context, Result, ensure};
 use comet_core::{AssetId, EntityId, InstanceId, atomic_write};
 use comet_scene::{
-    Character, ContentSource, EntityData, FieldOverride, PhysicsBody, PrefabInstance,
-    PrefabResolver, Scene, SceneSnapshot,
+    Character, ContentSource, EntityData, EntityRef, FieldOverride, Model, NavigationAgent,
+    NavigationRegion, PhysicsBody, PrefabInstance, PrefabResolver, Scene, SceneSnapshot, Script,
     schema::{FieldKey, FieldValue},
 };
-use std::{
-    collections::{BTreeMap, VecDeque},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::VecDeque, path::Path, sync::Arc};
 
 pub const HISTORY_CAPACITY: usize = 256;
+mod hierarchy;
+mod joints;
+mod selection;
+pub use joints::JointEdit;
+pub use selection::{CloneMap, FieldEdit, FieldTarget, ObjectTarget};
 #[derive(Clone)]
 struct State {
     id: u64,
@@ -20,6 +21,7 @@ struct State {
 /// Content comparisons occur only on mutation. Queries share immutable values and stable state IDs.
 pub struct Document {
     scene: Scene,
+    prefab_asset: Option<AssetId>,
     current: State,
     saved: State,
     undo: VecDeque<State>,
@@ -45,6 +47,7 @@ impl Document {
         };
         Ok(Self {
             scene,
+            prefab_asset: None,
             saved: current.clone(),
             current,
             undo: VecDeque::new(),
@@ -53,6 +56,33 @@ impl Document {
             next_state: 1,
             revision: 0,
         })
+    }
+    /// A prefab keeps its authoring UUIDs; its root identity is validation context, not file content.
+    pub fn open_prefab(
+        root: AssetId,
+        source: ContentSource,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<Self> {
+        let mut document = Self::open_source(source)?;
+        document.prefab_asset = Some(root);
+        document.expand(resolver)?;
+        Ok(document)
+    }
+    pub fn prefab_asset(&self) -> Option<AssetId> {
+        self.prefab_asset
+    }
+    pub fn expand(&self, resolver: &mut impl PrefabResolver) -> Result<SceneSnapshot> {
+        self.expand_source(&self.current.source, resolver)
+    }
+    fn expand_source(
+        &self,
+        source: &ContentSource,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<SceneSnapshot> {
+        match self.prefab_asset {
+            Some(root) => source.expand_prefab(root, resolver),
+            None => source.expand(resolver),
+        }
     }
     pub fn load(path: &Path) -> Result<Self> {
         Self::open_source(ContentSource::from_json(
@@ -152,9 +182,69 @@ impl Document {
     ) -> Result<()> {
         ensure!(self.preview.is_some(), "no edit transaction");
         let mut next = self.source();
-        next.base.set_field(selection, key, value)?;
+        comet_scene::schema::descriptor(key)?;
+        next.base.version = next
+            .base
+            .version
+            .max(comet_scene::schema::required_scene_version(key));
+        let edits: Vec<_> = selection
+            .iter()
+            .map(|id| FieldEdit {
+                target: FieldTarget::Authored(*id),
+                field: key,
+                value: value.clone(),
+            })
+            .collect();
+        selection::write_fields(&mut next, &edits)?;
         self.apply(next)
     }
+    pub fn preview_name(&mut self, id: EntityId, name: String) -> Result<()> {
+        ensure!(self.preview.is_some(), "no edit transaction");
+        let mut next = self.source();
+        next.base
+            .entities
+            .iter_mut()
+            .find(|entity| entity.id == id)
+            .context("renaming requires an authored entity")?
+            .name = name;
+        self.apply(next)
+    }
+    fn preview_source(
+        &mut self,
+        resolver: &mut impl PrefabResolver,
+        edit: impl FnOnce(&mut ContentSource) -> Result<()>,
+    ) -> Result<()> {
+        ensure!(self.preview.is_some(), "no edit transaction");
+        let mut next = self.source();
+        edit(&mut next)?;
+        next.base.version = next
+            .base
+            .entities
+            .iter()
+            .map(EntityData::required_scene_version)
+            .fold(next.base.version, u32::max);
+        self.expand_source(&next, resolver)?;
+        self.apply(next)
+    }
+
+    fn preview_component(
+        &mut self,
+        id: EntityId,
+        resolver: &mut impl PrefabResolver,
+        edit: impl FnOnce(&mut EntityData),
+    ) -> Result<()> {
+        self.preview_source(resolver, |next| {
+            let entity = next
+                .base
+                .entities
+                .iter_mut()
+                .find(|entity| entity.id == id)
+                .context("component editing requires an authored entity")?;
+            edit(entity);
+            Ok(())
+        })
+    }
+
     /// Body and controller form one candidate so intermediate invalid combinations never publish.
     pub fn preview_physics(
         &mut self,
@@ -163,21 +253,10 @@ impl Document {
         character: Option<Character>,
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
-        ensure!(self.preview.is_some(), "no edit transaction");
-        let mut next = self.source();
-        let entity = next
-            .base
-            .entities
-            .iter_mut()
-            .find(|e| e.id == id)
-            .context("physics component editing requires an authored entity")?;
-        entity.physics = body;
-        entity.character = character;
-        if entity.physics.is_some() || entity.character.is_some() {
-            next.base.version = comet_scene::scene::SCENE_VERSION;
-        }
-        next.expand(resolver)?;
-        self.apply(next)
+        self.preview_component(id, resolver, |entity| {
+            entity.physics = body;
+            entity.character = character;
+        })
     }
     pub fn preview_override(
         &mut self,
@@ -185,20 +264,98 @@ impl Document {
         value: FieldOverride,
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
-        ensure!(self.preview.is_some(), "no edit transaction");
-        let mut next = self.source();
-        let target = next
-            .instances
-            .iter_mut()
-            .find(|i| i.id == instance)
-            .context("stale prefab selection")?;
-        target
-            .overrides
-            .retain(|o| o.entity != value.entity || o.field != value.field);
-        target.overrides.push(value);
-        next.canonicalize();
-        next.expand(resolver)?;
-        self.apply(next)
+        self.preview_fields(
+            &[FieldEdit {
+                target: FieldTarget::Prefab {
+                    instance,
+                    entity: value.entity,
+                },
+                field: value.field,
+                value: value.value,
+            }],
+            resolver,
+        )
+    }
+    /// Model structure belongs to authored entities; asset and draw validation belongs to the host.
+    pub fn preview_model(
+        &mut self,
+        id: EntityId,
+        model: Option<Model>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        self.preview_component(id, resolver, |entity| {
+            entity.model = model;
+            if entity.model.is_none() {
+                entity.skin = None;
+            }
+        })
+    }
+
+    pub fn preview_script(
+        &mut self,
+        id: EntityId,
+        script: Option<Script>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        self.preview_component(id, resolver, |entity| {
+            entity.script = script;
+        })
+    }
+
+    pub fn preview_audio_source(
+        &mut self,
+        id: EntityId,
+        audio: Option<comet_scene::AudioSource>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        self.preview_component(id, resolver, |entity| {
+            entity.audio_source = audio;
+        })
+    }
+
+    /// Region and agent edits validate the entire candidate before replacing the accepted preview.
+    pub fn preview_navigation(
+        &mut self,
+        id: EntityId,
+        region: Option<NavigationRegion>,
+        agent: Option<NavigationAgent>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        self.preview_component(id, resolver, |entity| {
+            entity.navigation_region = region;
+            entity.navigation_agent = agent;
+        })
+    }
+
+    pub fn preview_animation(
+        &mut self,
+        id: EntityId,
+        animator: Option<comet_scene::Animator>,
+        skin: Option<comet_scene::SkinBinding>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        self.preview_source(resolver, |next| {
+            let entity = next
+                .base
+                .entities
+                .iter_mut()
+                .find(|entity| entity.id == id)
+                .context("animation component editing requires an authored entity")?;
+            let removed = entity.animator.is_some() && animator.is_none();
+            entity.animator = animator;
+            entity.skin = skin;
+            if removed {
+                // The entity still exists, so retire only references to its removed controller component.
+                for entity in &mut next.base.entities {
+                    if let Some(skin) = &mut entity.skin
+                        && skin.animator == Some(EntityRef::local(id))
+                    {
+                        skin.animator = None;
+                    }
+                }
+            }
+            Ok(())
+        })
     }
     fn record(&mut self, before: State) {
         self.undo.push_back(before);
@@ -252,7 +409,13 @@ impl Document {
         let before = self.current.clone();
         let mut next = self.source();
         let result = edit(&mut next)?;
-        next.expand(resolver)?;
+        next.base.version = next
+            .base
+            .entities
+            .iter()
+            .map(EntityData::required_scene_version)
+            .fold(next.base.version, u32::max);
+        self.expand_source(&next, resolver)?;
         self.apply(next)?;
         if before.source != self.current.source {
             self.record(before);
@@ -269,91 +432,27 @@ impl Document {
             Ok(())
         })
     }
-    /// Keep the instance declaration below an authored container, including multi-root models.
+    /// Insert one instance, optionally below an authored container, as one history state.
     pub fn insert_prefab(
         &mut self,
-        container: EntityData,
+        container: Option<EntityData>,
         prefab: AssetId,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.change(resolver, |next| {
-            let parent = container.id;
-            next.base.entities.push(container);
-            next.instances.push(PrefabInstance {
-                id: InstanceId::new(),
-                prefab,
-                parent: Some(parent),
-                overrides: vec![],
-            });
-            Ok(())
-        })
-    }
-    pub fn remove_subtrees(
-        &mut self,
-        roots: &[EntityId],
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.change(resolver, |next| {
-            let removed = next.base.remove_subtrees(roots)?;
-            next.instances
-                .retain(|instance| !instance.parent.is_some_and(|id| removed.contains(&id)));
-            Ok(())
-        })
-    }
-    pub fn clone_subtrees(
-        &mut self,
-        roots: &[EntityId],
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<BTreeMap<EntityId, EntityId>> {
-        self.change(resolver, |next| {
-            let map = next.base.clone_subtrees(roots)?;
-            let copies: Vec<_> = next
-                .instances
-                .iter()
-                .filter_map(|instance| {
-                    instance
-                        .parent
-                        .and_then(|parent| map.get(&parent))
-                        .map(|parent| {
-                            let mut copy = instance.clone();
-                            copy.id = InstanceId::new();
-                            copy.parent = Some(*parent);
-                            copy
-                        })
-                })
-                .collect();
-            next.instances.extend(copies);
-            Ok(map)
-        })
-    }
-    pub fn duplicate_instance(
-        &mut self,
-        id: InstanceId,
         resolver: &mut impl PrefabResolver,
     ) -> Result<InstanceId> {
         self.change(resolver, |next| {
-            let mut copy = next
-                .instances
-                .iter()
-                .find(|instance| instance.id == id)
-                .context("stale prefab instance")?
-                .clone();
-            copy.id = InstanceId::new();
-            let id = copy.id;
-            next.instances.push(copy);
+            let parent = container.map(|container| {
+                let id = container.id;
+                next.base.entities.push(container);
+                id
+            });
+            let id = InstanceId::new();
+            next.instances.push(PrefabInstance {
+                id,
+                prefab,
+                parent,
+                overrides: vec![],
+            });
             Ok(id)
-        })
-    }
-    pub fn remove_instance(
-        &mut self,
-        id: InstanceId,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.change(resolver, |next| {
-            let count = next.instances.len();
-            next.instances.retain(|instance| instance.id != id);
-            ensure!(next.instances.len() != count, "stale prefab instance");
-            Ok(())
         })
     }
     /// The savepoint changes only after a complete authoring file is published.

@@ -1,40 +1,353 @@
 use anyhow::Result;
-use comet_asset_pipeline::{SourceMeta, create_scene, prepare};
+use comet_asset_pipeline::{
+    DEFAULT_SCENE, ProjectSettings, SourceMeta, create_prefab, create_project, create_scene,
+    prepare,
+};
 use comet_core::{AssetId, ProjectPaths};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+type ContentCreator = fn(&ProjectPaths, &Path) -> Result<PathBuf>;
+const CONTENT_CREATORS: [(&str, ContentCreator); 2] =
+    [("scene", create_scene), ("prefab", create_prefab)];
 
 #[test]
-fn new_scenes_reuse_reserved_identity_and_reject_existing_or_outside_targets() -> Result<()> {
+fn new_projects_publish_only_authoring_files_and_keep_the_entry_identity_on_rebuild() -> Result<()>
+{
     let temp = tempfile::tempdir()?;
-    let project = temp.path().join("project");
-    fs::create_dir_all(project.join("assets/关卡"))?;
-    let paths = ProjectPaths::open(&project)?;
-    let meta = SourceMeta {
-        version: 1,
-        id: AssetId::new(),
-    };
-    let metadata = project.join("assets/关卡/新场景.scene.meta");
-    let reserved = serde_json::to_vec(&meta)?;
-    fs::write(&metadata, &reserved)?;
-    let scene = create_scene(&paths, Path::new("关卡/新场景.scene"))?;
+    let destination = temp.path().join("新项目");
+    let paths = create_project(&destination)?;
+    assert_eq!(paths.root(), destination.canonicalize()?);
+    let mut root_entries: Vec<_> = fs::read_dir(paths.root())?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<std::io::Result<_>>()?;
+    root_entries.sort();
+    assert_eq!(
+        root_entries,
+        vec![
+            std::ffi::OsString::from("assets"),
+            std::ffi::OsString::from("project.json")
+        ]
+    );
+    let settings = ProjectSettings::load(&paths)?;
+    assert_eq!(settings.version, 2);
+    assert!(settings.game_id.is_some());
+    assert_eq!(ProjectSettings::ensure_game_id(&paths)?, settings);
+    let scene = paths.resolve_asset_path(DEFAULT_SCENE)?;
+    let source = comet_scene::ContentSource::from_json(&fs::read(&scene)?)?;
+    assert_eq!(source.base.version, comet_scene::scene::SCENE_VERSION);
+    assert!(source.base.entities.is_empty());
+    let metadata = SourceMeta::path(&scene);
+    let reserved = fs::read(&metadata)?;
+    let id = SourceMeta::load(&scene)?.id;
+    assert!(create_project(&destination).is_err());
     assert_eq!(fs::read(&metadata)?, reserved);
-    let saved = fs::read(&scene)?;
-    assert!(create_scene(&paths, Path::new("关卡/新场景.scene")).is_err());
-    assert_eq!(fs::read(&scene)?, saved);
-    for path in ["../outside.scene", "bad.json", "关卡"] {
-        assert!(create_scene(&paths, Path::new(path)).is_err());
-    }
     let products = temp.path().join("products");
-    prepare(&project, &products)?;
-    let store = comet_asset::AssetStore::open(products)?;
-    assert!(store.index().products.contains_key(&meta.id));
+    prepare(paths.root(), &products)?;
+    let mut store = comet_asset::AssetStore::open(&products)?;
+    let revision = store.revision().to_owned();
+    assert_eq!(store.expand_scene(id)?, source.base);
+    prepare(paths.root(), &products)?;
+    assert_eq!(
+        comet_asset::AssetStore::open(&products)?.revision(),
+        revision
+    );
+    assert_eq!(SourceMeta::load(&scene)?.id, id);
+    assert_eq!(ProjectSettings::load(&paths)?, settings);
+    assert_eq!(fs::read(&metadata)?, reserved);
+    assert_eq!(ProjectPaths::open(&destination)?.root(), paths.root());
+    assert!(!paths.root().join("products").exists());
+    Ok(())
+}
+
+#[test]
+fn project_reads_and_asset_builds_stay_read_only_while_explicit_identity_migration_is_stable()
+-> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("project");
+    fs::create_dir_all(root.join("assets"))?;
+    fs::write(
+        root.join("assets/main.scene"),
+        comet_scene::ContentSource::default().to_json()?,
+    )?;
+    let paths = ProjectPaths::open(&root)?;
+    let configuration = root.join("project.json");
+    assert_eq!(ProjectSettings::load(&paths)?, ProjectSettings::default());
+    prepare(&root, &temp.path().join("products"))?;
+    assert!(
+        !configuration.exists(),
+        "ordinary asset preparation must not initialize a game"
+    );
+    let icon = AssetId::new();
+    let legacy = format!("{{\"version\":1, \"game_icon\":\"{icon}\"}}\n");
+    fs::write(&configuration, &legacy)?;
+    let loaded = ProjectSettings::load(&paths)?;
+    assert_eq!(loaded.game_icon, Some(icon));
+    assert_eq!(loaded.game_id, None);
+    assert_eq!(fs::read(&configuration)?, legacy.as_bytes());
+    let migrated = ProjectSettings::ensure_game_id(&paths)?;
+    assert_eq!(migrated.version, 2);
+    assert_eq!(migrated.game_icon, Some(icon));
+    assert!(migrated.game_id.is_some());
+    let bytes = fs::read(&configuration)?;
+    assert_eq!(ProjectSettings::ensure_game_id(&paths)?, migrated);
+    assert_eq!(fs::read(&configuration)?, bytes);
+    let moved = temp.path().join("moved-project");
+    fs::rename(&root, &moved)?;
+    assert_eq!(
+        ProjectSettings::load(&ProjectPaths::open(&moved)?)?,
+        migrated
+    );
+    Ok(())
+}
+
+#[test]
+fn invalid_project_versions_fields_and_paths_cannot_be_migrated_or_overwritten() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    fs::create_dir(temp.path().join("assets"))?;
+    let paths = ProjectPaths::open(temp.path())?;
+    let configuration = paths.root().join("project.json");
+    let id = comet_core::GameId::new();
+    for invalid in [
+        serde_json::json!({"version":1,"game_id":id}),
+        serde_json::json!({"version":1,"game_id":null}),
+        serde_json::json!({"version":2}),
+        serde_json::json!({"version":2,"game_id":null}),
+        serde_json::json!({"version":2,"game_id":"00000000-0000-0000-0000-000000000000"}),
+        serde_json::json!({"version":2,"game_id":"bad"}),
+        serde_json::json!({"version":2,"game_id":id,"future":true}),
+        serde_json::json!({"version":3,"game_id":id}),
+    ] {
+        let bytes = serde_json::to_vec(&invalid)?;
+        fs::write(&configuration, &bytes)?;
+        assert!(ProjectSettings::load(&paths).is_err(), "{invalid}");
+        assert!(
+            ProjectSettings::ensure_game_id(&paths).is_err(),
+            "{invalid}"
+        );
+        assert_eq!(fs::read(&configuration)?, bytes);
+    }
+    for bytes in [b"invalid json".to_vec(), vec![b' '; 65_537]] {
+        fs::write(&configuration, &bytes)?;
+        assert!(ProjectSettings::load(&paths).is_err());
+        assert!(ProjectSettings::ensure_game_id(&paths).is_err());
+        assert_eq!(fs::read(&configuration)?, bytes);
+    }
+    fs::remove_file(&configuration)?;
+    fs::create_dir(&configuration)?;
+    assert!(ProjectSettings::ensure_game_id(&paths).is_err());
+    fs::remove_dir(&configuration)?;
     #[cfg(unix)]
     {
-        let outside = temp.path().join("outside");
-        fs::create_dir(&outside)?;
-        std::os::unix::fs::symlink(&outside, paths.assets().join("link"))?;
-        assert!(create_scene(&paths, Path::new("link/outside.scene")).is_err());
-        assert!(!outside.join("outside.scene").exists());
+        let outside = temp.path().join("outside.json");
+        fs::write(&outside, b"keep external file")?;
+        std::os::unix::fs::symlink(&outside, &configuration)?;
+        assert!(ProjectSettings::ensure_game_id(&paths).is_err());
+        assert_eq!(fs::read(&outside)?, b"keep external file");
+        assert!(
+            fs::symlink_metadata(&configuration)?
+                .file_type()
+                .is_symlink()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn identity_migration_is_serialized_and_a_stale_settings_writer_cannot_replace_or_downgrade_it()
+-> Result<()> {
+    let temp = tempfile::tempdir()?;
+    fs::create_dir(temp.path().join("assets"))?;
+    fs::write(
+        temp.path().join("assets/main.scene"),
+        comet_scene::ContentSource::default().to_json()?,
+    )?;
+    let paths = ProjectPaths::open(temp.path())?;
+    let legacy = ProjectSettings::load(&paths)?;
+    let barrier = std::sync::Barrier::new(3);
+    let attempts = std::thread::scope(|scope| {
+        let attempt = || {
+            barrier.wait();
+            ProjectSettings::ensure_game_id(&paths)
+        };
+        let first = scope.spawn(attempt);
+        let second = scope.spawn(attempt);
+        barrier.wait();
+        [first.join().unwrap(), second.join().unwrap()]
+    });
+    let accepted: Vec<_> = attempts.into_iter().filter_map(Result::ok).collect();
+    assert!(!accepted.is_empty());
+    let current = ProjectSettings::ensure_game_id(&paths)?;
+    assert!(accepted.iter().all(|settings| settings == &current));
+    let bytes = fs::read(paths.root().join("project.json"))?;
+    let products = temp.path().join("products");
+    prepare(paths.root(), &products)?;
+    let mut assets = comet_asset::AssetStore::open(products)?;
+    assert!(legacy.save(&paths, &mut assets).is_err());
+    let replacement = ProjectSettings {
+        game_id: Some(comet_core::GameId::new()),
+        ..current.clone()
+    };
+    assert!(replacement.save(&paths, &mut assets).is_err());
+    assert_eq!(fs::read(paths.root().join("project.json"))?, bytes);
+    current.save(&paths, &mut assets)?;
+    assert_eq!(ProjectSettings::load(&paths)?, current);
+    Ok(())
+}
+
+#[test]
+fn new_project_rejects_existing_directories_files_and_unusable_parents_without_overwriting()
+-> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let directory = temp.path().join("directory");
+    fs::create_dir(&directory)?;
+    fs::write(directory.join("keep.txt"), "keep directory")?;
+    let file = temp.path().join("file");
+    fs::write(&file, "keep file")?;
+    for destination in [&directory, &file, &file.join("child")] {
+        assert!(create_project(destination).is_err());
+    }
+    assert_eq!(fs::read(directory.join("keep.txt"))?, b"keep directory");
+    assert_eq!(fs::read(&file)?, b"keep file");
+    assert_eq!(fs::read_dir(temp.path())?.count(), 2);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn new_project_rejects_existing_and_dangling_symlinks_without_following_them() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let existing = temp.path().join("existing");
+    fs::create_dir(&existing)?;
+    fs::write(existing.join("keep.txt"), "keep target")?;
+    let missing = temp.path().join("missing");
+    let link = temp.path().join("link");
+    let dangling = temp.path().join("dangling");
+    std::os::unix::fs::symlink(&existing, &link)?;
+    std::os::unix::fs::symlink(&missing, &dangling)?;
+    assert!(create_project(&link).is_err());
+    assert!(create_project(&dangling).is_err());
+    assert_eq!(fs::read(existing.join("keep.txt"))?, b"keep target");
+    assert!(!missing.exists());
+    assert!(fs::symlink_metadata(link)?.file_type().is_symlink());
+    assert!(fs::symlink_metadata(dangling)?.file_type().is_symlink());
+    assert_eq!(fs::read_dir(temp.path())?.count(), 3);
+    Ok(())
+}
+
+#[test]
+fn new_author_files_reuse_reserved_identity_and_reject_existing_or_outside_targets() -> Result<()> {
+    for (extension, create) in CONTENT_CREATORS {
+        let temp = tempfile::tempdir()?;
+        let project = temp.path().join("project");
+        fs::create_dir_all(project.join("assets/内容"))?;
+        let paths = ProjectPaths::open(&project)?;
+        let meta = SourceMeta {
+            version: 1,
+            id: AssetId::new(),
+        };
+        let relative = PathBuf::from(format!("内容/新文件.{extension}"));
+        let metadata = SourceMeta::path(&paths.assets().join(&relative));
+        let reserved = serde_json::to_vec(&meta)?;
+        fs::write(&metadata, &reserved)?;
+        let source = create(&paths, &relative)?;
+        assert_eq!(SourceMeta::load(&source)?.id, meta.id);
+        assert_eq!(fs::read(&metadata)?, reserved);
+        let saved = fs::read(&source)?;
+        let content = comet_scene::ContentSource::from_json(&saved)?;
+        assert_eq!(content, comet_scene::ContentSource::default());
+        assert!(create(&paths, &relative).is_err());
+        assert_eq!(fs::read(&source)?, saved);
+        assert_eq!(fs::read(&metadata)?, reserved);
+        for path in [
+            PathBuf::from(format!("../outside.{extension}")),
+            PathBuf::from("bad.json"),
+            PathBuf::from("内容"),
+            PathBuf::from(if extension == "scene" {
+                "wrong.prefab"
+            } else {
+                "wrong.scene"
+            }),
+            temp.path().join(format!("absolute.{extension}")),
+        ] {
+            assert!(create(&paths, &path).is_err());
+        }
+        let products = temp.path().join("products");
+        prepare(&project, &products)?;
+        let mut store = comet_asset::AssetStore::open(&products)?;
+        assert_eq!(store.index().products.len(), 1);
+        let product = store.load(meta.id)?;
+        match (extension, &product.payload) {
+            ("scene", comet_asset_data::product::Product::Scene(built))
+            | ("prefab", comet_asset_data::product::Product::Prefab(built)) => {
+                assert_eq!(built, &content);
+            }
+            _ => panic!("created author file has the wrong product kind"),
+        }
+        assert_eq!(prepare(&project, &products)?.changed, 0);
+        assert_eq!(SourceMeta::load(&source)?.id, meta.id);
+        assert_eq!(fs::read(&metadata)?, reserved);
+        #[cfg(unix)]
+        {
+            let outside = temp.path().join("outside");
+            fs::create_dir(&outside)?;
+            std::os::unix::fs::symlink(&outside, paths.assets().join("link"))?;
+            let outside_source = PathBuf::from(format!("link/outside.{extension}"));
+            assert!(create(&paths, &outside_source).is_err());
+            assert!(fs::read_dir(&outside)?.next().is_none());
+            let outside_metadata = outside.join("protected.meta");
+            fs::write(&outside_metadata, &reserved)?;
+            let linked = paths.assets().join(format!("linked.{extension}"));
+            std::os::unix::fs::symlink(&outside_metadata, SourceMeta::path(&linked))?;
+            assert!(create(&paths, &linked).is_err());
+            assert!(!linked.exists());
+            assert_eq!(fs::read(&outside_metadata)?, reserved);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn new_author_files_reserve_new_identity_and_reject_bad_reserved_metadata_without_publishing()
+-> Result<()> {
+    for (extension, create) in CONTENT_CREATORS {
+        let temp = tempfile::tempdir()?;
+        let project = temp.path().join("project");
+        fs::create_dir_all(project.join("assets"))?;
+        let paths = ProjectPaths::open(&project)?;
+        let created = create(&paths, Path::new(&format!("new.{extension}")))?;
+        let identity = SourceMeta::load(&created)?.id;
+        let bytes = fs::read(SourceMeta::path(&created))?;
+        assert!(create(&paths, &created).is_err());
+        assert_eq!(SourceMeta::load(&created)?.id, identity);
+        assert_eq!(fs::read(SourceMeta::path(&created))?, bytes);
+
+        let relative = PathBuf::from(format!("bad.{extension}"));
+        let source = paths.assets().join(&relative);
+        let metadata = SourceMeta::path(&source);
+        for bad in [
+            b"broken metadata".to_vec(),
+            serde_json::to_vec(&SourceMeta {
+                version: 2,
+                id: AssetId::new(),
+            })?,
+        ] {
+            fs::write(&metadata, &bad)?;
+            assert!(create(&paths, &relative).is_err());
+            assert!(!source.exists());
+            assert_eq!(fs::read(&metadata)?, bad);
+        }
+        let reserved = SourceMeta {
+            version: 1,
+            id: AssetId::new(),
+        };
+        let bytes = serde_json::to_vec(&reserved)?;
+        fs::write(&metadata, &bytes)?;
+        let recovered = create(&paths, &relative)?;
+        assert_eq!(SourceMeta::load(&recovered)?.id, reserved.id);
+        assert_eq!(fs::read(&metadata)?, bytes);
     }
     Ok(())
 }

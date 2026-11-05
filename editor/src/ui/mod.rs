@@ -1,20 +1,26 @@
 mod gizmo;
 mod hierarchy;
 mod inspector;
+mod project;
 mod resources;
+mod viewport;
+pub(crate) use viewport::cancel_gesture as cancel_viewport_gesture;
+use viewport::click_modifiers;
 #[cfg(test)]
 mod tests;
+use crate::documents::BrowserMode;
+use crate::selection::SelectionPick;
 use crate::session::Editor;
+use crate::transform::GizmoTool;
 use anyhow::Result;
 use comet_asset::AssetStore;
-use comet_core::ActionInput;
-use egui::{Color32, Rect, Vec2};
-pub fn show(
+use egui::Color32;
+pub(crate) fn show(
     editor: &mut Editor,
     root: &mut egui::Ui,
     assets: &mut AssetStore,
     active: bool,
-) -> Result<(Rect, Option<[f32; 2]>, ActionInput)> {
+) -> Result<viewport::ViewportFrame> {
     egui::Panel::top("toolbar")
         .exact_size(44.)
         .show(root, |ui| {
@@ -26,14 +32,12 @@ pub fn show(
                 );
                 ui.separator();
                 if ui.button("新建场景").clicked() {
-                    editor.documents.open_browser(true);
+                    editor.documents.open_browser(BrowserMode::NewScene);
                 }
-                if ui.button("打开场景").clicked() {
-                    editor.documents.open_browser(false);
+                if ui.button("打开文档").clicked() {
+                    editor.documents.open_browser(BrowserMode::Open);
                 }
-                if ui.button("项目设置").clicked() {
-                    editor.project.open = true;
-                }
+                project::menu(editor, ui);
                 if ui
                     .add_enabled(editor.play.is_none(), egui::Button::new("保存"))
                     .clicked()
@@ -71,6 +75,14 @@ pub fn show(
                     }
                     if ui.add_enabled(paused, egui::Button::new("单步")).clicked() {
                         let result = editor.play.as_mut().unwrap().request_single_step();
+                        editor.notice(result);
+                    }
+                    if ui
+                        .button("重开")
+                        .on_hover_text("恢复本次运行的起始状态（R）")
+                        .clicked()
+                    {
+                        let result = editor.restart_play();
                         editor.notice(result);
                     }
                     if ui.button("停止").clicked() {
@@ -116,10 +128,32 @@ pub fn show(
             egui::ScrollArea::vertical()
                 .id_salt("inspector-content")
                 .show(ui, |ui| {
-                    if let Some(entity) = editor.selected_entity() {
-                        inspector::draw(editor, ui, assets, &entity);
-                    } else {
+                    // Keep large rig binding maps shared while widgets publish later candidates.
+                    let snapshot = editor.last_snapshot.clone();
+                    let entity = editor.selection.active().and_then(|id| {
+                        snapshot
+                            .entities
+                            .binary_search_by_key(&id, |entity| entity.id)
+                            .ok()
+                            .map(|index| &snapshot.entities[index])
+                    });
+                    if editor.selection.is_empty() {
+                        inspector::clear_model_draft(ui.ctx());
                         ui.weak("请在场景树或视口中选择对象。");
+                    } else if editor.selection.len() > 1 {
+                        inspector::clear_model_draft(ui.ctx());
+                        ui.strong(format!("已选择 {} 个对象", editor.selection.len()));
+                        if let Some(entity) = entity {
+                            ui.label(format!("主对象：{}", entity.name));
+                        }
+                        ui.weak(
+                            "拖动视口坐标轴可成组移动。右键层级对象可批量复制、删除或调整父级。",
+                        );
+                        if editor.play.is_some() {
+                            ui.weak("运行期间暂不支持成组修改。");
+                        }
+                    } else if let Some(entity) = entity {
+                        inspector::draw(editor, ui, assets, entity);
                     }
                     ui.separator();
                     ui.checkbox(&mut editor.shadows, "方向光阴影");
@@ -136,59 +170,94 @@ pub fn show(
                 });
         });
     resources::show(editor, root, assets);
-    let mut viewport = Rect::NOTHING;
-    let mut pick = None;
-    let mut actions = ActionInput::default();
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE)
-        .show(root, |ui| {
-            viewport = ui.max_rect();
-            let response = ui.allocate_rect(viewport, egui::Sense::click_and_drag());
-            if response.clicked() {
-                response.request_focus();
-            }
-            comet_application::orbit(&mut editor.camera, &response);
-            if editor.play.is_some() {
-                actions = comet_application::sample_actions(&response, active, editor.camera);
-            }
-            ui.painter().text(
-                viewport.left_top() + Vec2::new(18., 16.),
-                egui::Align2::LEFT_TOP,
-                "透视 / 光照",
-                egui::FontId::proportional(12.),
-                Color32::from_gray(190),
-            );
-            ui.painter().text(
-                viewport.left_bottom() + Vec2::new(18., -18.),
-                egui::Align2::LEFT_BOTTOM,
-                if editor.play.is_some() {
-                    "WASD：移动 · 空格：跳跃 · Shift：跑步 · 右键拖动：环绕"
-                } else {
-                    "右键拖动：环绕 · 滚轮：缩放 · 拖动坐标轴：移动"
-                },
-                egui::FontId::proportional(11.),
-                Color32::from_gray(160),
-            );
-            let gizmo = gizmo::draw(editor, ui, assets, viewport);
-            if response.clicked()
-                && !gizmo
-                && let Some(pos) = response.interact_pointer_pos()
-            {
-                pick = Some([
-                    (pos.x - viewport.min.x) / viewport.width(),
-                    (pos.y - viewport.min.y) / viewport.height(),
-                ]);
-            }
-        });
+    let view = viewport::show(editor, root, assets, active);
     let ctx = root.ctx();
     if !root.is_enabled() || editor.is_busy() {
-        return Ok((viewport, pick, actions));
+        return view.finish(editor, assets, ctx, active);
     }
-    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
-        editor.documents.open_browser(true);
+    if editor.play.is_none() && !ctx.text_edit_focused() {
+        if active
+            && editor.drag_origin.is_none()
+            && !view.owns_pointer
+            && !ctx.egui_is_using_pointer()
+            && !editor.documents.is_blocking()
+        {
+            // consume_key(NONE) also accepts Shift/Alt; tool keys require exact event modifiers.
+            let tool = ctx.input_mut(|input| {
+                let mut tool = None;
+                input.events.retain(|event| {
+                    let egui::Event::Key {
+                        key,
+                        pressed: true,
+                        repeat: false,
+                        modifiers,
+                        ..
+                    } = event
+                    else {
+                        return true;
+                    };
+                    if !modifiers.is_none() {
+                        return true;
+                    }
+                    tool = Some(match key {
+                        egui::Key::W => GizmoTool::Translate,
+                        egui::Key::E => GizmoTool::Rotate,
+                        egui::Key::R => GizmoTool::Scale,
+                        _ => return true,
+                    });
+                    false
+                });
+                tool
+            });
+            if let Some(tool) = tool {
+                editor.gizmo_tool = tool;
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A)) {
+            let ids = editor
+                .last_snapshot
+                .entities
+                .iter()
+                .map(|entity| entity.id)
+                .collect::<Vec<_>>();
+            editor.commit()?;
+            editor.picking.clear();
+            editor.selection.replace(ids);
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::D))
+            && let Some(id) = editor.selection.active()
+        {
+            let result = editor.duplicate_object(id, assets);
+            editor.notice(result);
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete))
+            && let Some(id) = editor.selection.active()
+        {
+            let result = editor.delete_object(id, assets);
+            editor.notice(result);
+        }
     }
-    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
-        editor.documents.open_browser(false);
+    let new_project = ctx.input_mut(|i| {
+        i.consume_key(
+            egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+            egui::Key::N,
+        )
+    });
+    let open_project = ctx.input_mut(|i| {
+        i.consume_key(
+            egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+            egui::Key::O,
+        )
+    });
+    if new_project || open_project {
+        let current = editor.project_root().to_owned();
+        editor.documents.open_project_browser(new_project, &current);
+    }
+    if !new_project && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
+        editor.documents.open_browser(BrowserMode::NewScene);
+    }
+    if !open_project && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
+        editor.documents.open_browser(BrowserMode::Open);
     }
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         let result = editor.cancel();
@@ -218,5 +287,5 @@ pub fn show(
         });
         editor.notice(result);
     }
-    Ok((viewport, pick, actions))
+    view.finish(editor, assets, ctx, active)
 }

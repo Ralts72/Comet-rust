@@ -1,26 +1,72 @@
 use anyhow::{Context, Result, ensure};
-use comet_core::{AssetId, ProjectPaths, atomic_write};
+use comet_core::{AssetId, DirectoryCandidate, GameId, ProjectPaths, atomic_create, atomic_write};
 use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
-/// Publish metadata before a new scene. An interrupted creation can reuse its reserved identity.
-pub fn create_scene(
-    paths: &ProjectPaths,
-    relative: &std::path::Path,
-) -> Result<std::path::PathBuf> {
+pub const DEFAULT_SCENE: &str = "main.scene";
+
+/// Publish a complete authoring project only after its initial products can be loaded.
+pub fn create_project(destination: &Path) -> Result<ProjectPaths> {
+    let candidate = prepared_project(destination)?;
+    ProjectPaths::open(candidate.publish()?)
+}
+
+fn prepared_project(destination: &Path) -> Result<DirectoryCandidate> {
+    ensure!(
+        fs::symlink_metadata(destination)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
+        "项目位置已存在或不可访问：{}",
+        destination.display()
+    );
+    let candidate = DirectoryCandidate::new(destination)?;
+    fs::create_dir(candidate.path().join("assets"))?;
+    let paths = ProjectPaths::open(candidate.path())?;
+    let scene = create_scene(&paths, Path::new(DEFAULT_SCENE))?;
+    atomic_create(
+        &paths.root().join("project.json"),
+        &serde_json::to_vec_pretty(&ProjectSettings::new())?,
+    )?;
+    ProjectSettings::load(&paths)?;
+
+    // An unpublished sibling owns disposable validation products; they never enter authoring content.
+    let products = DirectoryCandidate::new(&candidate.path().with_extension("validation"))?;
+    crate::prepare(paths.root(), products.path()).context("验证新项目资产构建失败")?;
+    let mut assets =
+        comet_asset::AssetStore::open(products.path()).context("验证新项目产品失败")?;
+    assets.expand_scene(crate::SourceMeta::load(&scene)?.id)?;
+    // Both create_scene and prepare have released their locks. Later builds create a fresh lock file.
+    fs::remove_file(paths.root().join(".assetc.lock")).context("清理项目验证锁文件失败")?;
+    Ok(candidate)
+}
+
+pub fn create_scene(paths: &ProjectPaths, relative: &Path) -> Result<PathBuf> {
+    create_content(paths, relative, "scene")
+}
+
+pub fn create_prefab(paths: &ProjectPaths, relative: &Path) -> Result<PathBuf> {
+    create_content(paths, relative, "prefab")
+}
+
+/// Publish metadata first, then the author file; interrupted creation can reuse its reserved identity.
+fn create_content(paths: &ProjectPaths, relative: &Path, extension: &str) -> Result<PathBuf> {
     let _lock = crate::build::lock(&paths.root().join(".assetc.lock"), "project")?;
     let path = paths.resolve_asset_path(relative)?;
     ensure!(
-        path.extension().is_some_and(|e| e == "scene"),
-        "场景文件必须使用 .scene 后缀"
+        path.extension().is_some_and(|e| e == extension),
+        "作者文件必须使用 .{extension} 后缀"
     );
     ensure!(
         std::fs::symlink_metadata(&path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
-        "场景位置已存在"
+        "作者文件位置已存在"
     );
     let metadata = paths.resolve_asset_path(crate::SourceMeta::path(&path))?;
     match std::fs::read(&metadata) {
         Ok(bytes) => {
-            crate::SourceMeta::from_bytes(&bytes).context("读取保留的场景身份失败")?;
+            crate::SourceMeta::from_bytes(&bytes).context("读取保留的作者文件身份失败")?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let meta = crate::SourceMeta {
@@ -29,66 +75,161 @@ pub fn create_scene(
             };
             comet_core::atomic_create(&metadata, &serde_json::to_vec_pretty(&meta)?)?;
         }
-        Err(e) => return Err(e).context("读取场景身份失败"),
+        Err(e) => return Err(e).context("读取作者文件身份失败"),
     }
     let path = paths.resolve_asset_path(relative)?;
     comet_core::atomic_create(&path, &comet_scene::ContentSource::default().to_json()?)?;
     Ok(path)
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ProjectSettings {
     pub version: u32,
     pub game_icon: Option<AssetId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_id: Option<GameId>,
 }
 impl Default for ProjectSettings {
     fn default() -> Self {
         Self {
             version: 1,
             game_icon: None,
+            game_id: None,
         }
     }
 }
 impl ProjectSettings {
+    /// New authoring projects explicitly allocate an identity; loading legacy projects never does.
+    pub fn new() -> Self {
+        Self {
+            version: 2,
+            game_icon: None,
+            game_id: Some(GameId::new()),
+        }
+    }
     pub fn load(paths: &ProjectPaths) -> Result<Self> {
-        reject_symlink(paths)?;
-        let path = comet_core::resolve_destination(&paths.root().join("project.json"))?;
-        ensure!(
-            path.parent() == Some(paths.root()),
-            "项目设置不能指向项目外部"
-        );
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
+        let path = settings_path(paths)?;
+        let file = match fs::File::open(&path) {
+            Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e).context("读取项目设置失败"),
         };
+        const MAX_BYTES: u64 = 64 * 1024;
+        ensure!(file.metadata()?.len() <= MAX_BYTES, "项目设置超过 64 KiB");
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() as u64 <= MAX_BYTES, "项目设置超过 64 KiB");
         let settings: Self = serde_json::from_slice(&bytes).context("解析项目设置失败")?;
-        ensure!(settings.version == 1, "不支持的项目设置版本");
+        Ok(settings)
+    }
+    /// Editor project preparation is an explicit migration; ordinary load/build paths stay read-only.
+    pub fn ensure_game_id(paths: &ProjectPaths) -> Result<Self> {
+        let _lock = crate::build::lock(&paths.root().join(".assetc.lock"), "project")?;
+        let destination = settings_path(paths)?;
+        let existed = destination.try_exists()?;
+        let previous = Self::load(paths)?;
+        if previous.game_id.is_some() {
+            return Ok(previous);
+        }
+        let settings = Self {
+            version: 2,
+            game_id: Some(GameId::new()),
+            ..previous.clone()
+        };
+        ensure!(
+            Self::load(paths)? == previous,
+            "项目设置在初始化身份期间发生变化"
+        );
+        let destination = settings_path(paths)?;
+        let bytes = serde_json::to_vec_pretty(&settings)?;
+        if existed {
+            atomic_write(&destination, &bytes)?;
+        } else {
+            atomic_create(&destination, &bytes)?;
+        }
         Ok(settings)
     }
     pub fn save(&self, paths: &ProjectPaths, assets: &mut comet_asset::AssetStore) -> Result<()> {
-        reject_symlink(paths)?;
-        ensure!(self.version == 1, "不支持的项目设置版本");
+        self.validate()?;
+        let _lock = crate::build::lock(&paths.root().join(".assetc.lock"), "project")?;
+        let previous = Self::load(paths)?;
+        ensure!(
+            self.version == previous.version && self.game_id == previous.game_id,
+            "项目游戏身份已变化，不能降级配置或替换身份，请重新打开项目"
+        );
         if let Some(id) = self.game_icon {
             crate::icon::validate(assets, id)?;
         }
-        let destination = comet_core::resolve_destination(&paths.root().join("project.json"))?;
-        ensure!(
-            destination.parent() == Some(paths.root()),
-            "项目设置不能指向项目外部"
-        );
+        ensure!(Self::load(paths)? == previous, "项目设置在保存期间发生变化");
+        let destination = settings_path(paths)?;
         atomic_write(&destination, &serde_json::to_vec_pretty(self)?)
     }
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            matches!((self.version, self.game_id), (1, None) | (2, Some(_))),
+            "不支持的项目设置版本或游戏身份"
+        );
+        Ok(())
+    }
 }
-fn reject_symlink(paths: &ProjectPaths) -> Result<()> {
+
+// Separate wire shapes prevent v1 from accepting a v2 field, including an explicit null.
+impl<'de> Deserialize<'de> for ProjectSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Legacy {
+            version: u32,
+            game_icon: Option<AssetId>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Current {
+            version: u32,
+            game_icon: Option<AssetId>,
+            game_id: GameId,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Legacy(Legacy),
+            Current(Current),
+        }
+        let settings = match Wire::deserialize(deserializer)? {
+            Wire::Legacy(value) => Self {
+                version: value.version,
+                game_icon: value.game_icon,
+                game_id: None,
+            },
+            Wire::Current(value) => Self {
+                version: value.version,
+                game_icon: value.game_icon,
+                game_id: Some(value.game_id),
+            },
+        };
+        settings.validate().map_err(serde::de::Error::custom)?;
+        Ok(settings)
+    }
+}
+
+fn settings_path(paths: &ProjectPaths) -> Result<PathBuf> {
     match std::fs::symlink_metadata(paths.root().join("project.json")) {
         Ok(metadata) => ensure!(
-            !metadata.file_type().is_symlink(),
-            "项目设置不能使用符号链接"
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "项目设置必须是常规文件，不能使用符号链接"
         ),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e).context("检查项目设置路径失败"),
     }
-    Ok(())
+    let path = comet_core::resolve_destination(&paths.root().join("project.json"))?;
+    ensure!(
+        path.parent() == Some(paths.root()),
+        "项目设置不能指向项目外部"
+    );
+    Ok(path)
 }
+
+#[cfg(test)]
+mod tests;

@@ -46,6 +46,7 @@ fn save_failure_stays_open_and_retry_persists_authoring_after_play() -> anyhow::
     preview(&mut editor, &mut assets)?;
     editor.start(&mut assets)?;
     let authoring = editor.document.shared_source();
+    let play_world = editor.play.as_ref().unwrap().world_id();
     let source = editor.source.clone();
     let backup = source.with_extension("backup");
     std::fs::rename(&source, &backup)?;
@@ -55,7 +56,7 @@ fn save_failure_stays_open_and_retry_persists_authoring_after_play() -> anyhow::
     assert!(!editor.close_ready());
     assert!(editor.documents.pending && editor.documents.error.is_some());
     assert!(editor.document.is_dirty());
-    assert!(editor.play.is_none());
+    assert_eq!(editor.play.as_ref().unwrap().world_id(), play_world);
     assert_eq!(editor.document.shared_source(), authoring);
     std::fs::remove_dir(&source)?;
     std::fs::rename(&backup, &source)?;
@@ -84,11 +85,11 @@ fn scene_creation_can_be_cancelled_and_switching_saves_the_current_authoring() -
     editor.export.template_error = Some("preserve template configuration".into());
     preview(&mut editor, &mut assets)?;
     let edited = editor.document.shared_source();
-    editor.request_document_action(DocumentAction::New("new.scene".into()));
+    editor.request_document_action(DocumentAction::NewScene("new.scene".into()));
     editor.resolve_transition(Choice::Cancel, &mut assets);
     assert!(editor.document.is_editing());
     assert!(!original.parent().unwrap().join("new.scene").exists());
-    editor.request_document_action(DocumentAction::New("new.scene".into()));
+    editor.request_document_action(DocumentAction::NewScene("new.scene".into()));
     editor.resolve_transition(Choice::Save, &mut assets);
     assert!(editor.documents.error.is_none());
     assert!(editor.source.ends_with("new.scene"));
@@ -102,7 +103,7 @@ fn scene_creation_can_be_cancelled_and_switching_saves_the_current_authoring() -
     let metadata: comet_asset_pipeline::SourceMeta = serde_json::from_slice(&std::fs::read(
         original.parent().unwrap().join("new.scene.meta"),
     )?)?;
-    assert_eq!(editor.export.entry_scene(), metadata.id);
+    assert_eq!(editor.export.entry_scene(), Some(metadata.id));
     assert_eq!(
         editor
             .sources
@@ -156,7 +157,7 @@ fn save_failure_prevents_a_new_scene_from_being_created() -> anyhow::Result<()> 
     let backup = source.with_extension("backup");
     std::fs::rename(&source, &backup)?;
     std::fs::create_dir(&source)?;
-    editor.request_document_action(DocumentAction::New("new.scene".into()));
+    editor.request_document_action(DocumentAction::NewScene("new.scene".into()));
     editor.resolve_transition(Choice::Save, &mut assets);
     assert!(editor.documents.error.is_some());
     assert!(editor.document.is_dirty());
@@ -165,3 +166,6 @@ fn save_failure_prevents_a_new_scene_from_being_created() -> anyhow::Result<()> 
     assert!(!source.parent().unwrap().join("new.scene.meta").exists());
     Ok(())
 }
+
+mod prefabs;
+mod projects;

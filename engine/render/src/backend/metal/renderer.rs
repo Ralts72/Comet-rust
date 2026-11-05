@@ -1,7 +1,7 @@
 use super::resources::*;
 use crate::{
     FramePacket, Surface,
-    shader::{Globals, Object},
+    shader::{Globals, Object, Palette},
     worker::FrameRenderer,
 };
 use anyhow::{Context, Result, ensure};
@@ -20,6 +20,8 @@ pub(crate) struct Renderer {
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     scene: Retained<Pipeline>,
     shadow_pipeline: Retained<Pipeline>,
+    skinned_scene: Retained<Pipeline>,
+    skinned_shadow: Retained<Pipeline>,
     depth_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     shadow_sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
@@ -45,6 +47,14 @@ impl Renderer {
             let compiled = crate::shader::compile(false)?;
             let scene = pipeline(&device, &compiled, "scene_vs", Some("scene_fs"), false)?;
             let shadow_pipeline = pipeline(&device, &compiled, "shadow_vs", None, false)?;
+            let skinned_scene = pipeline(
+                &device,
+                &compiled,
+                "skinned_scene_vs",
+                Some("scene_fs"),
+                false,
+            )?;
+            let skinned_shadow = pipeline(&device, &compiled, "skinned_shadow_vs", None, false)?;
             let depth = MTLDepthStencilDescriptor::new();
             depth.setDepthCompareFunction(MTLCompareFunction::LessEqual);
             depth.setDepthWriteEnabled(true);
@@ -74,6 +84,8 @@ impl Renderer {
                 queue,
                 scene,
                 shadow_pipeline,
+                skinned_scene,
+                skinned_shadow,
                 depth_state,
                 sampler,
                 shadow_sampler,
@@ -87,7 +99,7 @@ impl Renderer {
         })
     }
     fn prepare(&mut self, frame: &FramePacket) -> Result<()> {
-        for draw in &frame.draws {
+        for draw in frame.draws.iter() {
             let key = (draw.mesh.id, draw.mesh_revision.clone());
             if !self.meshes.contains_key(&key) {
                 let Product::Mesh(mesh) = &draw.mesh.payload else {
@@ -100,6 +112,9 @@ impl Renderer {
                         vertices: buffer(&self.device, &vertices)?,
                         indices: buffer(&self.device, &mesh.indices)?,
                         count: mesh.indices.len(),
+                        influences: crate::shader::influences(mesh)
+                            .map(|values| buffer(&self.device, &values))
+                            .transpose()?,
                     },
                 );
             }
@@ -133,24 +148,38 @@ impl Renderer {
         frame: &FramePacket,
         globals: &Globals,
         shadow: bool,
+        palettes: &[Option<Retained<Buffer>>],
     ) -> Result<()> {
-        encoder.setRenderPipelineState(if shadow {
-            &self.shadow_pipeline
-        } else {
-            &self.scene
-        });
         encoder.setDepthStencilState(Some(&self.depth_state));
         encoder.setCullMode(MTLCullMode::None);
         vertex_uniform(encoder, globals, 1);
         if !shadow {
             fragment_uniform(encoder, globals, 1);
         }
-        for draw in &frame.draws {
+        for (draw, palette) in frame.draws.iter().zip(palettes) {
+            encoder.setRenderPipelineState(match (shadow, draw.skin.is_some()) {
+                (false, false) => &self.scene,
+                (true, false) => &self.shadow_pipeline,
+                (false, true) => &self.skinned_scene,
+                (true, true) => &self.skinned_shadow,
+            });
             let object = Object::for_draw(draw, frame.shadows)?;
             vertex_uniform(encoder, &object, 2);
             let mesh = &self.meshes[&(draw.mesh.id, draw.mesh_revision.clone())];
             unsafe {
                 encoder.setVertexBuffer_offset_atIndex(Some(&mesh.vertices), 0, 0);
+                if let Some(palette) = palette {
+                    encoder.setVertexBuffer_offset_atIndex(
+                        Some(
+                            mesh.influences
+                                .as_ref()
+                                .context("missing skin vertex stream")?,
+                        ),
+                        0,
+                        3,
+                    );
+                    encoder.setVertexBuffer_offset_atIndex(Some(palette), 0, 4);
+                }
                 if !shadow {
                     fragment_uniform(encoder, &object, 2);
                     let image =
@@ -203,6 +232,17 @@ impl Renderer {
         };
         let depth = texture(&self.device, frame.size, MTLPixelFormat::Depth32Float, true)?;
         let globals = Globals::for_frame(frame);
+        // Immutable per-frame buffers survive both passes and command completion.
+        let palettes: Vec<_> = frame
+            .draws
+            .iter()
+            .map(|draw| {
+                draw.skin
+                    .as_ref()
+                    .map(|skin| buffer(&self.device, &[Palette::new(Some(skin))]))
+                    .transpose()
+            })
+            .collect::<Result<_>>()?;
         let command = self.queue.commandBuffer().context("Metal frame command")?;
         let shadow_pass = MTLRenderPassDescriptor::new();
         shadow_pass.depthAttachment().setTexture(Some(&self.shadow));
@@ -225,7 +265,7 @@ impl Renderer {
             zfar: 1.,
         });
         if frame.shadows {
-            self.draws(&encoder, frame, &globals, true)?;
+            self.draws(&encoder, frame, &globals, true, &palettes)?;
         }
         encoder.endEncoding();
         let pass = MTLRenderPassDescriptor::new();
@@ -263,7 +303,7 @@ impl Renderer {
                 width: w as usize,
                 height: h as usize,
             });
-            self.draws(&encoder, frame, &globals, false)?;
+            self.draws(&encoder, frame, &globals, false, &palettes)?;
         }
         encoder.endEncoding();
         self.ui.draw(&self.device, &command, &target, frame)?;

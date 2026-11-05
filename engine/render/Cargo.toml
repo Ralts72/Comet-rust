@@ -8,11 +8,9 @@ publish.workspace = true
 [dependencies]
 comet-asset-data = { path = "../asset/data" }
 comet-core = { path = "../core" }
-comet-scene = { path = "../scene" }
 anyhow.workspace = true
 egui.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 raw-window-handle = { version = "0.6", features = ["std"] }
 naga = { version = "30", features = ["wgsl-in", "msl-out", "spv-out"] }
 png.workspace = true
@@ -26,3 +24,6 @@ raw-window-metal = "1.1"
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 ash = { version = "0.38", default-features = false, features = ["std", "loaded", "debug"] }
 ash-window = "0.13"
+
+[dev-dependencies]
+serde_json.workspace = true

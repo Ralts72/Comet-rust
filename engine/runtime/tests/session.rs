@@ -13,6 +13,136 @@ fn session() -> Result<PlaySession> {
     PlaySession::start(SceneSnapshot::default())
 }
 
+fn restart_input(held: bool) -> ActionInput {
+    let mut input = input();
+    input.held.set(Action::Restart, held);
+    input
+}
+
+#[test]
+fn restart_restores_entry_snapshot_rebuilds_world_and_preserves_pause_and_suspension() -> Result<()>
+{
+    let entity = EntityData::new("entry");
+    let id = entity.id;
+    let entry = SceneSnapshot {
+        entities: vec![entity],
+        ..Default::default()
+    };
+    let mut play = PlaySession::start(entry.clone())?;
+    let old_world = play.world_id();
+    play.advance(1.)?;
+    play.set_field(
+        &[id],
+        schema::TRANSLATION,
+        schema::FieldValue::Vec3([4., 3., 2.]),
+    )?;
+    play.set_paused(true);
+    play.request_single_step()?;
+    play.set_suspended(true);
+    play.restart()?;
+    assert_ne!(play.world_id(), old_world);
+    assert!(play.is_paused() && play.is_suspended());
+    assert_eq!(play.snapshot(), entry);
+    assert_eq!(play.steps(), 0);
+    assert_eq!(play.elapsed(), 0.);
+    assert_eq!(play.dropped_time(), 0.);
+    assert_eq!(play.frame_steps(), 0);
+    assert_eq!(play.interpolation_alpha(), 0.);
+    assert_eq!(play.input(), &ActionInput::default());
+    play.advance(100.)?;
+    assert_eq!(play.steps(), 0);
+    play.set_suspended(false);
+    play.advance(100.)?;
+    assert_eq!(play.steps(), 0);
+    play.set_paused(false);
+    play.advance(FIXED_DELTA / 2.)?;
+    assert_eq!(play.steps(), 0);
+    play.advance(FIXED_DELTA / 2.)?;
+    assert_eq!(play.steps(), 1);
+    Ok(())
+}
+
+#[test]
+fn restart_actions_are_immediate_while_paused_and_require_a_fresh_authorized_edge() -> Result<()> {
+    let mut play = session()?;
+    play.advance_with_input(0., input())?;
+    play.set_paused(true);
+    play.advance_with_input(0., input())?;
+    play.request_single_step()?;
+    let previous = play.world_id();
+    let mut tap = input();
+    tap.events = vec![
+        ActionEvent {
+            action: Action::Restart,
+            pressed: true,
+        },
+        ActionEvent {
+            action: Action::Restart,
+            pressed: false,
+        },
+    ];
+    play.advance_with_input(0., tap.clone())?;
+    assert_ne!(play.world_id(), previous);
+    assert!(play.is_paused());
+    assert_eq!(play.steps(), 0);
+    let restarted = play.world_id();
+    for _ in 0..3 {
+        play.advance_with_input(1., restart_input(true))?;
+        assert_eq!(play.world_id(), restarted);
+    }
+    play.advance_with_input(0., input())?;
+    play.advance_with_input(0., tap.clone())?;
+    assert_ne!(play.world_id(), restarted);
+    let restarted = play.world_id();
+    play.set_paused(false);
+    let mut denied = restart_input(true);
+    denied.enabled = false;
+    play.advance_with_input(1., denied)?;
+    play.advance_with_input(0., restart_input(true))?;
+    assert_eq!(play.world_id(), restarted);
+    play.synchronize_host(true, true);
+    play.advance_with_input(0., tap.clone())?;
+    assert_eq!(play.world_id(), restarted);
+    play.advance_with_input(0., tap)?;
+    assert_ne!(play.world_id(), restarted);
+    assert_eq!(play.steps(), 0);
+    Ok(())
+}
+
+#[test]
+fn restart_discards_construction_time_old_inputs_and_invalid_frames() -> Result<()> {
+    let mut play = session()?;
+    play.advance_with_input(0., input())?;
+    let previous = play.world_id();
+    for dt in [-1., f64::INFINITY, f64::NAN] {
+        assert!(play.advance_with_input(dt, restart_input(true)).is_err());
+        assert_eq!(play.world_id(), previous);
+    }
+    play.advance_with_input(
+        FIXED_DELTA / 2.,
+        ActionInput {
+            events: vec![ActionEvent {
+                action: Action::Jump,
+                pressed: true,
+            }],
+            look_delta: [3., 2.],
+            ..input()
+        },
+    )?;
+    play.advance_with_input(100., restart_input(true))?;
+    assert_ne!(play.world_id(), previous);
+    assert_eq!(play.steps(), 0);
+    play.advance_with_input(0., restart_input(true))?;
+    play.advance_with_input(100., restart_input(true))?;
+    assert_eq!(play.steps(), 0);
+    assert_eq!(play.dropped_time(), 0.);
+    play.advance_with_input(FIXED_DELTA, restart_input(true))?;
+    assert_eq!(play.steps(), 1);
+    assert!(play.input().events.is_empty());
+    assert_eq!(play.input().look_delta, [0.; 2]);
+    Ok(())
+}
+
 #[test]
 fn fixed_time_is_independent_of_render_rate() -> Result<()> {
     for fps in [30, 60, 120, 144, 240] {

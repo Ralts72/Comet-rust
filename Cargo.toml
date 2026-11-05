@@ -2,12 +2,12 @@
 resolver = "3"
 members = [
     "engine/core", "engine/scene", "engine/asset/*", "engine/runtime",
-    "engine/render", "engine/application", "editor", "editor/core", "app",
+    "engine/render", "engine/audio", "engine/application", "editor", "editor/core", "app",
     "tools/asset", "tools/gpu",
 ]
 default-members = [
     "engine/core", "engine/scene", "engine/asset/*", "engine/runtime",
-    "engine/render", "engine/application", "editor/core", "tools/asset",
+    "engine/render", "engine/audio", "engine/application", "editor/core", "tools/asset",
 ]
 
 [workspace.package]
@@ -18,13 +18,19 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 png = "0.18"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 sha2 = "0.10"
 glam = { version = "0.33", features = ["serde"] }
 rapier3d = { version = "=0.36.1", default-features = false, features = ["std", "dim3", "f32", "enhanced-determinism"] }
+rhai = { version = "=1.27.0", default-features = false, features = ["std", "no_module", "no_time", "no_custom_syntax", "no_closure", "compact_str"] }
+landmass = { version = "=0.9.3", default-features = false }
+rerecast = { version = "=0.5.0", default-features = false, features = ["std", "libm"] }
+hound = "=3.5.1"
+kira = { version = "=0.12.5", default-features = false, features = ["cpal"] }
+cpal = { version = "=0.18.2", default-features = false }
 egui = { version = "=0.37.0", default-features = false, features = ["default_fonts"] }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "x11"] }
 egui-winit = { version = "=0.37.0", default-features = false, features = ["x11"] }

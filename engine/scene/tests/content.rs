@@ -246,6 +246,7 @@ fn prefab_cycles_missing_products_and_stale_overrides_fail() -> Result<()> {
     };
     let mut library = Library(BTreeMap::new());
     assert!(source.expand(&mut library).is_err());
+    assert!(source.prefab_roots(&mut library).is_err());
     library.0.insert(id, source.clone());
     assert!(
         source
@@ -254,6 +255,7 @@ fn prefab_cycles_missing_products_and_stale_overrides_fail() -> Result<()> {
             .to_string()
             .contains("cycle")
     );
+    assert!(source.prefab_roots(&mut library).is_err());
     library.0.insert(id, ContentSource::default());
     source.instances[0].overrides.push(FieldOverride {
         entity: EntityId::new(),
@@ -261,5 +263,265 @@ fn prefab_cycles_missing_products_and_stale_overrides_fail() -> Result<()> {
         value: FieldValue::Vec3([1.; 3]),
     });
     assert!(source.expand(&mut library).is_err());
+    assert!(source.prefab_roots(&mut library).is_err());
+    Ok(())
+}
+
+#[test]
+fn prefab_roots_match_deep_expansion_and_keep_their_anchor_when_sources_are_reordered() -> Result<()>
+{
+    let leaf_asset = AssetId::new();
+    let middle_asset = AssetId::new();
+    let branch_asset = AssetId::new();
+    let source_asset = AssetId::new();
+    let instance = |prefab, parent| PrefabInstance {
+        id: InstanceId::new(),
+        prefab,
+        parent,
+        overrides: vec![],
+    };
+    let leaf_first = EntityData::new("leaf first");
+    let leaf_second = EntityData::new("leaf second");
+    let mut leaf_child = EntityData::new("leaf child");
+    leaf_child.parent = Some(leaf_first.id);
+    let leaf_id = leaf_first.id;
+    let leaf = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![leaf_first, leaf_child, leaf_second],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let inner = instance(leaf_asset, None);
+    let inner_id = inner.id;
+    let middle = ContentSource {
+        instances: vec![inner],
+        ..Default::default()
+    };
+    let anchor = EntityData::new("branch anchor");
+    let free_middle = instance(middle_asset, None);
+    let middle_id = free_middle.id;
+    let attached_leaf = instance(leaf_asset, Some(anchor.id));
+    let branch = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![anchor],
+            ..Default::default()
+        },
+        instances: vec![free_middle, attached_leaf],
+        ..Default::default()
+    };
+    let first = EntityData::new("source first");
+    let second = EntityData::new("source second");
+    let free_branch = instance(branch_asset, None);
+    let branch_id = free_branch.id;
+    let attached_branch = instance(branch_asset, Some(first.id));
+    let mut source = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![first, second],
+            ..Default::default()
+        },
+        instances: vec![free_branch, attached_branch, instance(leaf_asset, None)],
+        ..Default::default()
+    };
+    let mut library = Library(BTreeMap::from([
+        (leaf_asset, leaf),
+        (middle_asset, middle),
+        (branch_asset, branch),
+        (source_asset, source.clone()),
+    ]));
+    let descriptors = source.prefab_roots(&mut library)?;
+    assert_eq!(descriptors.len(), 7);
+    assert!(descriptors.iter().all(|root| !root.requires_scene_root()));
+    for outer in [InstanceId::new(), InstanceId::new()] {
+        let wrapper = ContentSource {
+            instances: vec![PrefabInstance {
+                id: outer,
+                prefab: source_asset,
+                parent: None,
+                overrides: vec![],
+            }],
+            ..Default::default()
+        };
+        let expanded = wrapper.expand(&mut library)?;
+        let expected: std::collections::BTreeSet<_> = expanded
+            .entities
+            .iter()
+            .filter(|entity| entity.parent.is_none())
+            .map(|entity| entity.id)
+            .collect();
+        let actual = descriptors
+            .iter()
+            .map(|root| root.in_instance(outer))
+            .collect();
+        assert_eq!(expected, actual);
+        let deep = leaf_id
+            .in_instance(inner_id.in_instance(middle_id.in_instance(branch_id.in_instance(outer))));
+        assert!(expected.contains(&deep));
+        assert_ne!(
+            deep,
+            leaf_id
+                .in_instance(inner_id)
+                .in_instance(middle_id)
+                .in_instance(branch_id)
+                .in_instance(outer)
+        );
+        assert!(expected.contains(&descriptors[0].in_instance(outer)));
+    }
+    source.base.entities.reverse();
+    source.instances.reverse();
+    for prefab in library.0.values_mut() {
+        prefab.base.entities.reverse();
+        prefab.instances.reverse();
+    }
+    assert_eq!(descriptors, source.prefab_roots(&mut library)?);
+    Ok(())
+}
+
+#[test]
+fn prefab_root_discovery_validates_attached_declarations_and_the_existing_depth_boundary()
+-> Result<()> {
+    let asset = AssetId::new();
+    let anchor = EntityData::new("anchor");
+    let mut source = ContentSource {
+        instances: vec![PrefabInstance {
+            id: InstanceId::new(),
+            prefab: asset,
+            parent: Some(anchor.id),
+            overrides: vec![],
+        }],
+        base: SceneSnapshot {
+            entities: vec![anchor],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut library = Library(BTreeMap::from([(asset, ContentSource::default())]));
+    assert_eq!(source.prefab_roots(&mut library)?.len(), 1);
+    source.instances[0].overrides.push(FieldOverride {
+        entity: EntityId::new(),
+        field: schema::TRANSLATION,
+        value: FieldValue::Vec3([0.; 3]),
+    });
+    assert!(source.prefab_roots(&mut library).is_err());
+    source.instances[0].overrides.clear();
+    source.instances.push(source.instances[0].clone());
+    assert!(source.prefab_roots(&mut library).is_err());
+
+    let mut chain = ContentSource::default();
+    for depth in 0..64 {
+        let child = AssetId::new();
+        library.0.insert(child, chain);
+        chain = ContentSource {
+            instances: vec![PrefabInstance {
+                id: InstanceId::new(),
+                prefab: child,
+                parent: None,
+                overrides: vec![],
+            }],
+            ..Default::default()
+        };
+        if depth == 62 {
+            assert!(chain.prefab_roots(&mut library)?.is_empty());
+        }
+    }
+    let error = chain.prefab_roots(&mut library).unwrap_err();
+    assert!(format!("{error:#}").contains("64 levels"));
+    Ok(())
+}
+
+#[test]
+fn prefab_root_scope_rejects_direct_and_indirect_self_use_hidden_by_an_old_product() -> Result<()> {
+    let root = AssetId::new();
+    let branch = AssetId::new();
+    let mut old = ContentSource::default();
+    old.base.entities.push(EntityData::new("old source root"));
+    let instance = |prefab| PrefabInstance {
+        id: InstanceId::new(),
+        prefab,
+        parent: None,
+        overrides: vec![],
+    };
+    let mut library = Library(BTreeMap::from([
+        (root, old.clone()),
+        (
+            branch,
+            ContentSource {
+                instances: vec![instance(root)],
+                ..Default::default()
+            },
+        ),
+    ]));
+    for target in [root, branch] {
+        let mut candidate = old.clone();
+        candidate.instances.push(instance(target));
+        let bytes = candidate.to_json()?;
+        assert!(
+            candidate.expand(&mut library).is_ok(),
+            "an anonymous scene can use the old product"
+        );
+        let error = candidate.expand_prefab(root, &mut library).unwrap_err();
+        assert!(format!("{error:#}").contains("cycle"));
+        assert_eq!(candidate.to_json()?, bytes);
+    }
+    Ok(())
+}
+
+#[test]
+fn prefab_root_scope_preserves_multiple_roots_and_nested_instance_identity() -> Result<()> {
+    let root = AssetId::new();
+    let child = AssetId::new();
+    let first = EntityData::new("first root");
+    let second = EntityData::new("second root");
+    let nested = EntityData::new("nested root");
+    let (first_id, second_id, nested_id) = (first.id, second.id, nested.id);
+    let instances = [InstanceId::new(), InstanceId::new()];
+    let source = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![first, second],
+            ..Default::default()
+        },
+        instances: instances
+            .into_iter()
+            .zip([first_id, second_id])
+            .map(|(id, parent)| PrefabInstance {
+                id,
+                prefab: child,
+                parent: Some(parent),
+                overrides: vec![],
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let mut library = Library(BTreeMap::from([(
+        child,
+        ContentSource {
+            base: SceneSnapshot {
+                entities: vec![nested],
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )]));
+    let before = source.to_json()?;
+    let expanded = source.expand_prefab(root, &mut library)?;
+    assert_eq!(expanded, source.expand(&mut library)?);
+    assert_eq!(expanded.entities.len(), 4);
+    for id in [first_id, second_id] {
+        assert!(
+            expanded
+                .entities
+                .iter()
+                .any(|entity| entity.id == id && entity.parent.is_none())
+        );
+    }
+    for (instance, parent) in instances.into_iter().zip([first_id, second_id]) {
+        let entity = expanded
+            .entities
+            .iter()
+            .find(|entity| entity.id == nested_id.in_instance(instance))
+            .unwrap();
+        assert_eq!(entity.parent, Some(parent));
+    }
+    assert_eq!(source.to_json()?, before);
     Ok(())
 }

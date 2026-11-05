@@ -2,7 +2,7 @@ use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::{
     package::{PACKAGE_VERSION, PackageManifest, RuntimeIdentity},
-    product::{AssetKind, ProductIndex},
+    product::{AssetKind, INDEX_VERSION, ProductIndex},
 };
 use comet_core::{AssetId, DirectoryCandidate, atomic_write, resolve_destination};
 use std::{
@@ -13,6 +13,7 @@ use std::{
 
 pub struct PackageRequest<'a> {
     pub products: &'a Path,
+    pub game_id: comet_core::GameId,
     pub index_revision: Option<&'a str>,
     pub entry_scene: AssetId,
     pub additional_scenes: &'a [AssetId],
@@ -31,9 +32,16 @@ pub struct PackageOutput {
     pub products: PathBuf,
 }
 /// Low-level packing for an already-built binary. Editor exports use a verified AppTemplate.
-pub fn package(products: &Path, scene: AssetId, app: &Path, output: &Path) -> Result<()> {
+pub fn package(
+    products: &Path,
+    game_id: comet_core::GameId,
+    scene: AssetId,
+    app: &Path,
+    output: &Path,
+) -> Result<()> {
     package_scenes(PackageRequest {
         products,
+        game_id,
         index_revision: None,
         entry_scene: scene,
         additional_scenes: &[],
@@ -50,6 +58,7 @@ pub fn package(products: &Path, scene: AssetId, app: &Path, output: &Path) -> Re
 pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
     let PackageRequest {
         products,
+        game_id,
         index_revision,
         entry_scene,
         additional_scenes,
@@ -113,13 +122,17 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
     fs::create_dir_all(&resources)?;
     fs::create_dir_all(&programs)?;
     let index = ProductIndex {
-        version: 1,
+        version: INDEX_VERSION,
         products: store
             .index()
             .products
             .iter()
             .filter(|(id, _)| closure.contains(id))
-            .map(|(id, e)| (*id, e.clone()))
+            .map(|(id, entry)| {
+                let mut entry = entry.clone();
+                entry.editor = None;
+                (*id, entry)
+            })
             .collect(),
     };
     index.validate()?;
@@ -184,6 +197,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
     }
     let manifest = PackageManifest {
         version: PACKAGE_VERSION,
+        game_id,
         entry_scene,
         scenes: scenes.into_iter().collect(),
         executable: executable.into(),
@@ -199,7 +213,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         write_bundle(
             candidate.path(),
             &output,
-            entry_scene,
+            game_id,
             executable,
             game_icon.is_some() || app_icon.is_some(),
         )?;
@@ -222,7 +236,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
 fn write_bundle(
     candidate: &Path,
     output: &Path,
-    scene: AssetId,
+    game_id: comet_core::GameId,
     executable: &str,
     has_icon: bool,
 ) -> Result<()> {
@@ -245,11 +259,12 @@ fn write_bundle(
 <key>CFBundleExecutable</key><string>{executable}</string>
 <key>CFBundleName</key><string>{name}</string>
 <key>CFBundleDisplayName</key><string>{name}</string>
-<key>CFBundleIdentifier</key><string>org.comet.game.{scene}</string>
+<key>CFBundleIdentifier</key><string>org.comet.game.{game_id}</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 {icon}
 <key>CFBundleVersion</key><string>1</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>LSMinimumSystemVersion</key><string>14.2</string>
 </dict></plist>
 "#
     );

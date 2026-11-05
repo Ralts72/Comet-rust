@@ -1,5 +1,5 @@
 use crate::{
-    SceneSnapshot,
+    FieldUpdate, SceneSnapshot,
     schema::{self, FieldKey, FieldValue},
 };
 use anyhow::{Context, Result, ensure};
@@ -43,6 +43,35 @@ impl Default for ContentSource {
 pub trait PrefabResolver {
     fn prefab(&mut self, id: AssetId) -> Result<ContentSource>;
 }
+
+/// An actual root's source identity and its relative instance path, from outer to inner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrefabRoot {
+    entity: EntityId,
+    path: Vec<InstanceId>,
+    requires_scene_root: bool,
+}
+impl PrefabRoot {
+    /// Compose instance scopes before mapping the entity; UUID derivation is not associative.
+    pub fn in_instance(&self, outer: InstanceId) -> EntityId {
+        let scope = self
+            .path
+            .iter()
+            .fold(outer, |scope, child| child.in_instance(scope));
+        self.entity.in_instance(scope)
+    }
+    /// Physics bodies and navigation regions cannot attach below an authored container.
+    pub fn requires_scene_root(&self) -> bool {
+        self.requires_scene_root
+    }
+}
+
+struct Expansion<'a> {
+    scene: SceneSnapshot,
+    roots: Option<&'a mut Vec<PrefabRoot>>,
+    path: Vec<InstanceId>,
+}
+
 impl ContentSource {
     pub fn canonicalize(&mut self) {
         self.base.canonicalize();
@@ -88,10 +117,28 @@ impl ContentSource {
             let mut overrides = BTreeSet::new();
             for o in &instance.overrides {
                 schema::descriptor(o.field)?;
+                let required_version = schema::required_scene_version(o.field)
+                    .max(schema::required_value_scene_version(&o.value));
+                ensure!(
+                    required_version <= 2 || self.base.version >= required_version,
+                    "prefab override requires scene version {}",
+                    required_version
+                );
                 ensure!(
                     overrides.insert((o.entity, o.field.component, o.field.field)),
                     "duplicate prefab override"
                 );
+            }
+        }
+        for entity in &self.base.entities {
+            for reference in schema::entity_references(entity) {
+                if let crate::EntityRef::InInstance { instance, .. } = reference {
+                    ensure!(
+                        ids.contains(&instance),
+                        "entity {} references missing prefab instance {instance}",
+                        entity.id
+                    );
+                }
             }
         }
         Ok(())
@@ -105,12 +152,38 @@ impl ContentSource {
                     FieldValue::Asset(id) => {
                         deps.insert(*id);
                     }
+                    FieldValue::OptionalAsset(Some(id)) => {
+                        deps.insert(*id);
+                    }
                     FieldValue::Entity(Some(crate::EntityRef::External { scene, .. })) => {
+                        deps.insert(*scene);
+                    }
+                    FieldValue::JointConnection(crate::JointConnection::Body(
+                        crate::EntityRef::External { scene, .. },
+                    )) => {
                         deps.insert(*scene);
                     }
                     FieldValue::Entities(refs) => {
                         for r in refs {
                             if let crate::EntityRef::External { scene, .. } = r {
+                                deps.insert(*scene);
+                            }
+                        }
+                    }
+                    FieldValue::AnimatorBindings(bindings) => {
+                        for r in bindings.values().flatten() {
+                            if let crate::EntityRef::External { scene, .. } = r {
+                                deps.insert(*scene);
+                            }
+                        }
+                    }
+                    FieldValue::ScriptParameters(parameters) => {
+                        for value in parameters.values() {
+                            if let crate::ScriptValue::Entity(Some(crate::EntityRef::External {
+                                scene,
+                                ..
+                            })) = value
+                            {
                                 deps.insert(*scene);
                             }
                         }
@@ -123,14 +196,49 @@ impl ContentSource {
     }
     /// Expand declarations from snapshots; dependency discovery does not create an ECS World.
     pub fn expand(&self, resolver: &mut impl PrefabResolver) -> Result<SceneSnapshot> {
-        let mut result = SceneSnapshot {
-            version: self.base.version,
-            entities: vec![],
+        self.expand_root(None, resolver)
+    }
+    /// Describe all expanded roots without binding them to a particular outer instance.
+    pub fn prefab_roots(&self, resolver: &mut impl PrefabResolver) -> Result<Vec<PrefabRoot>> {
+        let mut roots = vec![];
+        self.expand_content(None, resolver, Some(&mut roots))?;
+        roots.sort_by(|a, b| (&a.path, a.entity).cmp(&(&b.path, b.entity)));
+        Ok(roots)
+    }
+    /// Seed the source identity before resolving children, so an older product cannot hide self-use.
+    pub fn expand_prefab(
+        &self,
+        root: AssetId,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<SceneSnapshot> {
+        self.expand_root(Some(root), resolver)
+    }
+    fn expand_root(
+        &self,
+        root: Option<AssetId>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<SceneSnapshot> {
+        self.expand_content(root, resolver, None)
+    }
+    fn expand_content(
+        &self,
+        root: Option<AssetId>,
+        resolver: &mut impl PrefabResolver,
+        roots: Option<&mut Vec<PrefabRoot>>,
+    ) -> Result<SceneSnapshot> {
+        let mut output = Expansion {
+            scene: SceneSnapshot {
+                version: self.base.version,
+                entities: vec![],
+            },
+            roots,
+            path: vec![],
         };
-        expand(self, None, None, resolver, &mut vec![], &mut result)?;
-        result.validate()?;
-        result.canonicalize();
-        Ok(result)
+        let mut stack = root.into_iter().collect();
+        expand(self, None, None, resolver, &mut stack, &mut output)?;
+        output.scene.validate_expanded()?;
+        output.scene.canonicalize();
+        Ok(output.scene)
     }
 }
 fn expand(
@@ -139,10 +247,10 @@ fn expand(
     mount: Option<EntityId>,
     resolver: &mut impl PrefabResolver,
     stack: &mut Vec<AssetId>,
-    output: &mut SceneSnapshot,
+    output: &mut Expansion<'_>,
 ) -> Result<()> {
     source.validate()?;
-    output.version = output.version.max(source.base.version);
+    output.scene.version = output.scene.version.max(source.base.version);
     ensure!(stack.len() < 64, "prefab nesting exceeds 64 levels");
     let map: BTreeMap<_, _> = source
         .base
@@ -150,12 +258,49 @@ fn expand(
         .iter()
         .map(|e| (e.id, scope.map_or(e.id, |s| e.id.in_instance(s))))
         .collect();
+    let instance_scopes: BTreeMap<_, _> = source
+        .instances
+        .iter()
+        .map(|instance| {
+            (
+                instance.id,
+                scope.map_or(instance.id, |parent| instance.id.in_instance(parent)),
+            )
+        })
+        .collect();
+    let mut targets: BTreeMap<InstanceId, BTreeSet<EntityId>> = BTreeMap::new();
     for source_entity in &source.base.entities {
+        if source_entity.parent.is_none()
+            && mount.is_none()
+            && let Some(roots) = output.roots.as_mut()
+        {
+            roots.push(PrefabRoot {
+                entity: source_entity.id,
+                path: output.path.clone(),
+                requires_scene_root: source_entity.physics.is_some()
+                    || source_entity.navigation_region.is_some(),
+            });
+        }
         let mut e = source_entity.clone();
         e.id = map[&e.id];
         e.parent = e.parent.map(|p| map[&p]).or(mount);
-        schema::remap(&mut e, &map)?;
-        output.entities.push(e);
+        schema::map_entity_references(&mut e, |reference| {
+            match reference {
+                crate::EntityRef::Local { entity } => {
+                    *entity = map[entity];
+                }
+                crate::EntityRef::InInstance { instance, entity } => {
+                    targets.entry(*instance).or_default().insert(*entity);
+                    let scope = instance_scopes
+                        .get(instance)
+                        .context("prefab instance reference is missing its declaration")?;
+                    *reference = crate::EntityRef::local(entity.in_instance(*scope));
+                }
+                crate::EntityRef::External { .. } => {}
+            }
+            Ok(())
+        })?;
+        output.scene.entities.push(e);
     }
     for instance in &source.instances {
         ensure!(
@@ -166,16 +311,51 @@ fn expand(
         let mut child = resolver.prefab(instance.prefab).with_context(|| {
             format!("prefab instance {} asset {}", instance.id, instance.prefab)
         })?;
-        for o in &instance.overrides {
+        child.validate()?;
+        // Prove direct source membership, not merely a coincidental expanded UUID somewhere below it.
+        if let Some(targets) = targets.get(&instance.id) {
+            for target in targets {
+                ensure!(
+                    child
+                        .base
+                        .entities
+                        .iter()
+                        .any(|entity| entity.id == *target),
+                    "prefab instance {} references missing direct source entity {target}",
+                    instance.id
+                );
+            }
+        }
+        if !instance.overrides.is_empty() {
+            // Upgrade and validate the whole candidate; no intermediate override is published.
+            child.base.version = instance.overrides.iter().fold(child.base.version, |v, o| {
+                v.max(schema::required_scene_version(o.field))
+                    .max(schema::required_value_scene_version(&o.value))
+            });
+            let updates: Vec<_> = instance
+                .overrides
+                .iter()
+                .map(|o| FieldUpdate {
+                    entity: o.entity,
+                    field: o.field,
+                    value: o.value.clone(),
+                })
+                .collect();
             child
                 .base
-                .set_field(&[o.entity], o.field, o.value.clone())
-                .with_context(|| format!("override in instance {}", instance.id))?;
+                .set_fields(&updates)
+                .with_context(|| format!("overrides in instance {}", instance.id))?;
         }
         let id = scope.map_or(instance.id, |s| instance.id.in_instance(s));
         let parent = instance.parent.map(|p| map[&p]).or(mount);
         stack.push(instance.prefab);
+        if output.roots.is_some() {
+            output.path.push(instance.id);
+        }
         expand(&child, Some(id), parent, resolver, stack, output)?;
+        if output.roots.is_some() {
+            output.path.pop();
+        }
         stack.pop();
     }
     Ok(())

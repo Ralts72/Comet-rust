@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Camera, UiFrame, ViewToken};
+use crate::{Camera, PickRequest, UiFrame, ViewToken};
 use comet_core::WorldId;
 use std::{
     sync::{
@@ -19,7 +19,7 @@ fn packet(number: u64) -> FramePacket {
         size: [64, 64],
         viewport: [0, 0, 64, 64],
         camera: Camera::default(),
-        draws: vec![],
+        draws: Arc::from([]),
         ui: UiFrame::default(),
         pick: None,
         capture: None,
@@ -80,7 +80,12 @@ fn one_pending_frame_applies_backpressure_and_closes_on_the_worker() -> Result<(
     let (completed, completion) = mpsc::channel();
     let submitter = thread::spawn(move || {
         attempted.send(()).unwrap();
-        sender.send(packet(2)).unwrap();
+        let mut frame = packet(2);
+        frame.pick = Some(PickRequest::Rect {
+            min: [0.; 2],
+            max: [1.; 2],
+        });
+        sender.send(frame).unwrap();
         completed.send(()).unwrap();
     });
     attempt.recv_timeout(Duration::from_secs(2))?;
@@ -89,7 +94,11 @@ fn one_pending_frame_applies_backpressure_and_closes_on_the_worker() -> Result<(
     gate.1.notify_all();
     completion.recv_timeout(Duration::from_secs(2))?;
     submitter.join().unwrap();
-    assert_eq!(worker.wait(2)?.number, 2);
+    let feedback = worker.wait(2)?;
+    assert_eq!(feedback.number, 2);
+    let pick = feedback.pick.unwrap();
+    assert_eq!(pick.token, feedback.token);
+    assert!(pick.entities.is_empty());
     worker.close()?;
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     Ok(())

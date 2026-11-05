@@ -1,19 +1,16 @@
-//! Static glTF/GLB -> prefab + stable mesh/material/image subproducts.
+//! glTF/GLB -> prefab and stable CPU subproducts.
+mod animation;
 use anyhow::{Context, Result, ensure};
 use base64::Engine;
 use comet_asset_data::product::{MaterialData, MeshData, Product, TextureData};
-use comet_core::{AssetId, EntityId, digest};
+use comet_core::{AssetId, EntityId, digest, math::DVec3};
 use comet_scene::{ContentSource, EntityData, Model, Surface, Transform};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::{Path, PathBuf},
 };
 
-pub(crate) struct Imported {
-    pub products: Vec<(AssetId, Product)>,
-    pub files: BTreeMap<PathBuf, String>,
-}
+use crate::import::{Imported, ImportedProduct};
 pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported> {
     let gltf = gltf::Gltf::from_slice(bytes).context("parse glTF/GLB")?;
     let doc = &gltf.document;
@@ -21,9 +18,27 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
         doc.extensions_required().next().is_none(),
         "required glTF extensions are not supported"
     );
+    let animated = doc.skins().next().is_some() || doc.animations().next().is_some();
+    if animated {
+        ensure!(
+            doc.nodes().len() <= comet_scene::MAX_ANIMATOR_BINDINGS,
+            "animation source node budget exceeded"
+        );
+        ensure!(
+            doc.scenes().len() == 1,
+            "animated glTF import requires one scene; export the selected scene explicitly"
+        );
+    }
+    let declared = doc.buffers().try_fold(0usize, |sum, buffer| {
+        sum.checked_add(buffer.length())
+            .context("glTF buffer size overflow")
+    })?;
     ensure!(
-        doc.skins().next().is_none() && doc.animations().next().is_none(),
-        "skinning and animation import are not implemented"
+        bytes
+            .len()
+            .checked_add(declared)
+            .is_some_and(|size| size <= comet_asset_data::MAX_ANIMATION_BYTES),
+        "glTF input buffer byte budget exceeded"
     );
     let base = path
         .parent()
@@ -31,6 +46,7 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
         .canonicalize()?;
     let mut files = BTreeMap::new();
     let mut buffers = vec![];
+    let mut total_bytes = bytes.len();
     for b in doc.buffers() {
         let data = match b.source() {
             gltf::buffer::Source::Bin => gltf.blob.clone().context("missing GLB binary chunk")?,
@@ -40,6 +56,13 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
             data.len() >= b.length(),
             "truncated glTF buffer {}",
             b.index()
+        );
+        total_bytes = total_bytes
+            .checked_add(data.len())
+            .context("glTF input size overflow")?;
+        ensure!(
+            total_bytes <= comet_asset_data::MAX_ANIMATION_BYTES,
+            "glTF input byte budget exceeded"
         );
         buffers.push(data);
     }
@@ -89,27 +112,28 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
             height: decoded.height(),
             rgba8: decoded.into_raw(),
         };
-        let key = named_key(
-            "image",
-            image.index(),
-            image.name(),
-            doc.images().filter(|v| v.name() == image.name()).count(),
-        );
+        let count = doc.images().filter(|v| v.name() == image.name()).count();
+        let key = named_key("image", image.index(), image.name(), count);
         let image_id = id.child(&key);
         textures.insert(image.index(), image_id);
-        products.push((image_id, Product::Texture(texture)));
+        products.push(ImportedProduct {
+            id: image_id,
+            payload: Product::Texture(texture),
+            label: product_label("Image", image.index(), image.name(), count),
+        });
     }
     let default_material = id.child("material:default");
-    products.push((
-        default_material,
-        Product::Material(MaterialData {
+    products.push(ImportedProduct {
+        id: default_material,
+        payload: Product::Material(MaterialData {
             version: 1,
             base_color: [1.; 4],
             roughness: 1.,
             metallic: 1.,
             base_color_texture: None,
         }),
-    ));
+        label: "Default material".into(),
+    });
     let mut materials = BTreeMap::new();
     let mut roughness = BTreeMap::new();
     for material in doc.materials() {
@@ -135,36 +159,30 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
             None
         };
         let index = material.index().context("material index")?;
-        let key = named_key(
-            "material",
-            index,
-            material.name(),
-            doc.materials()
-                .filter(|v| v.name() == material.name())
-                .count(),
-        );
+        let count = doc
+            .materials()
+            .filter(|v| v.name() == material.name())
+            .count();
+        let key = named_key("material", index, material.name(), count);
         let material_id = id.child(&key);
         materials.insert(index, material_id);
         roughness.insert(index, p.roughness_factor());
-        products.push((
-            material_id,
-            Product::Material(MaterialData {
+        products.push(ImportedProduct {
+            id: material_id,
+            payload: Product::Material(MaterialData {
                 version: 1,
                 base_color: p.base_color_factor(),
                 roughness: p.roughness_factor(),
                 metallic: p.metallic_factor(),
                 base_color_texture: texture,
             }),
-        ));
+            label: product_label("Material", index, material.name(), count),
+        });
     }
     let mut meshes = BTreeMap::new();
     for mesh in doc.meshes() {
-        let key = named_key(
-            "mesh",
-            mesh.index(),
-            mesh.name(),
-            doc.meshes().filter(|v| v.name() == mesh.name()).count(),
-        );
+        let count = doc.meshes().filter(|v| v.name() == mesh.name()).count();
+        let key = named_key("mesh", mesh.index(), mesh.name(), count);
         for primitive in mesh.primitives() {
             ensure!(
                 primitive.mode() == gltf::mesh::Mode::Triangles,
@@ -174,6 +192,27 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
                 primitive.morph_targets().next().is_none(),
                 "morph targets belong to animation import"
             );
+            let vertex_count = primitive
+                .get(&gltf::Semantic::Positions)
+                .context("missing POSITION")?
+                .count();
+            ensure!(
+                vertex_count <= comet_asset_data::MAX_SKIN_VERTICES,
+                "glTF vertex budget exceeded"
+            );
+            ensure!(
+                primitive.indices().is_none_or(
+                    |indices| indices.count() <= comet_asset_data::MAX_SKIN_VERTICES * 6
+                ),
+                "glTF index budget exceeded"
+            );
+            ensure!(
+                primitive
+                    .attributes()
+                    .all(|(_, accessor)| accessor.count() == vertex_count),
+                "glTF vertex attribute count mismatch before decoding"
+            );
+            let (joints, weights) = animation::attributes(&primitive, &buffers)?;
             let reader = primitive.reader(|b| Some(buffers[b.index()].as_slice()));
             let positions: Vec<_> = reader
                 .read_positions()
@@ -197,16 +236,23 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
                 .map(|v| v.into_f32().collect())
                 .unwrap_or_else(|| vec![[0.; 2]; positions.len()]);
             let mesh_id = id.child(&format!("{key}/primitive:{}", primitive.index()));
-            products.push((
-                mesh_id,
-                Product::Mesh(MeshData {
-                    version: 1,
+            products.push(ImportedProduct {
+                id: mesh_id,
+                payload: Product::Mesh(MeshData {
+                    version: if joints.is_some() { 2 } else { 1 },
+                    joints,
+                    weights,
                     positions,
                     normals,
                     uvs,
                     indices,
                 }),
-            ));
+                label: format!(
+                    "{} / primitive {}",
+                    product_label("Mesh", mesh.index(), mesh.name(), count),
+                    primitive.index()
+                ),
+            });
             meshes.insert((mesh.index(), primitive.index()), mesh_id);
         }
     }
@@ -243,7 +289,12 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
             ctx.doc.nodes().filter(|v| v.name() == n.name()).count(),
         );
         let entity_id = EntityId::in_asset(ctx.id, &key);
-        let mut entity = EntityData::new(n.name().unwrap_or("Node"));
+        let name = n
+            .name()
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("Node {}", n.index()));
+        let mut entity = EntityData::new(name);
         entity.id = entity_id;
         entity.parent = parent;
         let (translation, rotation, scale) = n.transform().decomposed();
@@ -290,10 +341,19 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
     for root in scene.nodes() {
         node(root, None, &ctx, &mut source, &mut visited)?;
     }
+    animation::import(doc, &buffers, id, &visited, &mut source, &mut products)?;
     source.canonicalize();
-    products.push((id, Product::Prefab(source)));
-    for (_, p) in &products {
-        p.validate()?;
+    products.push(ImportedProduct {
+        id,
+        payload: Product::Prefab(source),
+        label: path
+            .file_name()
+            .context("missing source filename")?
+            .to_string_lossy()
+            .into_owned(),
+    });
+    for product in &products {
+        product.payload.validate()?;
     }
     Ok(Imported { products, files })
 }
@@ -301,6 +361,13 @@ fn named_key(kind: &str, index: usize, name: Option<&str>, count: usize) -> Stri
     match name.filter(|n| !n.is_empty() && count == 1) {
         Some(name) => format!("{kind}:name:{name}"),
         None => format!("{kind}:index:{index}"),
+    }
+}
+fn product_label(kind: &str, index: usize, name: Option<&str>, count: usize) -> String {
+    match name.filter(|name| !name.trim().is_empty()) {
+        Some(name) if count == 1 => name.to_owned(),
+        Some(name) => format!("{name} ({kind} {index})"),
+        None => format!("{kind} {index}"),
     }
 }
 fn read_uri(base: &Path, uri: &str, files: &mut BTreeMap<PathBuf, String>) -> Result<Vec<u8>> {
@@ -325,34 +392,22 @@ fn read_uri(base: &Path, uri: &str, files: &mut BTreeMap<PathBuf, String>) -> Re
         path.starts_with(base),
         "glTF resource escapes its source directory"
     );
-    let data = fs::read(&path)?;
+    let data = crate::import::read_bounded(&path, comet_asset_data::MAX_ANIMATION_BYTES)?;
     files.insert(path, digest(&data));
     Ok(data)
 }
 fn generate_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
-    let mut normals = vec![[0.; 3]; positions.len()];
+    let mut normals = vec![DVec3::ZERO; positions.len()];
     for t in indices.as_chunks::<3>().0 {
-        let [a, b, c] = t.map(|i| positions[i as usize]);
-        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        let n = [
-            ab[1] * ac[2] - ab[2] * ac[1],
-            ab[2] * ac[0] - ab[0] * ac[2],
-            ab[0] * ac[1] - ab[1] * ac[0],
-        ];
+        // Widen before subtracting: finite f32 coordinates can overflow even at the edge step.
+        let [a, b, c] = t.map(|i| DVec3::from_array(positions[i as usize].map(f64::from)));
+        let n = (b - a).cross(c - a);
         for index in t {
-            for (dst, value) in normals[*index as usize].iter_mut().zip(n) {
-                *dst += value;
-            }
-        }
-    }
-    for n in &mut normals {
-        let len = n.iter().map(|v| v * v).sum::<f32>().sqrt();
-        if len > 0. {
-            for v in n {
-                *v /= len;
-            }
+            normals[*index as usize] += n;
         }
     }
     normals
+        .into_iter()
+        .map(|n| n.normalize_or_zero().as_vec3().to_array())
+        .collect()
 }

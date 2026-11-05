@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "base": {
+    "version": 7,
+    "entities": [
+      {
+        "id": "b2000000-0000-4000-8000-000000000001",
+        "name": "背景循环",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "audio_source": {
+          "clip": "a0000000-0000-4000-8000-000000000009",
+          "gain": 0.18,
+          "looping": true,
+          "autoplay": true
+        }
+      },
+      {
+        "id": "b2000000-0000-4000-8000-000000000002",
+        "name": "提示音：E 重播，空格停止",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            0.7,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "audio_source": {
+          "clip": "a0000000-0000-4000-8000-00000000000a",
+          "gain": 0.65,
+          "looping": false,
+          "autoplay": false
+        },
+        "script": {
+          "asset": "a0000000-0000-4000-8000-00000000000b",
+          "enabled": true,
+          "parameters": {}
+        }
+      },
+      {
+        "id": "b2000000-0000-4000-8000-000000000003",
+        "name": "地面",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            -0.1,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b2000000-0000-4000-8000-00000000000a",
+        "name": "提示音 / 表面1",
+        "parent": "b2000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b2000000-0000-4000-8000-00000000000b",
+        "name": "提示音 / 表面2",
+        "parent": "b2000000-0000-4000-8000-000000000002",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b2000000-0000-4000-8000-00000000000c",
+        "name": "地面 / 表面1",
+        "parent": "b2000000-0000-4000-8000-000000000003",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            8.571428571428571,
+            0.14285714285714288,
+            8.571428571428571
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "b396e96f-8969-5af4-8de2-9ebeea4ef160",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b2000000-0000-4000-8000-00000000000d",
+        "name": "地面 / 表面2",
+        "parent": "b2000000-0000-4000-8000-000000000003",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            8.571428571428571,
+            0.14285714285714288,
+            8.571428571428571
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "b396e96f-8969-5af4-8de2-9ebeea4ef160",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      }
+    ]
+  },
+  "instances": []
+}

@@ -1,8 +1,16 @@
 use super::*;
+mod animation;
+mod checkpoint;
+mod hud;
+mod scene_requests;
+mod script_host;
 use crate::test_support::fixture;
 use comet_render::{PickFeedback, ViewToken};
-use comet_scene::schema;
+use comet_scene::{Character, ContentSource, PhysicsBody, schema, schema::FieldValue};
+mod navigation;
+mod prefabs;
 mod resources;
+mod view_errors;
 #[test]
 fn authored_physics_survives_save_reopen_and_cannot_change_during_play() -> Result<()> {
     use comet_scene::{BodyMotion, ColliderShape};
@@ -193,23 +201,78 @@ fn stale_world_target_and_removed_entity_pick_results_are_rejected() -> Result<(
     ] {
         feedback.pick = Some(PickFeedback {
             token,
-            entity: Some(entity),
+            entities: vec![entity],
         });
+        editor.picking.request(
+            feedback.number,
+            editor.world(),
+            editor.target_generation,
+            editor.selection.generation(),
+            crate::selection::SelectMode::Replace,
+        );
         editor.feedback(&feedback);
-        assert!(editor.selected.is_none());
+        feedback.number += 1;
+        assert!(editor.selection.active().is_none());
     }
     feedback.pick = Some(PickFeedback {
         token: feedback.token,
-        entity: Some(EntityId::new()),
+        entities: vec![EntityId::new()],
     });
+    editor.picking.request(
+        feedback.number,
+        editor.world(),
+        editor.target_generation,
+        editor.selection.generation(),
+        crate::selection::SelectMode::Replace,
+    );
     editor.feedback(&feedback);
-    assert!(editor.selected.is_none());
+    feedback.number += 1;
+    assert!(editor.selection.active().is_none());
     feedback.pick = Some(PickFeedback {
         token: feedback.token,
-        entity: Some(entity),
+        entities: vec![entity],
     });
+    editor.picking.request(
+        feedback.number,
+        editor.world(),
+        editor.target_generation,
+        editor.selection.generation(),
+        crate::selection::SelectMode::Replace,
+    );
     editor.feedback(&feedback);
-    assert_eq!(editor.selected, Some(entity));
+    feedback.number += 1;
+    assert_eq!(editor.selection.active(), Some(entity));
+
+    let other = editor.last_snapshot.entities[1].id;
+    let generation = editor.selection.generation();
+    feedback.pick.as_mut().unwrap().entities = vec![other, EntityId::new()];
+    editor.picking.request(
+        feedback.number,
+        editor.world(),
+        editor.target_generation,
+        generation,
+        crate::selection::SelectMode::Replace,
+    );
+    editor.feedback(&feedback);
+    assert_eq!(
+        editor.selection.ids(),
+        vec![entity],
+        "a stale batch must not publish its valid prefix"
+    );
+    feedback.number += 1;
+    feedback.pick.as_mut().unwrap().entities = vec![entity, other, other];
+    editor.picking.request(
+        feedback.number,
+        editor.world(),
+        editor.target_generation,
+        generation,
+        crate::selection::SelectMode::Toggle,
+    );
+    editor.feedback(&feedback);
+    assert_eq!(editor.selection.ids(), vec![other]);
+    assert_eq!(editor.selection.generation(), generation);
+    assert!(!editor.document.is_dirty());
+    assert_eq!(editor.document.history_len(), 0);
     Ok(())
 }
 #[test]

@@ -8,14 +8,16 @@ pub enum Action {
     Crouch,
     Interact,
     Primary,
+    Restart,
 }
 impl Action {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Jump,
         Self::Run,
         Self::Crouch,
         Self::Interact,
         Self::Primary,
+        Self::Restart,
     ];
 }
 

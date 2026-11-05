@@ -1,5 +1,5 @@
 //! Shared numerical types and engine conventions. Backend-specific conversions stay in adapters.
-pub use glam::{EulerRot, Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
+pub use glam::{DMat3, DVec3, EulerRot, Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
 /// Right-handed, Y-up, local forward -Z; clip depth is [0, 1].
 pub fn perspective(fov_radians: f32, aspect: f32, near: f32, far: f32) -> Mat4 {

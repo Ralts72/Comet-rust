@@ -4,18 +4,30 @@ use comet_asset_data::product::AssetKind;
 use comet_asset_pipeline::{ProjectSettings, SourceCatalog};
 use comet_core::ProjectPaths;
 
+mod browser;
+mod directory;
+mod loading;
+mod recent;
+pub(crate) use browser::ProjectBrowser;
+pub(crate) use directory::DirectoryReader;
+pub(crate) use loading::{ProductLocations, ProjectCandidate, ProjectLoad, verify_prefab_identity};
+pub(crate) use recent::RecentProjects;
+
 pub(crate) struct ProjectPanel {
     pub open: bool,
     settings: ProjectSettings,
     error: Option<String>,
 }
 impl ProjectPanel {
-    pub fn new(paths: &ProjectPaths) -> Result<Self> {
-        Ok(Self {
+    fn from_settings(settings: ProjectSettings) -> Self {
+        Self {
             open: false,
-            settings: ProjectSettings::load(paths)?,
+            settings,
             error: None,
-        })
+        }
+    }
+    pub(crate) fn game_id(&self) -> Option<comet_core::GameId> {
+        self.settings.game_id
     }
     pub fn show(
         &mut self,
@@ -65,6 +77,11 @@ impl ProjectPanel {
                     };
                     let result = (|| -> Result<()> {
                         let latest = ProjectSettings::load(paths)?;
+                        anyhow::ensure!(
+                            latest.version == self.settings.version
+                                && latest.game_id == self.settings.game_id,
+                            "项目游戏身份已变化，请重新打开项目。"
+                        );
                         if latest != self.settings {
                             self.settings = latest;
                             anyhow::bail!("项目设置已被外部修改，请重新选择。");

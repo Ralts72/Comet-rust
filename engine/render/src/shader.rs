@@ -1,4 +1,5 @@
 use anyhow::{Result, ensure};
+use comet_core::math::{DVec3, Mat4};
 use std::collections::BTreeMap;
 #[repr(C)]
 pub(crate) struct Globals {
@@ -36,8 +37,8 @@ impl Object {
             anyhow::bail!("draw uses a non-material product")
         };
         Ok(Self {
-            model: draw.transform.to_cols_array_2d(),
-            normal: draw.transform.inverse().transpose().to_cols_array_2d(),
+            model: draw.transform.model().to_cols_array_2d(),
+            normal: Mat4::from_mat3(draw.transform.normal()).to_cols_array_2d(),
             color: material.base_color,
             parameters: [
                 draw.roughness,
@@ -53,8 +54,50 @@ pub(crate) fn vertices(mesh: &comet_asset_data::product::MeshData) -> Vec<[f32; 
         .iter()
         .zip(&mesh.normals)
         .zip(&mesh.uvs)
-        .map(|((p, n), uv)| [p[0], p[1], p[2], n[0], n[1], n[2], uv[0], uv[1]])
+        .map(|((p, n), uv)| {
+            // Source normals may be any finite magnitude, including GPU-flushed subnormals.
+            let normal = DVec3::new(n[0] as f64, n[1] as f64, n[2] as f64)
+                .try_normalize()
+                .unwrap_or(DVec3::ZERO)
+                .as_vec3();
+            [p[0], p[1], p[2], normal.x, normal.y, normal.z, uv[0], uv[1]]
+        })
         .collect()
+}
+#[repr(C)]
+pub(crate) struct Influence {
+    pub joints: [u32; 4],
+    pub weights: [f32; 4],
+}
+pub(crate) fn influences(mesh: &comet_asset_data::product::MeshData) -> Option<Vec<Influence>> {
+    Some(
+        mesh.joints
+            .as_ref()?
+            .iter()
+            .zip(mesh.weights.as_ref()?)
+            .map(|(joints, weights)| Influence {
+                joints: joints.map(u32::from),
+                weights: *weights,
+            })
+            .collect(),
+    )
+}
+#[repr(C)]
+pub(crate) struct Palette {
+    matrices: [[[f32; 4]; 4]; comet_asset_data::MAX_SKIN_JOINTS],
+}
+impl Palette {
+    pub fn new(skin: Option<&crate::SkinPalette>) -> Self {
+        let mut value = Self {
+            matrices: [Mat4::IDENTITY.to_cols_array_2d(); comet_asset_data::MAX_SKIN_JOINTS],
+        };
+        if let Some(skin) = skin {
+            for (target, matrix) in value.matrices.iter_mut().zip(skin.matrices()) {
+                *target = matrix.to_cols_array_2d();
+            }
+        }
+        value
+    }
 }
 pub(crate) struct Compiled {
     pub msl: String,
@@ -88,6 +131,12 @@ pub(crate) fn compile(ui: bool) -> Result<Compiled> {
                     "Object CPU/GPU layout mismatch"
                 );
             }
+            if ty.name.as_deref() == Some("Palette") {
+                ensure!(
+                    span as usize == std::mem::size_of::<Palette>(),
+                    "Palette CPU/GPU layout mismatch"
+                );
+            }
         }
     }
     let mut options = naga::back::msl::Options {
@@ -116,6 +165,10 @@ pub(crate) fn compile(ui: bool) -> Result<Compiled> {
                     }
                 } else {
                     match binding.binding {
+                        6 => naga::back::msl::BindTarget {
+                            buffer: Some(4),
+                            ..Default::default()
+                        },
                         0 | 1 => naga::back::msl::BindTarget {
                             buffer: Some(binding.binding as u8 + 1),
                             ..Default::default()
@@ -192,18 +245,4 @@ pub(crate) fn compile(ui: bool) -> Result<Compiled> {
     Ok(result)
 }
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn shaders_and_layouts_compile_for_both_backends() {
-        for ui in [false, true] {
-            let compiled = super::compile(ui).unwrap();
-            assert!(!compiled.msl.is_empty());
-            assert!(
-                compiled
-                    .spirv
-                    .values()
-                    .all(|s| s.first() == Some(&0x07230203))
-            );
-        }
-    }
-}
+mod tests;

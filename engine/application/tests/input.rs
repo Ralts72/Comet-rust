@@ -66,6 +66,40 @@ fn sampling_preserves_fast_taps_and_skips_key_repeat_events() {
     assert!(input.held.contains(Action::Jump));
     assert!(input.events.is_empty());
 }
+
+#[test]
+fn restart_mapping_preserves_fresh_r_edges_and_obeys_input_authorization() {
+    let r = |pressed, repeat| egui::Event::Key {
+        key: egui::Key::R,
+        physical_key: Some(egui::Key::R),
+        pressed,
+        repeat,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let ctx = egui::Context::default();
+    let tap = frame(&ctx, vec![r(true, false), r(false, false)], false, true);
+    assert_eq!(
+        tap.events,
+        vec![
+            ActionEvent {
+                action: Action::Restart,
+                pressed: true
+            },
+            ActionEvent {
+                action: Action::Restart,
+                pressed: false
+            }
+        ]
+    );
+    assert!(!tap.held.contains(Action::Restart));
+    frame(&ctx, vec![r(true, false)], false, true);
+    let repeated = frame(&ctx, vec![r(true, true)], false, true);
+    assert!(repeated.held.contains(Action::Restart));
+    assert!(repeated.events.is_empty());
+    assert!(!frame(&ctx, vec![r(true, false)], true, true).enabled);
+    let ctx = egui::Context::default();
+    assert!(!frame(&ctx, vec![r(true, false)], false, false).enabled);
+}
 #[test]
 fn text_editing_and_inactive_windows_do_not_authorize_gameplay() {
     let ctx = egui::Context::default();
@@ -87,6 +121,49 @@ fn movement_uses_the_camera_heading_and_normalizes_diagonals() {
     assert!(forward.movement[0] < 0. && forward.movement[1] > 0.);
     let diagonal = frame(&ctx, vec![press(egui::Key::D)], false, true);
     assert!((diagonal.movement.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 1e-6);
+}
+
+#[test]
+fn primary_and_secondary_drags_sample_without_reentering_context_input() {
+    for button in [egui::PointerButton::Primary, egui::PointerButton::Secondary] {
+        let ctx = egui::Context::default();
+        ctx.options_mut(|options| options.max_passes = 1.try_into().unwrap());
+        frame(&ctx, vec![], false, true);
+        let start = egui::pos2(100., 100.);
+        let end = egui::pos2(140., 120.);
+        let pointer = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let press = frame(
+            &ctx,
+            vec![egui::Event::PointerMoved(start), pointer(start, true)],
+            false,
+            true,
+        );
+        let dragged = frame(&ctx, vec![egui::Event::PointerMoved(end)], false, true);
+        assert!(press.enabled && dragged.enabled);
+        if button == egui::PointerButton::Primary {
+            assert_eq!(
+                press.events,
+                vec![ActionEvent {
+                    action: Action::Primary,
+                    pressed: true
+                }]
+            );
+            assert!(dragged.held.contains(Action::Primary));
+            assert_eq!(dragged.look_delta, [0.; 2]);
+        } else {
+            assert!(press.events.is_empty());
+            assert!(!dragged.held.contains(Action::Primary));
+            assert_eq!(dragged.look_delta, [40., 20.]);
+        }
+        let released = frame(&ctx, vec![pointer(end, false)], false, true);
+        assert!(!released.held.contains(Action::Primary));
+        assert_eq!(released.look_delta, [0.; 2]);
+    }
 }
 #[test]
 fn following_preserves_camera_offset_and_initially_focuses_the_character() {

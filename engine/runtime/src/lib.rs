@@ -1,10 +1,20 @@
 //! Independent Play world and time policy, separate from authoring and presentation.
+mod animation;
+mod audio;
+pub use animation::{AnimationState, MAX_ANIMATED_NODES, validate_animations};
 mod character;
+pub use audio::validate_audio;
 mod clock;
+mod hud;
 mod input;
+mod navigation;
 mod physics;
+mod progress;
+mod script;
 mod session;
 pub use character::CharacterState;
 pub use clock::{FIXED_DELTA, MAX_FRAME_STEPS};
-pub use physics::TriggerEvent;
-pub use session::PlaySession;
+pub use navigation::{NavigationStatus, validate_navigation};
+pub use physics::{JointKind, JointStatus, TriggerEvent};
+pub use script::{ScriptDiagnostic, ScriptLibrary, ScriptValidator, validate_scripts};
+pub use session::{PlaySession, RuntimeResources, SceneRequest};

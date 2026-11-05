@@ -1,4 +1,5 @@
 //! Authoring sources -> immutable CPU products -> one published index.
+mod audio;
 mod build;
 mod gltf;
 mod package;
@@ -7,8 +8,12 @@ mod template;
 pub use template::{AppTemplate, PackageFile};
 mod icon;
 mod import;
+mod navigation;
+pub use navigation::{
+    NavigationTarget, bake_navigation, bake_navigation_source, publish_navigation,
+};
 mod project;
 mod source;
 pub use build::{BuildReport, prepare};
-pub use project::{ProjectSettings, create_scene};
+pub use project::{DEFAULT_SCENE, ProjectSettings, create_prefab, create_project, create_scene};
 pub use source::{SourceAsset, SourceCatalog, SourceMeta};

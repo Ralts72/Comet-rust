@@ -13,11 +13,12 @@ EXPECTED = {
     "comet-asset": {"comet-core", "comet-scene", "comet-asset-data"},
     "comet-asset-pipeline": {"comet-core", "comet-scene", "comet-asset-data", "comet-asset"},
     "comet-editor-core": {"comet-core", "comet-scene"},
-    "comet-runtime": {"comet-core", "comet-scene"},
-    "comet-render": {"comet-core", "comet-scene", "comet-asset-data"},
-    "comet-application": {"comet-core", "comet-scene", "comet-asset-data", "comet-asset", "comet-render"},
+    "comet-runtime": {"comet-core", "comet-scene", "comet-asset-data", "comet-audio"},
+    "comet-audio": {"comet-core", "comet-asset-data"},
+    "comet-render": {"comet-core", "comet-asset-data"},
+    "comet-application": {"comet-core", "comet-scene", "comet-asset-data", "comet-asset", "comet-render", "comet-audio"},
     "comet-editor": {"comet-asset-data", "comet-core", "comet-scene", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-runtime", "comet-application", "comet-render"},
-    "comet-app": {"comet-asset-data", "comet-core", "comet-asset", "comet-runtime", "comet-application"},
+    "comet-app": {"comet-asset-data", "comet-core", "comet-scene", "comet-asset", "comet-runtime", "comet-application"},
     "comet-assetc": {"comet-core", "comet-asset", "comet-asset-pipeline"},
     "comet-gpu-check": set(),
 }
@@ -49,6 +50,15 @@ def audit(target=None):
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "rune"}
         if name not in {"comet-runtime", "comet-editor", "comet-app"}:
             forbidden.add("rapier3d")
+            forbidden.add("landmass")
+        if name not in {"comet-asset-pipeline", "comet-editor", "comet-assetc"}:
+            forbidden.add("rerecast")
+        if name not in {"comet-audio", "comet-runtime", "comet-application", "comet-editor", "comet-app"}:
+            forbidden |= {"kira", "cpal"}
+        if name not in {"comet-asset-pipeline", "comet-editor", "comet-assetc"}:
+            forbidden.add("hound")
+        if name == "comet-audio":
+            forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "comet-asset", "comet-asset-pipeline", "comet-runtime", "comet-editor-core"}
         if name == "comet-runtime":
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "comet-asset-pipeline", "comet-editor-core"}
         if name == "comet-render":
@@ -63,6 +73,16 @@ def audit(target=None):
         direct_packages={packages[d["pkg"]]["name"] for d in nodes[root]["deps"] if any(k["kind"] != "dev" for k in d["dep_kinds"])}
         if name != "comet-core" and "glam" in direct_packages:
             raise RuntimeError(f"{name} must use comet_core::math instead of depending directly on glam")
+        if name != "comet-runtime" and "rhai" in direct_packages:
+            raise RuntimeError(f"{name} must use the runtime script API instead of depending directly on rhai")
+        if name != "comet-runtime" and "landmass" in direct_packages:
+            raise RuntimeError(f"{name} must use the runtime navigation API instead of depending directly on landmass")
+        if name != "comet-asset-pipeline" and "rerecast" in direct_packages:
+            raise RuntimeError(f"{name} must use the asset pipeline navigation API instead of depending directly on rerecast")
+        if name != "comet-audio" and direct_packages & {"kira", "cpal"}:
+            raise RuntimeError(f"{name} must use the engine audio API instead of depending directly on Kira or CPAL")
+        if name != "comet-asset-pipeline" and "hound" in direct_packages:
+            raise RuntimeError(f"{name} must use the asset pipeline audio API instead of depending directly on Hound")
         graph[name] = {"direct_modules": sorted(direct), "transitive_packages": len(seen)}
     return {"target": target, "modules": graph}
 

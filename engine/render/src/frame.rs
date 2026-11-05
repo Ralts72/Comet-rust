@@ -1,3 +1,4 @@
+use crate::DrawTransform;
 use comet_asset_data::product::ProductFile;
 use comet_core::math::{Mat4, Vec3};
 use comet_core::{EntityId, WorldId};
@@ -36,7 +37,8 @@ impl Camera {
 #[derive(Clone)]
 pub struct Draw {
     pub entity: EntityId,
-    pub transform: Mat4,
+    pub transform: DrawTransform,
+    pub skin: Option<Arc<crate::SkinPalette>>,
     pub mesh: Arc<ProductFile>,
     pub material: Arc<ProductFile>,
     pub texture: Option<Arc<ProductFile>>,
@@ -58,15 +60,40 @@ impl Drop for UiFrame {
         self.textures.clear();
     }
 }
+/// Coordinates are relative to the viewport, normalized to [0, 1] with a top-left origin.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum PickRequest {
+    Point([f32; 2]),
+    Rect { min: [f32; 2], max: [f32; 2] },
+}
+impl PickRequest {
+    fn validate(self) -> anyhow::Result<()> {
+        let valid = |point: [f32; 2]| {
+            point
+                .into_iter()
+                .all(|v| v.is_finite() && (0. ..=1.).contains(&v))
+        };
+        anyhow::ensure!(
+            match self {
+                Self::Point(point) => valid(point),
+                Self::Rect { min, max } => {
+                    valid(min) && valid(max) && min[0] <= max[0] && min[1] <= max[1]
+                }
+            },
+            "invalid viewport pick coordinates"
+        );
+        Ok(())
+    }
+}
 pub struct FramePacket {
     pub number: u64,
     pub token: ViewToken,
     pub size: [u32; 2],
     pub viewport: [u32; 4],
     pub camera: Camera,
-    pub draws: Vec<Draw>,
+    pub draws: Arc<[Draw]>,
     pub ui: UiFrame,
-    pub pick: Option<[f32; 2]>,
+    pub pick: Option<PickRequest>,
     pub capture: Option<PathBuf>,
     pub shadows: bool,
 }
@@ -96,11 +123,16 @@ impl FramePacket {
                 < 0.9999,
             "view camera is parallel to its up axis"
         );
-        for draw in &self.draws {
-            anyhow::ensure!(
-                draw.transform.is_finite() && draw.transform.determinant().abs() > 1e-8,
-                "invalid object transform"
-            );
+        if let Some(request) = self.pick {
+            request.validate()?;
+        }
+        for draw in self.draws.iter() {
+            if let Some(skin) = &draw.skin {
+                anyhow::ensure!(
+                    skin.matches_mesh(&draw.mesh) && draw.transform.model() == Mat4::IDENTITY,
+                    "skin pose does not belong to this mesh or uses a second model transform"
+                );
+            }
             anyhow::ensure!(
                 draw.roughness.is_finite() && (0. ..=1.).contains(&draw.roughness),
                 "invalid object roughness"
@@ -122,7 +154,7 @@ impl FramePacket {
 #[derive(Clone, Debug, Serialize)]
 pub struct PickFeedback {
     pub token: ViewToken,
-    pub entity: Option<EntityId>,
+    pub entities: Vec<EntityId>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct FrameFeedback {
@@ -135,48 +167,5 @@ pub struct FrameFeedback {
     pub gpu_ms: f64,
     pub pick: Option<PickFeedback>,
 }
-pub(crate) fn pick(frame: &FramePacket) -> Option<PickFeedback> {
-    let uv = frame.pick?;
-    let aspect = frame.viewport[2] as f32 / frame.viewport[3].max(1) as f32;
-    let inverse = frame.camera.view_projection(aspect).inverse();
-    let far = inverse.project_point3(Vec3::new(uv[0] * 2. - 1., 1. - uv[1] * 2., 1.));
-    let origin = frame.camera.eye;
-    let direction = (far - origin).normalize();
-    let mut closest = f32::INFINITY;
-    let mut entity = None;
-    for draw in &frame.draws {
-        let comet_asset_data::product::Product::Mesh(mesh) = &draw.mesh.payload else {
-            continue;
-        };
-        for triangle in mesh.indices.as_chunks::<3>().0 {
-            let [a, b, c] = triangle.map(|i| {
-                draw.transform
-                    .transform_point3(Vec3::from_array(mesh.positions[i as usize]))
-            });
-            let ab = b - a;
-            let ac = c - a;
-            let p = direction.cross(ac);
-            let determinant = ab.dot(p);
-            if determinant.abs() < 1e-7 {
-                continue;
-            }
-            let inv = 1. / determinant;
-            let from = origin - a;
-            let u = from.dot(p) * inv;
-            let q = from.cross(ab);
-            let v = direction.dot(q) * inv;
-            let t = ac.dot(q) * inv;
-            if u >= 0. && v >= 0. && u + v <= 1. && t > 0. && t < closest {
-                closest = t;
-                entity = Some(draw.entity);
-            }
-        }
-    }
-    Some(PickFeedback {
-        token: frame.token,
-        entity,
-    })
-}
-
 #[cfg(test)]
 mod tests;

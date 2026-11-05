@@ -129,6 +129,35 @@ fn triggers_report_enter_exit_once_across_fixed_ticks() -> Result<()> {
     assert!(play.trigger_events().is_empty());
     Ok(())
 }
+
+#[test]
+fn a_sensor_crossed_within_one_tick_reports_ordered_transitions_once() -> Result<()> {
+    let mut sensor = body("thin sensor", BodyMotion::Fixed, [0.; 3], [0.04, 1., 1.]);
+    sensor.physics.as_mut().unwrap().sensor = true;
+    let traveler = body("traveler", BodyMotion::Kinematic, [-0.5, 0., 0.], [0.01; 3]);
+    let (trigger, other) = (sensor.id, traveler.id);
+    let mut play = PlaySession::start(scene(vec![sensor, traveler]))?;
+    play.set_linear_velocity(other, [120., 0., 0.])?;
+    play.advance(FIXED_DELTA)?;
+    assert_eq!(play.steps(), 1);
+    assert!((position(&mut play, other)[0] - 1.5).abs() < 1e-5);
+    let events = play.trigger_events();
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(events[0].entered && !events[1].entered);
+    for event in events {
+        assert_eq!(
+            (event.trigger, event.other, event.tick),
+            (trigger, other, 1)
+        );
+    }
+    play.advance(FIXED_DELTA)?;
+    assert!(play.trigger_events().is_empty());
+    play.set_paused(true);
+    play.single_step()?;
+    assert_eq!(play.steps(), 3);
+    assert!(play.trigger_events().is_empty());
+    Ok(())
+}
 #[test]
 fn character_walks_runs_jumps_once_and_lands() -> Result<()> {
     let character = character();
@@ -172,6 +201,216 @@ fn character_walks_runs_jumps_once_and_lands() -> Result<()> {
     ticks(&mut play, 150, jump)?;
     assert!(play.character(id).unwrap().grounded);
     assert!((position(&mut play, id)[1] - start[1]).abs() < 0.025);
+    Ok(())
+}
+
+#[test]
+fn crouching_keeps_feet_in_place_uses_its_speed_and_resets_with_the_world() -> Result<()> {
+    let character = character();
+    let id = character.id;
+    let authoring = scene(vec![ground(), character]);
+    let saved = authoring.clone();
+    let mut play = PlaySession::start(authoring.clone())?;
+    ticks(&mut play, 60, input())?;
+    let standing = position(&mut play, id);
+    let mut crouch = input();
+    crouch.held.set(Action::Crouch, true);
+    crouch.held.set(Action::Run, true);
+    ticks(&mut play, 1, crouch.clone())?;
+    assert!(play.character(id).unwrap().crouched);
+    let lower = position(&mut play, id);
+    // Standing half-height is 0.8, crouched half-height is 0.48.
+    assert!((standing[1] - lower[1] - 0.32).abs() < 0.02);
+    assert!(play.character(id).unwrap().grounded);
+    play.set_paused(true);
+    ticks(&mut play, 2, input())?;
+    assert!(play.character(id).unwrap().crouched);
+    assert_eq!(position(&mut play, id), lower);
+    play.set_paused(false);
+    crouch.movement = [1., 0.];
+    ticks(&mut play, 30, crouch)?;
+    let walked = position(&mut play, id);
+    assert!((walked[0] - 1.).abs() < 0.04, "walked={walked:?}");
+    ticks(&mut play, 1, input())?;
+    assert!(!play.character(id).unwrap().crouched);
+    assert!((position(&mut play, id)[1] - standing[1]).abs() < 0.02);
+    assert_eq!(authoring, saved);
+    let restarted = PlaySession::start(authoring)?;
+    assert!(!restarted.character(id).unwrap().crouched);
+    assert_eq!(restarted.character(id).unwrap().position, [0., 1., 0.]);
+    Ok(())
+}
+
+#[test]
+fn restart_reconstructs_physics_character_posture_and_trigger_baselines() -> Result<()> {
+    let character = character();
+    let id = character.id;
+    let falling = body("falling", BodyMotion::Dynamic, [3., 4., 0.], [0.5; 3]);
+    let cube = falling.id;
+    let mut trigger = body("trigger", BodyMotion::Fixed, [0., 1., 0.], [2.; 3]);
+    trigger.physics.as_mut().unwrap().sensor = true;
+    let authoring = scene(vec![ground(), character, falling, trigger]);
+    let mut play = PlaySession::start(authoring.clone())?;
+    ticks(&mut play, 60, input())?;
+    let mut crouch = input();
+    crouch.held.set(Action::Crouch, true);
+    ticks(&mut play, 1, crouch)?;
+    assert!(play.character(id).unwrap().crouched);
+    assert!(position(&mut play, cube)[1] < 1.);
+    let old = play.world_id();
+    play.restart()?;
+    assert_ne!(play.world_id(), old);
+    assert_eq!(play.character(id).unwrap().position, [0., 1., 0.]);
+    assert!(!play.character(id).unwrap().grounded);
+    assert!(!play.character(id).unwrap().crouched);
+    assert_eq!(play.character(id).unwrap().vertical_velocity, 0.);
+    assert_eq!(position(&mut play, cube), [3., 4., 0.]);
+    assert!(play.trigger_events().is_empty());
+    assert_eq!(play.snapshot().to_json()?, authoring.to_json()?);
+    play.advance_with_input(100., input())?;
+    assert_eq!(play.steps(), 0);
+    play.advance_with_input(FIXED_DELTA, input())?;
+    assert!(
+        play.trigger_events()
+            .iter()
+            .any(|e| e.other == id && e.entered && e.tick == 1)
+    );
+    Ok(())
+}
+
+#[test]
+fn low_ceiling_blocks_standing_until_the_character_leaves_the_tunnel() -> Result<()> {
+    let character = character();
+    let id = character.id;
+    let ceiling = body(
+        "tunnel",
+        BodyMotion::Fixed,
+        [2.5, 1.35, 0.],
+        [1.5, 0.25, 2.],
+    );
+    let mut play = PlaySession::start(scene(vec![ground(), character, ceiling]))?;
+    ticks(&mut play, 60, input())?;
+    let mut crouch = ActionInput {
+        movement: [1., 0.],
+        ..input()
+    };
+    crouch.held.set(Action::Crouch, true);
+    ticks(&mut play, 60, crouch)?;
+    let walked = position(&mut play, id);
+    assert!((walked[0] - 2.).abs() < 0.04, "walked={walked:?}");
+    ticks(&mut play, 1, input())?;
+    assert!(play.character(id).unwrap().crouched);
+    assert!(position(&mut play, id)[1] < 0.52);
+    let mut denied = input();
+    denied.enabled = false;
+    ticks(&mut play, 5, denied)?;
+    assert!(play.character(id).unwrap().crouched);
+    assert!(position(&mut play, id)[1] < 0.52);
+    let crouched_pose = position(&mut play, id);
+    play.teleport(PoseUpdate {
+        entity: id,
+        translation: [crouched_pose[0], crouched_pose[1], 0.],
+        rotation: [0., 0., 0., 1.],
+    })?;
+    assert!(play.character(id).unwrap().crouched);
+    ticks(&mut play, 1, input())?;
+    assert!(play.character(id).unwrap().crouched);
+    ticks(
+        &mut play,
+        90,
+        ActionInput {
+            movement: [1., 0.],
+            ..input()
+        },
+    )?;
+    assert!(position(&mut play, id)[0] > 4.5);
+    assert!(!play.character(id).unwrap().crouched);
+    assert!((position(&mut play, id)[1] - 0.81).abs() < 0.025);
+    Ok(())
+}
+
+#[test]
+fn crouch_motion_is_stable_at_different_world_positions_and_frame_rates() -> Result<()> {
+    for start in [-5., 0., 3., 9.] {
+        let mut character = character();
+        character.transform.translation[0] = start;
+        let id = character.id;
+        let source = scene(vec![ground(), character]);
+        let mut expected = None;
+        for fps in [30, 60, 120] {
+            let mut play = PlaySession::start(source.clone())?;
+            ticks(&mut play, 60, input())?;
+            let mut crouch = ActionInput {
+                movement: [1., 0.],
+                ..input()
+            };
+            crouch.held.set(Action::Crouch, true);
+            for _ in 0..fps {
+                play.advance_with_input(1. / f64::from(fps), crouch.clone())?;
+            }
+            let actual = position(&mut play, id);
+            assert!(
+                (actual[0] - start - 2.).abs() < 0.05,
+                "start={start} fps={fps} actual={actual:?}"
+            );
+            if let Some(expected) = expected {
+                assert_eq!(actual, expected);
+            } else {
+                expected = Some(actual);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn standing_clearance_respects_sensors_and_collision_layers() -> Result<()> {
+    for sensor in [true, false] {
+        let character = character();
+        let id = character.id;
+        let mut ceiling = body(
+            "ignored ceiling",
+            BodyMotion::Fixed,
+            [0., 1.35, 0.],
+            [2., 0.25, 2.],
+        );
+        let config = ceiling.physics.as_mut().unwrap();
+        config.sensor = sensor;
+        if !sensor {
+            config.mask = 0;
+        }
+        let mut play = PlaySession::start(scene(vec![ground(), character, ceiling]))?;
+        ticks(&mut play, 60, input())?;
+        let mut crouch = input();
+        crouch.held.set(Action::Crouch, true);
+        ticks(&mut play, 1, crouch)?;
+        assert!(play.character(id).unwrap().crouched);
+        ticks(&mut play, 1, input())?;
+        assert!(!play.character(id).unwrap().crouched);
+    }
+    Ok(())
+}
+
+#[test]
+fn short_crouch_capsules_keep_their_radius_and_ignore_unauthorized_input() -> Result<()> {
+    let mut character = character();
+    character.transform.scale = [2.; 3];
+    character.transform.translation[1] = 2.;
+    character.character.as_mut().unwrap().crouch_height_ratio = 0.1;
+    let id = character.id;
+    let mut play = PlaySession::start(scene(vec![ground(), character]))?;
+    ticks(&mut play, 60, input())?;
+    let mut crouch = input();
+    crouch.held.set(Action::Crouch, true);
+    ticks(&mut play, 1, crouch.clone())?;
+    assert!(play.character(id).unwrap().crouched);
+    assert!((position(&mut play, id)[1] - 0.61).abs() < 0.025);
+    crouch.enabled = false;
+    crouch.movement = [1., 0.];
+    ticks(&mut play, 30, crouch)?;
+    assert!(!play.character(id).unwrap().crouched);
+    assert!((position(&mut play, id)[1] - 1.61).abs() < 0.025);
+    assert!(position(&mut play, id)[0].abs() < 1e-5);
     Ok(())
 }
 #[test]

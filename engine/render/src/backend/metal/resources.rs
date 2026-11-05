@@ -11,6 +11,7 @@ pub(super) type Encoder = ProtocolObject<dyn MTLRenderCommandEncoder>;
 pub(super) struct Mesh {
     pub vertices: Retained<Buffer>,
     pub indices: Retained<Buffer>,
+    pub influences: Option<Retained<Buffer>>,
     pub count: usize,
 }
 pub(super) fn buffer<T>(device: &Device, data: &[T]) -> Result<Retained<Buffer>> {
@@ -132,6 +133,22 @@ pub(super) fn pipeline(
             .layouts()
             .objectAtIndexedSubscript(0)
             .setStride(stride);
+    }
+    if vertex.starts_with("skinned_") {
+        for (index, offset, format) in [
+            (3, 0, MTLVertexFormat::UInt4),
+            (4, 16, MTLVertexFormat::Float4),
+        ] {
+            let attribute = unsafe { layout.attributes().objectAtIndexedSubscript(index) };
+            unsafe {
+                attribute.setOffset(offset);
+                attribute.setBufferIndex(3);
+            }
+            attribute.setFormat(format);
+        }
+        unsafe {
+            layout.layouts().objectAtIndexedSubscript(3).setStride(32);
+        }
     }
     descriptor.setVertexDescriptor(Some(&layout));
     if fragment.is_some() {
