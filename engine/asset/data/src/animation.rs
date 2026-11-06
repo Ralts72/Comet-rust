@@ -9,6 +9,7 @@ use std::{
 };
 
 pub const ANIMATION_VERSION: u32 = 1;
+pub const ANIMATION_CLIP_VERSION: u32 = 2;
 pub const MAX_SKIN_JOINTS: usize = 128;
 pub const MAX_ANIMATION_CHANNELS: usize = MAX_ANIMATOR_BINDINGS * 3;
 pub const MAX_ANIMATION_KEYS: usize = 262_144;
@@ -143,6 +144,16 @@ impl SkinData {
 pub enum AnimationInterpolation {
     Step,
     Linear,
+    /// Each key stores its incoming tangent, value, then outgoing tangent.
+    CubicSpline,
+}
+impl AnimationInterpolation {
+    pub fn values_per_key(self) -> usize {
+        match self {
+            Self::Step | Self::Linear => 1,
+            Self::CubicSpline => 3,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -175,7 +186,7 @@ pub struct AnimationClipData {
 impl AnimationClipData {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == ANIMATION_VERSION,
+            (1..=ANIMATION_CLIP_VERSION).contains(&self.version),
             "unsupported animation clip version"
         );
         ensure!(
@@ -190,6 +201,11 @@ impl AnimationClipData {
         let mut total = 0usize;
         let mut duration = 0f32;
         for channel in &self.channels {
+            let cubic = channel.interpolation == AnimationInterpolation::CubicSpline;
+            ensure!(
+                !cubic || (self.version >= 2 && channel.times.len() >= 2),
+                "cubic animation requires clip version 2 and at least two keys"
+            );
             total = total
                 .checked_add(channel.times.len())
                 .ok_or_else(|| anyhow::anyhow!("animation key budget overflow"))?;
@@ -214,7 +230,14 @@ impl AnimationClipData {
                     )
                 }
                 AnimationValues::Rotation(values) => {
-                    for value in values {
+                    for (index, value) in values.iter().enumerate() {
+                        if cubic && index % 3 != 1 {
+                            ensure!(
+                                value.iter().all(|v| v.is_finite()),
+                                "non-finite animation rotation tangent"
+                            );
+                            continue;
+                        }
                         schema::descriptor(schema::ROTATION)?
                             .validate_value(&schema::FieldValue::Quat(*value))?;
                     }
@@ -222,7 +245,7 @@ impl AnimationClipData {
                 }
             };
             ensure!(
-                count == channel.times.len(),
+                count == channel.times.len() * channel.interpolation.values_per_key(),
                 "animation time/value count mismatch"
             );
             ensure!(

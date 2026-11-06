@@ -231,18 +231,17 @@ pub(super) fn import(
                 .context("animation key budget overflow")?;
             ensure!(total <= MAX_ANIMATION_KEYS, "animation key budget exceeded");
             ensure!(
-                sampler.output().count() <= MAX_ANIMATION_KEYS,
+                sampler.output().count() <= MAX_ANIMATION_KEYS * 3,
                 "animation output key budget exceeded"
             );
             let interpolation = match sampler.interpolation() {
                 gltf::animation::Interpolation::Step => AnimationInterpolation::Step,
                 gltf::animation::Interpolation::Linear => AnimationInterpolation::Linear,
-                gltf::animation::Interpolation::CubicSpline => {
-                    anyhow::bail!("CUBICSPLINE animation is unsupported")
-                }
+                gltf::animation::Interpolation::CubicSpline => AnimationInterpolation::CubicSpline,
             };
             ensure!(
-                sampler.output().count() == sampler.input().count(),
+                sampler.output().count()
+                    == sampler.input().count() * interpolation.values_per_key(),
                 "animation input/output count mismatch"
             );
             let target = channel.target().node();
@@ -269,7 +268,17 @@ pub(super) fn import(
                 gltf::animation::util::ReadOutputs::Rotations(values) => {
                     let values = values
                         .into_f32()
-                        .map(|value| -> Result<_> {
+                        .enumerate()
+                        .map(|(index, value)| -> Result<_> {
+                            if interpolation == AnimationInterpolation::CubicSpline
+                                && index % 3 != 1
+                            {
+                                ensure!(
+                                    value.iter().all(|v| v.is_finite()),
+                                    "non-finite glTF animation rotation tangent"
+                                );
+                                return Ok(value);
+                            }
                             let rotation = Quat::from_array(value);
                             ensure!(
                                 rotation.is_finite()
@@ -296,7 +305,14 @@ pub(super) fn import(
             });
         }
         let data = AnimationClipData {
-            version: 1,
+            version: if channels
+                .iter()
+                .any(|channel| channel.interpolation == AnimationInterpolation::CubicSpline)
+            {
+                comet_asset_data::ANIMATION_CLIP_VERSION
+            } else {
+                1
+            },
             skeleton: skeleton_id,
             duration,
             channels,

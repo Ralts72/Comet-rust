@@ -123,6 +123,62 @@ fn clip_channels_keep_absolute_times_and_reject_duplicate_targets_and_invalid_qu
 }
 
 #[test]
+fn cubic_clips_version_the_triplet_layout_and_validate_values_separately_from_tangents()
+-> Result<()> {
+    let skeleton = skeleton();
+    let clip = AnimationClipData {
+        version: 2,
+        skeleton: AssetId::new(),
+        duration: 4.,
+        channels: vec![AnimationChannel {
+            node: skeleton.nodes[1].id,
+            interpolation: AnimationInterpolation::CubicSpline,
+            times: vec![2., 4.],
+            values: AnimationValues::Rotation(vec![
+                [0.; 4],
+                [0., 0., 0., 1.],
+                [0., 0., 4., 0.],
+                [0.; 4],
+                [0., 0., 0., -1.],
+                [0.; 4],
+            ]),
+        }],
+    };
+    clip.validate_for(&skeleton)?;
+    assert_eq!(
+        serde_json::from_slice::<AnimationClipData>(&serde_json::to_vec(&clip)?)?,
+        clip
+    );
+    for version in [0, 1, 3] {
+        let mut bad = clip.clone();
+        bad.version = version;
+        assert!(bad.validate().is_err(), "version {version}");
+    }
+    let mut bad = clip.clone();
+    bad.channels[0].times.pop();
+    bad.duration = 2.;
+    assert!(bad.validate().is_err(), "cubic requires two keys");
+    for (index, value) in [(0, [f32::NAN; 4]), (1, [0.; 4]), (2, [f32::INFINITY; 4])] {
+        let mut bad = clip.clone();
+        let AnimationValues::Rotation(values) = &mut bad.channels[0].values else {
+            unreachable!()
+        };
+        values[index] = value;
+        assert!(bad.validate().is_err(), "rotation tuple {index}");
+    }
+    let mut bad = clip;
+    let AnimationValues::Rotation(values) = &mut bad.channels[0].values else {
+        unreachable!()
+    };
+    values.pop();
+    assert!(
+        bad.validate().is_err(),
+        "all three outputs are required per key"
+    );
+    Ok(())
+}
+
+#[test]
 fn static_meshes_omit_skin_fields_and_skin_attributes_require_an_explicit_version_and_normalized_weights()
 -> Result<()> {
     let mut value = mesh();

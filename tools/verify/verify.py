@@ -988,6 +988,8 @@ def main():
         assert checks["package_isolation"]["product_count"] == 36
         verify_empty_project(case, assetc, editor, template, args)
         verify_prefab_document(case, assetc, editor, template, args)
+        checks["cubic_animation"] = animation_verification.verify_cubic(
+            case, assetc, editor, template, args, run, run_capture, inspect_capture, read_product)
         verify_scaled_geometry(case, assetc, Path(programs["app"]), args)
         if args.linux:
             check_target("linux", "x86_64-unknown-linux-gnu")

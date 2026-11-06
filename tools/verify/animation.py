@@ -2,7 +2,9 @@
 import hashlib
 import json
 import math
+import shutil
 import struct
+import sys
 import uuid
 from pathlib import Path
 
@@ -148,3 +150,75 @@ def inspect_runtime(value: dict) -> dict:
     return {"status": "passed", "world": runtime["world"], "animators": 1,
             "source_nodes": 3, "sample_time": animation["time"], "quaternion_matches_source_slerp": True,
             "playing": animation["playing"], "duration": animation["duration"], "speed": animation["speed"]}
+
+
+def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect_capture, read_product):
+    """Export a generated cubic variant; keep the sole upstream asset unchanged."""
+    out = case.parent
+    project, products = case / "cubic-project", case / "cubic-products"
+    run("cubic_create_project", [assetc, "create-project", project])
+    model = project / "assets/model"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "demo/assets/models/simple_skin", model)
+    path = model / "SimpleSkin.gltf"
+    source = json.loads(path.read_text())
+    values = [[0.] * 4, [0., 0., 0., 1.], [0., 0., 4., 0.],
+              [0.] * 4, [0., 0., 0., -1.], [0.] * 4]
+    binary = struct.pack("<2f", 0., 2.) + b"".join(struct.pack("<4f", *value) for value in values)
+    (model / "SimpleSkin_animation.bin").write_bytes(binary)
+    source["buffers"][3]["byteLength"] = source["bufferViews"][4]["byteLength"] = len(binary)
+    source["accessors"][5].update(count=2, max=[2.])
+    source["accessors"][6].update(byteOffset=8, count=6)
+    for bound in ("min", "max"):
+        source["accessors"][6].pop(bound, None)
+    source["animations"][0]["samplers"][0]["interpolation"] = "CUBICSPLINE"
+    path.write_text(json.dumps(source))
+    scene_path = project / "assets/main.scene"
+    scene = json.loads(scene_path.read_text())
+    scene["instances"] = [{"id": INSTANCE, "prefab": SOURCE, "parent": None, "overrides": []}]
+    scene_path.write_text(json.dumps(scene))
+    run("cubic_prepare", [assetc, "prepare", project, "--output", products])
+    built = case / ("cubic-game.app" if sys.platform == "darwin" else "cubic-game")
+    export_report = out / "cubic-export.json"
+    run("cubic_export", [editor, "--app-template", template, "--project", project, "--products", products,
+                         "--export-game", built, "--report", export_report])
+    exported = json.loads(export_report.read_text())
+    assert exported["status"] == "passed"
+    built = Path(exported["root"])
+    executable = Path(exported["executable"]).relative_to(built)
+    packaged_products = Path(exported["products"]).relative_to(built)
+    relocated = case / ("relocated-cubic.app" if sys.platform == "darwin" else "relocated-cubic")
+    built.rename(relocated)
+    shutil.rmtree(project)
+    shutil.rmtree(products)
+    index = json.loads((relocated / packaged_products / "index.json").read_text())
+    # Inspect through the product index; the exported runtime never needs the glTF source.
+    run("cubic_inspect", [assetc, "inspect", relocated / packaged_products, CLIP])
+    protocols = json.loads(template.read_text())["identity"]["protocols"]
+    clip = read_product(relocated / packaged_products, index["products"], CLIP, protocols)["data"]
+    assert clip["version"] == 2 and clip["duration"] == 2.
+    assert clip["channels"][0]["interpolation"] == "cubic_spline"
+    assert clip["channels"][0]["values"]["data"] == values
+    captures = []
+    if args.gpu or args.native:
+        for native in ([False, True] if args.native else [False]):
+            name = "cubic-app-native" if native else "cubic-app-headless"
+            command = [relocated / executable, "--smoke", "--report", out / f"{name}.json",
+                       "--capture", out / f"{name}.png"]
+            if not native:
+                command.append("--headless")
+            run_capture(name, command, cwd=case)
+            value, png = inspect_capture(name, native, 1)
+            runtime = value["application"]
+            assert 0 < runtime["steps"] <= 7 and runtime["script_diagnostics"] == []
+            if not native:
+                assert runtime["steps"] == 7
+            time = runtime["animations"][0]["time"]
+            assert math.isclose(time, runtime["steps"] / 60, abs_tol=1e-9)
+            assert math.isclose(runtime["elapsed"], time, abs_tol=1e-9)
+            t = time / 2.
+            expected = _unit([0., 0., 8 * (t**3 - 2 * t**2 + t), 4 * t**3 - 6 * t**2 + 1])
+            pose = next(pose for pose in runtime["animation_poses"] if pose["source"] == NODES[2])
+            _close(pose["rotation"], expected)
+            captures.append({"name": name, "sample_time": time, "png_sha256": png["sha256"]})
+    return {"status": "passed", "clip_version": 2, "package": str(relocated),
+            "authoring_sources_absent": not project.exists(), "runtime_captures": captures}

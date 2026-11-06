@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use comet_asset::AssetStore;
 use comet_asset_data::{
-    AnimationValues,
+    AnimationInterpolation, AnimationValues,
     product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product},
 };
 use comet_asset_pipeline::{SourceMeta, create_project, package, prepare};
@@ -159,6 +159,69 @@ fn official_skin_builds_typed_products_and_scoped_bindings_then_loads_without_au
             .all(|entry| entry.editor.is_none())
     );
     assert!(!moved.join("assets").exists());
+    Ok(())
+}
+
+#[test]
+fn cubic_rotation_import_preserves_derivatives_and_rejects_malformed_updates_atomically()
+-> Result<()> {
+    let f = Fixture::new()?;
+    let metadata = fs::read(SourceMeta::path(&f.source))?;
+    let mut source: serde_json::Value = serde_json::from_slice(&fs::read(&f.source)?)?;
+    let values = vec![
+        [0f32; 4],
+        [0., 0., 0., 1.],
+        [0., 0., 4., 0.],
+        [0.; 4],
+        [0., 0., 0., -1.],
+        [0.; 4],
+    ];
+    let mut bytes: Vec<_> = [0f32, 2.].into_iter().flat_map(f32::to_le_bytes).collect();
+    bytes.extend(values.iter().flatten().flat_map(|v| v.to_le_bytes()));
+    let buffer = f.source.parent().unwrap().join("SimpleSkin_animation.bin");
+    fs::write(&buffer, &bytes)?;
+    source["buffers"][3]["byteLength"] = bytes.len().into();
+    source["bufferViews"][4]["byteLength"] = bytes.len().into();
+    source["accessors"][5]["count"] = 2.into();
+    source["accessors"][5]["max"] = serde_json::json!([2.]);
+    source["accessors"][6]["byteOffset"] = 8.into();
+    source["accessors"][6]["count"] = 6.into();
+    source["accessors"][6]
+        .as_object_mut()
+        .unwrap()
+        .remove("min");
+    source["accessors"][6]
+        .as_object_mut()
+        .unwrap()
+        .remove("max");
+    source["animations"][0]["samplers"][0]["interpolation"] = "CUBICSPLINE".into();
+    fs::write(&f.source, serde_json::to_vec(&source)?)?;
+    f.prepare()?;
+    let mut store = AssetStore::open(&f.products)?;
+    let clip = store.load(model().child("animation:index:0"))?;
+    let Product::AnimationClip(clip) = &clip.payload else {
+        panic!("clip")
+    };
+    assert_eq!(clip.version, 2);
+    assert_eq!(
+        clip.channels[0].interpolation,
+        AnimationInterpolation::CubicSpline
+    );
+    assert_eq!(clip.channels[0].values, AnimationValues::Rotation(values));
+    assert_eq!(f.prepare()?.changed, 0);
+    assert_eq!(fs::read(SourceMeta::path(&f.source))?, metadata);
+    let index = fs::read(f.products.join("index.json"))?;
+    let mut malformed = source.clone();
+    malformed["accessors"][6]["count"] = 5.into();
+    fs::write(&f.source, serde_json::to_vec(&malformed)?)?;
+    assert!(f.prepare().is_err());
+    assert_eq!(fs::read(f.products.join("index.json"))?, index);
+    fs::write(&f.source, serde_json::to_vec(&source)?)?;
+    bytes[8..12].copy_from_slice(&f32::NAN.to_le_bytes());
+    fs::write(&buffer, bytes)?;
+    assert!(f.prepare().is_err());
+    assert_eq!(fs::read(f.products.join("index.json"))?, index);
+    assert_eq!(fs::read(SourceMeta::path(&f.source))?, metadata);
     Ok(())
 }
 

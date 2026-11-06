@@ -395,10 +395,7 @@ fn sample_channel(channel: &comet_asset_data::AnimationChannel, time: f64) -> Re
     };
     match &channel.values {
         AnimationValues::Translation(values) | AnimationValues::Scale(values) => {
-            let value = std::array::from_fn(|i| {
-                (f64::from(values[left][i]) * (1. - alpha) + f64::from(values[right][i]) * alpha)
-                    as f32
-            });
+            let value = sample_values(values, channel, left, right, alpha).map(|v| v as f32);
             ensure!(
                 value.iter().all(|x| x.is_finite()),
                 "animation vector overflow"
@@ -406,6 +403,15 @@ fn sample_channel(channel: &comet_asset_data::AnimationChannel, time: f64) -> Re
             Ok(FieldValue::Vec3(value))
         }
         AnimationValues::Rotation(values) => {
+            if channel.interpolation == AnimationInterpolation::CubicSpline {
+                let value = sample_values(values, channel, left, right, alpha);
+                let length = value.iter().map(|v| v * v).sum::<f64>().sqrt();
+                ensure!(
+                    length.is_finite() && length > 0.,
+                    "animation rotation is invalid"
+                );
+                return Ok(FieldValue::Quat(value.map(|v| (v / length) as f32)));
+            }
             let left = Quat::from_array(values[left]);
             let right = Quat::from_array(values[right]);
             let value = if alpha == 0. {
@@ -422,4 +428,31 @@ fn sample_channel(channel: &comet_asset_data::AnimationChannel, time: f64) -> Re
             Ok(FieldValue::Quat(value))
         }
     }
+}
+
+fn sample_values<const N: usize>(
+    values: &[[f32; N]],
+    channel: &comet_asset_data::AnimationChannel,
+    left: usize,
+    right: usize,
+    alpha: f64,
+) -> [f64; N] {
+    if channel.interpolation != AnimationInterpolation::CubicSpline {
+        return std::array::from_fn(|i| {
+            f64::from(values[left][i]) * (1. - alpha) + f64::from(values[right][i]) * alpha
+        });
+    }
+    if alpha == 0. {
+        return values[left * 3 + 1].map(f64::from);
+    }
+    // glTF tangents are derivatives in seconds, not normalized segment time.
+    let duration = f64::from(channel.times[right]) - f64::from(channel.times[left]);
+    let t2 = alpha * alpha;
+    let t3 = t2 * alpha;
+    std::array::from_fn(|i| {
+        (2. * t3 - 3. * t2 + 1.) * f64::from(values[left * 3 + 1][i])
+            + duration * (t3 - 2. * t2 + alpha) * f64::from(values[left * 3 + 2][i])
+            + (-2. * t3 + 3. * t2) * f64::from(values[right * 3 + 1][i])
+            + duration * (t3 - t2) * f64::from(values[right * 3][i])
+    })
 }

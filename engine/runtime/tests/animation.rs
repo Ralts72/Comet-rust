@@ -168,6 +168,127 @@ fn fixed_sampling_preserves_authored_unanimated_components_and_obeys_absolute_ke
 }
 
 #[test]
+fn cubic_trs_uses_segment_seconds_and_signed_quaternion_components_through_play_lifecycle()
+-> Result<()> {
+    let mut fixture = rig();
+    let author = fixture.scene.clone();
+    let clip = Arc::make_mut(fixture.resources.animations.get_mut(&fixture.clip).unwrap());
+    clip.version = 2;
+    clip.duration = 2.25;
+    for channel in &mut clip.channels {
+        channel.interpolation = AnimationInterpolation::CubicSpline;
+        channel.times = vec![0.25, 2.25];
+        channel.values = match channel.values {
+            AnimationValues::Rotation(_) => AnimationValues::Rotation(vec![
+                [0.; 4],
+                [0., 0., 0., 1.],
+                [0., 0., 4., 0.],
+                [0.; 4],
+                [0., 0., 0., -1.],
+                [0.; 4],
+            ]),
+            AnimationValues::Translation(_) => AnimationValues::Translation(vec![
+                [0.; 3],
+                [0., 1., 0.],
+                [4., 0., 0.],
+                [0.; 3],
+                [2., 1., 0.],
+                [0.; 3],
+            ]),
+            AnimationValues::Scale(_) => AnimationValues::Scale(vec![
+                [0.; 3],
+                [1.; 3],
+                [4., 0., 0.],
+                [0.; 3],
+                [3., 1., 1.],
+                [0.; 3],
+            ]),
+        };
+    }
+    let mut play = PlaySession::start_with_resources(fixture.scene, fixture.resources)?;
+    assert_eq!(
+        entity(&mut play, fixture.a).transform.rotation,
+        [0., 0., 0., 1.]
+    );
+    ticks(&mut play, 15)?;
+    assert_eq!(
+        entity(&mut play, fixture.b).transform.translation,
+        [0., 1., 0.]
+    );
+    ticks(&mut play, 60)?;
+    let pose = entity(&mut play, fixture.b).transform;
+    assert!((pose.translation[0] - 2.).abs() < 1e-5);
+    assert!((pose.scale[0] - 3.).abs() < 1e-5);
+    let rotation = Quat::from_array(entity(&mut play, fixture.a).transform.rotation);
+    assert!(
+        (rotation
+            .dot(Quat::from_rotation_z(std::f32::consts::PI))
+            .abs()
+            - 1.)
+            .abs()
+            < 1e-5
+    );
+    assert_eq!(
+        entity(&mut play, fixture.a).transform.translation,
+        [2., 0., 0.]
+    );
+    play.set_paused(true);
+    let frozen = play.shared_snapshot();
+    play.advance(1.)?;
+    assert!(Arc::ptr_eq(&frozen, &play.shared_snapshot()));
+    play.single_step()?;
+    assert!(entity(&mut play, fixture.b).transform.translation[0] > 2.);
+    play.set_paused(false);
+    ticks(&mut play, 90)?;
+    assert_eq!(
+        entity(&mut play, fixture.b).transform.translation,
+        [2., 1., 0.]
+    );
+    assert_eq!(entity(&mut play, fixture.b).transform.scale, [3., 1., 1.]);
+    assert_eq!(
+        entity(&mut play, fixture.a).transform.rotation,
+        [0., 0., 0., -1.]
+    );
+    play.restart()?;
+    assert_eq!(play.animation_time(fixture.owner), Some(0.));
+    assert_eq!(
+        entity(&mut play, fixture.b).transform.translation,
+        [0., 1., 0.]
+    );
+    assert_eq!(author.entities[1].transform.rotation, [0., 0., 0., 1.]);
+    play.stop();
+    assert_eq!(play.animation_state(fixture.owner), None);
+    Ok(())
+}
+
+#[test]
+fn a_degenerate_cubic_rotation_keeps_the_last_published_pose_and_clock() -> Result<()> {
+    let mut fixture = rig();
+    fixture.scene.entities[0].animator.as_mut().unwrap().speed = 30.;
+    let clip = Arc::make_mut(fixture.resources.animations.get_mut(&fixture.clip).unwrap());
+    clip.version = 2;
+    clip.duration = 1.;
+    clip.channels[0].interpolation = AnimationInterpolation::CubicSpline;
+    clip.channels[0].times = vec![0., 1.];
+    clip.channels[0].values = AnimationValues::Rotation(vec![
+        [0.; 4],
+        [0., 0., 0., 1.],
+        [0.; 4],
+        [0.; 4],
+        [0., 0., 0., -1.],
+        [0.; 4],
+    ]);
+    let mut play = PlaySession::start_with_resources(fixture.scene, fixture.resources)?;
+    let before = play.shared_snapshot();
+    let state = play.animation_state(fixture.owner);
+    let error = play.advance(FIXED_DELTA).unwrap_err();
+    assert!(format!("{error:#}").contains("animation rotation is invalid"));
+    assert!(Arc::ptr_eq(&before, &play.shared_snapshot()));
+    assert_eq!(play.animation_state(fixture.owner), state);
+    Ok(())
+}
+
+#[test]
 fn ownership_rejects_whole_script_and_inspector_batches_but_leaves_other_fields_writable()
 -> Result<()> {
     let mut fixture = rig();
