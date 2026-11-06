@@ -1,7 +1,7 @@
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_core::EntityId;
-use comet_scene::{BodyMotion, Character, ColliderShape, EntityData, PhysicsBody, schema};
+use comet_scene::{BodyMotion, Character, ColliderShape, EntityData, PhysicsBody};
 
 #[derive(Default)]
 struct Edit {
@@ -326,33 +326,13 @@ fn prefab_fields(
             shape_name(&body.shape)
         ));
     }
-    // Preserve the existing stable field overrides without introducing structural overrides.
-    for (label, key) in [
-        ("质量 (kg)", schema::MASS),
-        ("摩擦系数", schema::FRICTION),
-        ("移动速度 (m/s)", schema::MOVE_SPEED),
-        ("跳跃速度 (m/s)", schema::JUMP_SPEED),
-        ("蹲伏速度 (m/s)", schema::CROUCH_SPEED),
-        ("蹲伏高度比例", schema::CROUCH_HEIGHT_RATIO),
-    ] {
-        let Some(schema::FieldValue::Scalar(mut value)) =
-            schema::descriptor(key).unwrap().read(entity)
-        else {
-            continue;
-        };
-        let response = ui.add_enabled(
-            editable,
-            egui::DragValue::new(&mut value)
-                .prefix(format!("{label} "))
-                .speed(0.05),
-        );
-        if response.changed() {
-            let result = editor.edit(entity.id, key, schema::FieldValue::Scalar(value), assets);
-            editor.notice(result);
-        }
-        if editable && (response.drag_stopped() || response.lost_focus()) {
-            let result = editor.commit();
-            editor.notice(result);
-        }
-    }
+    super::common::draw_fields(editor, ui, assets, &[entity], super::common::BODY, editable);
+    super::common::draw_fields(
+        editor,
+        ui,
+        assets,
+        &[entity],
+        super::common::CHARACTER,
+        editable,
+    );
 }

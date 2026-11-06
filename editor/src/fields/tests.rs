@@ -49,6 +49,171 @@ fn failed_field_edits_close_only_new_transactions_and_keep_an_accepted_gesture()
 }
 
 #[test]
+fn grouped_values_share_one_transaction_and_keep_prefab_identity_and_failed_candidates_atomic()
+-> Result<()> {
+    let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;
+    let mut source = editor.document.source();
+    let authored = EntityData::new("group author");
+    let id = authored.id;
+    source.base.entities.push(authored);
+    let instance = source.instances[0].clone();
+    let prefab = assets.prefab(instance.prefab)?;
+    let node = prefab.base.entities[0].id;
+    let expanded = node.in_instance(instance.id);
+    editor.document = Document::open_source(source)?;
+    let original = editor.document.shared_source();
+    let saved = std::fs::read(&editor.source)?;
+    let edits = [
+        FieldUpdate {
+            entity: id,
+            field: schema::TRANSLATION,
+            value: FieldValue::Vec3([4., 2., 3.]),
+        },
+        FieldUpdate {
+            entity: expanded,
+            field: schema::TRANSLATION,
+            value: FieldValue::Vec3([4., 5., 6.]),
+        },
+    ];
+    editor.edit_fields(&edits, &mut assets)?;
+    let accepted = editor.document.shared_source();
+    assert!(editor.document.is_editing());
+    assert_eq!(
+        accepted
+            .base
+            .entities
+            .iter()
+            .find(|entity| entity.id == id)
+            .unwrap()
+            .transform
+            .translation,
+        [4., 2., 3.]
+    );
+    let declaration = accepted
+        .instances
+        .iter()
+        .find(|value| value.id == instance.id)
+        .unwrap();
+    let value = declaration
+        .overrides
+        .iter()
+        .find(|value| value.entity == node && value.field == schema::TRANSLATION)
+        .unwrap();
+    assert_eq!(value.value, FieldValue::Vec3([4., 5., 6.]));
+    assert_eq!(assets.prefab(instance.prefab)?, prefab);
+    let mut bad = edits.clone();
+    bad[0].value = FieldValue::Vec3([99.; 3]);
+    bad[1].value = FieldValue::Vec3([f32::NAN; 3]);
+    assert!(editor.edit_fields(&bad, &mut assets).is_err());
+    assert!(Arc::ptr_eq(&accepted, &editor.document.shared_source()));
+    assert!(editor.document.is_editing());
+    editor.commit()?;
+    assert_eq!(editor.document.history_len(), 1);
+    editor.document.undo()?;
+    assert!(Arc::ptr_eq(&original, &editor.document.shared_source()));
+    editor.document.redo()?;
+    assert!(Arc::ptr_eq(&accepted, &editor.document.shared_source()));
+    assert_eq!(std::fs::read(&editor.source)?, saved);
+    editor.save(&mut assets)?;
+    assert_eq!(Document::load(&editor.source)?.shared_source(), accepted);
+    Ok(())
+}
+
+#[test]
+fn a_nested_member_rejects_the_whole_group_before_opening_a_transaction() -> Result<()> {
+    use comet_asset_pipeline::{SourceMeta, prepare};
+    use comet_core::InstanceId;
+    let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;
+    let mut source = editor.document.source();
+    let inner = source.instances[0].clone();
+    let node = assets.prefab(inner.prefab)?.base.entities[0].id;
+    let nested_path = editor.project_root().join("assets/group-nested.prefab");
+    std::fs::write(
+        &nested_path,
+        ContentSource {
+            instances: vec![inner.clone()],
+            ..Default::default()
+        }
+        .to_json()?,
+    )?;
+    prepare(editor.project_root(), &editor.products)?;
+    assets.refresh()?;
+    let outer = InstanceId::new();
+    source.instances.push(PrefabInstance {
+        id: outer,
+        prefab: SourceMeta::load(&nested_path)?.id,
+        parent: None,
+        overrides: vec![],
+    });
+    let author = EntityData::new("editable member");
+    let id = author.id;
+    source.base.entities.push(author);
+    editor.document = Document::open_source(source)?;
+    let nested = node.in_instance(inner.id.in_instance(outer));
+    assert!(
+        editor
+            .snapshot(&mut assets)?
+            .entities
+            .iter()
+            .any(|entity| entity.id == nested)
+    );
+    let original = editor.document.shared_source();
+    let updates = [id, nested].map(|entity| FieldUpdate {
+        entity,
+        field: schema::TRANSLATION,
+        value: FieldValue::Vec3([8.; 3]),
+    });
+    assert!(editor.edit_fields(&updates, &mut assets).is_err());
+    assert!(Arc::ptr_eq(&original, &editor.document.shared_source()));
+    assert!(!editor.document.is_editing());
+    assert_eq!(editor.document.history_len(), 0);
+    Ok(())
+}
+
+#[test]
+fn returning_all_group_values_to_their_baselines_preserves_existing_pins_and_inheritance()
+-> Result<()> {
+    let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;
+    let mut source = editor.document.source();
+    let first = source.instances[0].clone();
+    let node = assets.prefab(first.prefab)?.base.entities[0].clone();
+    let value = node.transform.translation;
+    source.instances[0]
+        .overrides
+        .push(comet_scene::FieldOverride {
+            entity: node.id,
+            field: schema::TRANSLATION,
+            value: FieldValue::Vec3(value),
+        });
+    let second = comet_core::InstanceId::new();
+    source.instances.push(PrefabInstance {
+        id: second,
+        prefab: first.prefab,
+        parent: None,
+        overrides: vec![],
+    });
+    editor.document = Document::open_source(source)?;
+    let original = editor.document.shared_source();
+    let state = editor.document.state_id();
+    let mut updates = [first.id, second].map(|instance| FieldUpdate {
+        entity: node.id.in_instance(instance),
+        field: schema::TRANSLATION,
+        value: FieldValue::Vec3([9., 8., 7.]),
+    });
+    editor.edit_fields(&updates, &mut assets)?;
+    for update in &mut updates {
+        update.value = FieldValue::Vec3(value);
+    }
+    editor.edit_fields(&updates, &mut assets)?;
+    editor.commit()?;
+    assert!(Arc::ptr_eq(&original, &editor.document.shared_source()));
+    assert_eq!(editor.document.state_id(), state);
+    assert_eq!(editor.document.history_len(), 0);
+    assert!(!editor.document.is_dirty());
+    Ok(())
+}
+
+#[test]
 fn reference_routes_share_one_cache_and_keep_instance_and_animator_source_identities_separate()
 -> Result<()> {
     let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;

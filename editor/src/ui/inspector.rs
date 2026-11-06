@@ -1,16 +1,134 @@
 use crate::session::Editor;
 use comet_asset::AssetStore;
-use comet_core::math::{EulerRot, Quat};
-use comet_scene::EntityData;
-use comet_scene::schema::{self, FieldValue};
+use comet_scene::{EntityData, FieldUpdate};
 mod animation;
 mod audio;
+pub(super) mod common;
 mod joints;
 mod model;
 mod navigation;
 mod overrides;
 mod physics;
 mod script;
+pub(super) mod transform;
+
+struct PropertyGesture {
+    rejected_id: egui::Id,
+    rejected: bool,
+    enabled: bool,
+    cancel: bool,
+    confirm: bool,
+    active: bool,
+    finish: bool,
+}
+impl PropertyGesture {
+    fn number(&self, ui: &mut egui::Ui, widget: egui::DragValue<'_>) -> egui::Response {
+        ui.add_enabled_ui(self.enabled, |ui| {
+            let id = ui.next_auto_id();
+            let context = ui.ctx().clone();
+            let parser_context = context.clone();
+            let invalid_text_id = self.rejected_id.with("invalid-text");
+            let formatter = ui.style().number_formatter.clone();
+            ui.add(
+                widget
+                    .custom_parser(move |text| {
+                        let text: String = text
+                            .chars()
+                            .filter(|character| !character.is_whitespace())
+                            .map(|character| if character == '−' { '-' } else { character })
+                            .collect();
+                        let parsed = text.parse::<f64>().ok();
+                        parser_context
+                            .data_mut(|data| data.insert_temp(invalid_text_id, parsed.is_none()));
+                        parsed
+                    })
+                    .custom_formatter(move |value, precision| {
+                        // DragValue parses its text on focus loss. Display rounding must not edit data.
+                        if context.memory(|memory| memory.has_focus(id)) {
+                            (value as f32).to_string()
+                        } else {
+                            formatter.format(value, precision)
+                        }
+                    }),
+            )
+        })
+        .inner
+    }
+    fn new(ui: &egui::Ui, enabled: bool, field: comet_scene::schema::FieldKey) -> Self {
+        let rejected_id =
+            ui.make_persistent_id(("property-preview-rejected", field.component, field.field));
+        Self {
+            rejected_id,
+            rejected: ui
+                .data(|data| data.get_temp::<bool>(rejected_id))
+                .unwrap_or(false),
+            enabled: enabled && ui.is_enabled(),
+            // Numeric widgets consume these keys while ending text focus.
+            cancel: ui.input(|input| input.key_pressed(egui::Key::Escape)),
+            confirm: ui.input(|input| input.key_pressed(egui::Key::Enter)),
+            active: false,
+            finish: false,
+        }
+    }
+    fn observe(&mut self, response: &egui::Response, mixed: bool) -> bool {
+        let invalid_text = response
+            .ctx
+            .data(|data| data.get_temp::<bool>(self.rejected_id.with("invalid-text")))
+            .unwrap_or(false);
+        self.active |= response.dragged() || response.has_focus() || response.lost_focus();
+        self.finish |= response.drag_stopped() || response.lost_focus();
+        if self.cancel && self.enabled {
+            response.surrender_focus();
+        }
+        self.enabled
+            && !self.cancel
+            && (response.changed()
+                || (mixed
+                    && self.confirm
+                    && response.lost_focus()
+                    && !self.rejected
+                    && !invalid_text))
+    }
+    fn apply(
+        self,
+        editor: &mut Editor,
+        ui: &egui::Ui,
+        assets: &mut AssetStore,
+        updates: Vec<FieldUpdate>,
+    ) {
+        if !self.enabled {
+            return;
+        }
+        if self.cancel {
+            ui.data_mut(|data| data.remove::<bool>(self.rejected_id));
+            ui.data_mut(|data| data.remove::<bool>(self.rejected_id.with("invalid-text")));
+            if self.active {
+                let result = editor.cancel();
+                editor.notice(result);
+                ui.ctx().stop_dragging();
+            }
+            return;
+        }
+        if !updates.is_empty() {
+            let result = editor.edit_fields(&updates, assets);
+            // A rejected text draft must not confirm the snapshot's fallback value on Enter.
+            ui.data_mut(|data| {
+                if result.is_err() {
+                    data.insert_temp(self.rejected_id, true);
+                } else {
+                    data.remove::<bool>(self.rejected_id);
+                }
+            });
+            editor.notice(result);
+        }
+        if self.finish {
+            ui.data_mut(|data| data.remove::<bool>(self.rejected_id));
+            ui.data_mut(|data| data.remove::<bool>(self.rejected_id.with("invalid-text")));
+            let result = editor.commit();
+            editor.notice(result);
+        }
+    }
+}
 pub(super) fn clear_model_draft(ctx: &egui::Context) {
     model::clear_draft(ctx);
 }
@@ -55,71 +173,7 @@ pub(super) fn draw(
     }
     ui.label(egui::RichText::new(entity.id.to_string()).size(10.).weak());
     ui.separator();
-    for (name, key) in [
-        ("位置", schema::TRANSLATION),
-        ("旋转", schema::ROTATION),
-        ("缩放", schema::SCALE),
-    ] {
-        ui.label(name);
-        let field = schema::descriptor(key).unwrap();
-        let value = field.read(entity).unwrap();
-        let mut vector = match value {
-            FieldValue::Vec3(v) => v,
-            FieldValue::Quat(q) => {
-                let (x, y, z) = Quat::from_array(q).to_euler(EulerRot::XYZ);
-                [x.to_degrees(), y.to_degrees(), z.to_degrees()]
-            }
-            _ => unreachable!(),
-        };
-        let mut changed = false;
-        let mut finish = false;
-        let animation_controlled = editor
-            .play
-            .as_ref()
-            .is_some_and(|play| play.is_animation_controlled(entity.id, key));
-        ui.add_enabled_ui(
-            (editor.play.is_none() || entity.physics.is_none()) && !animation_controlled,
-            |ui| {
-                ui.horizontal(|ui| {
-                    for (axis, v) in ["X", "Y", "Z"].into_iter().zip(&mut vector) {
-                        let response = ui.add(
-                            egui::DragValue::new(v)
-                                .prefix(format!("{axis} "))
-                                .speed(if key == schema::ROTATION { 0.5 } else { 0.01 })
-                                .max_decimals(2),
-                        );
-                        changed |= response.changed();
-                        finish |= response.drag_stopped() || response.lost_focus();
-                    }
-                });
-            },
-        );
-        if animation_controlled {
-            ui.weak("该字段由动画驱动，运行期间只读。");
-        }
-        if changed && ui.is_enabled() {
-            let value = if key == schema::ROTATION {
-                FieldValue::Quat(
-                    Quat::from_euler(
-                        EulerRot::XYZ,
-                        vector[0].to_radians(),
-                        vector[1].to_radians(),
-                        vector[2].to_radians(),
-                    )
-                    .to_array(),
-                )
-            } else {
-                FieldValue::Vec3(vector)
-            };
-            let result = editor.edit(entity.id, key, value, assets);
-            editor.notice(result);
-        }
-        if finish && ui.is_enabled() {
-            let result = editor.commit();
-            editor.notice(result);
-        }
-        ui.add_space(6.);
-    }
+    transform::draw(editor, ui, assets, &[entity]);
     model::draw(editor, ui, assets, entity);
     physics::draw(editor, ui, assets, entity);
     joints::draw(editor, ui, assets, entity);

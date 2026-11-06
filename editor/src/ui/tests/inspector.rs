@@ -3,6 +3,7 @@ use crate::test_support::fixture;
 use anyhow::{Context, Result};
 use comet_asset::AssetStore;
 use egui::{Event, PointerButton, Pos2, Vec2};
+mod group;
 
 fn frame(
     ctx: &egui::Context,

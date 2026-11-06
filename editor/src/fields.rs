@@ -6,7 +6,7 @@ use comet_asset_data::product::Product;
 use comet_core::{EntityId, WorldId};
 use comet_editor_core::{Document, FieldTarget};
 use comet_scene::{
-    Character, EntityRef, PhysicsBody,
+    Character, EntityRef, FieldUpdate, PhysicsBody,
     schema::{self, FieldKey, FieldValue},
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -281,25 +281,49 @@ impl Editor {
         &mut self,
         id: EntityId,
         key: FieldKey,
-        mut value: FieldValue,
+        value: FieldValue,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.edit_fields(
+            &[FieldUpdate {
+                entity: id,
+                field: key,
+                value,
+            }],
+            assets,
+        )
+    }
+
+    pub(crate) fn edit_fields(
+        &mut self,
+        updates: &[FieldUpdate],
         assets: &mut AssetStore,
     ) -> Result<()> {
         ensure!(!self.is_busy(), "请等待后台任务完成，再编辑场景");
         ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
-        if let Some(play) = &mut self.play {
-            return play.set_field(&[id], key, value);
+        if updates.is_empty() {
+            return Ok(());
         }
-        let target = self.resolve_field_target(id, assets)?;
-        self.source_field_value(target, &mut value, assets)?;
-        self.preview_document(assets, |document, assets| {
-            document.preview_field_values(
-                &[comet_editor_core::FieldEdit {
+        if let Some(play) = &mut self.play {
+            return play.set_fields(updates);
+        }
+        let edits = updates
+            .iter()
+            .map(|update| {
+                let target = self
+                    .resolve_field_target(update.entity, assets)
+                    .with_context(|| format!("无法编辑实体 {} 的字段", update.entity))?;
+                let mut value = update.value.clone();
+                self.source_field_value(target, &mut value, assets)?;
+                Ok(comet_editor_core::FieldEdit {
                     target,
-                    field: key,
+                    field: update.field,
                     value,
-                }],
-                assets,
-            )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.preview_document(assets, |document, assets| {
+            document.preview_field_values(&edits, assets)
         })
     }
 

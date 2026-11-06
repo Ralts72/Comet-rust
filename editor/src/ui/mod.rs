@@ -149,9 +149,22 @@ pub(crate) fn show(
                         ui.weak("请在层级或视口中选择实体。");
                     } else if editor.selection.len() > 1 {
                         inspector::clear_model_draft(ui.ctx());
-                        ui.strong(format!("已选择 {} 个实体", editor.selection.len()));
+                        ui.strong(format!("共同属性 · {} 个实体", editor.selection.len()));
                         if let Some(entity) = entity {
                             ui.label(format!("主实体：{}", entity.name));
+                            let mut selected = vec![entity];
+                            selected.extend(editor.selection.ids().into_iter()
+                                .filter(|id| *id != entity.id).filter_map(|id| {
+                                    snapshot.entities.binary_search_by_key(&id, |entity| entity.id)
+                                        .ok().map(|index| &snapshot.entities[index])
+                                }));
+                            if selected.len() == editor.selection.len() {
+                                ui.weak("多值以主实体显示；修改一轴保留其他轴，数值使用各自的局部坐标。");
+                                inspector::transform::draw(editor, ui, assets, &selected);
+                                inspector::common::draw(editor, ui, assets, &selected);
+                            } else {
+                                ui.weak("所选实体已变化，请重新选择。");
+                            }
                         }
                         ui.weak(
                             "拖动视口坐标轴可成组移动。右键层级实体可批量复制、删除或调整父级。",
