@@ -3,12 +3,27 @@ use crate::session::Editor;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
-use comet_core::EntityId;
+use comet_core::{AssetId, EntityId};
 use comet_editor_core::{FieldEdit, FieldTarget};
 use comet_scene::{Animator, EntityData, EntityRef, SceneSnapshot, SkinBinding, schema};
 use std::collections::BTreeSet;
 
 impl Editor {
+    pub(crate) fn replace_animation_clips(
+        &mut self,
+        ids: &[EntityId],
+        clip: Option<AssetId>,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.preview_common_field(
+            ids,
+            schema::ANIMATOR_CLIP,
+            schema::FieldValue::OptionalAsset(clip),
+            assets,
+            validate_configuration,
+        )
+    }
+
     pub(crate) fn edit_animation(
         &mut self,
         id: EntityId,
@@ -79,7 +94,7 @@ impl Editor {
     }
 }
 
-fn validate_configuration(
+pub(crate) fn validate_configuration(
     after: &EntityData,
     snapshot: &SceneSnapshot,
     assets: &mut AssetStore,

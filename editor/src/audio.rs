@@ -3,14 +3,42 @@ use crate::session::Editor;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
-use comet_core::EntityId;
+use comet_core::{AssetId, EntityId};
 use comet_editor_core::{FieldEdit, FieldTarget};
 use comet_scene::{
     AudioSource,
     schema::{self, FieldValue},
 };
 
+fn validate_source(source: &AudioSource, assets: &mut AssetStore) -> Result<()> {
+    source.validate()?;
+    let product = assets.load(source.clip)?;
+    ensure!(
+        matches!(product.payload, Product::Audio(_)),
+        "请选择 WAV 音频产品"
+    );
+    Ok(())
+}
+
 impl Editor {
+    pub(crate) fn replace_audio_clips(
+        &mut self,
+        ids: &[EntityId],
+        clip: AssetId,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.preview_common_field(
+            ids,
+            schema::AUDIO_CLIP,
+            FieldValue::Asset(clip),
+            assets,
+            |candidate, _, assets| {
+                let source = candidate.audio_source.as_ref().context("音频源已不存在")?;
+                validate_source(source, assets)
+            },
+        )
+    }
+
     pub(crate) fn edit_audio_source(
         &mut self,
         id: EntityId,
@@ -21,12 +49,7 @@ impl Editor {
         let target = self.resolve_field_target(id, assets)?;
         let mut edits = Vec::new();
         if let Some(source) = &source {
-            source.validate()?;
-            let product = assets.load(source.clip)?;
-            let Product::Audio(data) = &product.payload else {
-                anyhow::bail!("请选择 WAV 音频产品");
-            };
-            data.validate().context("声音引用的音频数据无效")?;
+            validate_source(source, assets)?;
             if matches!(target, FieldTarget::Prefab { .. }) {
                 let snapshot = self.document.expand(assets)?;
                 let entity = snapshot

@@ -1,56 +1,13 @@
 use crate::session::Editor;
 use comet_asset::AssetStore;
-use comet_asset_data::product::AssetKind;
 use comet_core::{AssetId, EntityId, WorldId};
 use comet_editor_core::FieldTarget;
 use comet_scene::{
     AudioSource, EntityData,
     schema::{self, FieldValue},
 };
-use std::sync::Arc;
 
-struct Choices {
-    revision: String,
-    clips: Vec<(AssetId, String)>,
-}
-
-fn choices(ui: &egui::Ui, assets: &AssetStore) -> Arc<Choices> {
-    let key = egui::Id::unique("inspector-audio-choices");
-    ui.data(|data| data.get_temp::<Arc<Choices>>(key))
-        .filter(|cache| cache.revision == assets.revision())
-        .unwrap_or_else(|| {
-            let mut clips = Vec::new();
-            for (&id, entry) in &assets.index().products {
-                if entry.kind != AssetKind::Audio {
-                    continue;
-                }
-                let label = entry.editor.as_ref().map_or_else(
-                    || format!("未命名音频 ({})", clips.len() + 1),
-                    |metadata| {
-                        if metadata.source == id {
-                            metadata.label.clone()
-                        } else {
-                            let source = assets
-                                .index()
-                                .products
-                                .get(&metadata.source)
-                                .and_then(|entry| entry.editor.as_ref())
-                                .map_or("未命名来源", |metadata| metadata.label.as_str());
-                            format!("{source} / {}", metadata.label)
-                        }
-                    },
-                );
-                clips.push((id, label));
-            }
-            clips.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
-            let cache = Arc::new(Choices {
-                revision: assets.revision().to_owned(),
-                clips,
-            });
-            ui.data_mut(|data| data.insert_temp(key, cache.clone()));
-            cache
-        })
-}
+use super::assets::{Catalog as Choices, catalog as choices};
 
 #[derive(Clone)]
 struct Draft {
@@ -77,18 +34,17 @@ fn picker(
         ui.label("音频片段");
         let selected = value.map_or("选择音频", |id| {
             choices
-                .clips
-                .iter()
-                .find(|(asset, _)| *asset == id)
-                .map_or("当前音频片段已缺失", |(_, label)| label.as_str())
+                .labels
+                .get(&id)
+                .map_or("当前音频片段已缺失", String::as_str)
         });
         egui::ComboBox::from_id_salt(("audio-clip", editor.world(), entity))
             .width(ui.available_width().min(240.))
             .truncate()
             .selected_text(selected)
             .show_ui(ui, |ui| {
-                for (id, label) in &choices.clips {
-                    ui.selectable_value(value, Some(*id), label);
+                for &id in &choices.audio {
+                    ui.selectable_value(value, Some(id), &choices.labels[&id]);
                 }
             })
             .response
@@ -254,7 +210,7 @@ fn add(
             .add_enabled(draft.clip.is_some(), egui::Button::new("添加音频源"))
             .clicked();
     });
-    if choices.clips.is_empty() {
+    if choices.audio.is_empty() {
         ui.weak("将 .wav 音频放入 assets 并刷新资源后，可添加音频源。");
     }
     if cancel {

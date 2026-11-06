@@ -9,7 +9,6 @@ use comet_scene::{
     Model, Surface,
     schema::{self, FieldKey, FieldValue},
 };
-use std::collections::BTreeSet;
 
 fn validate_products(model: &Model, assets: &mut AssetStore) -> Result<()> {
     schema::descriptor(schema::ROUGHNESS)?
@@ -79,6 +78,12 @@ impl Editor {
                 .iter()
                 .find(|entity| entity.id == id)
                 .context("模型对象已失效")?;
+            if entity.skin.is_some() {
+                let mut candidate = entity.clone();
+                candidate.model = Some(model.clone());
+                crate::animation::validate_configuration(&candidate, &snapshot, assets)
+                    .context("网格与现有蒙皮绑定不兼容")?;
+            }
             if matches!(target, FieldTarget::Prefab { .. }) {
                 ensure!(entity.model.is_some(), "请在源 Prefab 中维护模型组件结构");
                 for (field, value) in [
@@ -120,55 +125,33 @@ impl Editor {
         asset: AssetId,
         assets: &mut AssetStore,
     ) -> Result<()> {
-        self.ensure_authoring_editable()?;
         ensure!(
             matches!(field, schema::MESH | schema::MATERIAL),
             "只能替换网格或材质资源"
         );
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let snapshot = self.document.expand(assets)?;
-        let transforms = comet_scene::world_transforms(&snapshot)?;
-        let mut unique = BTreeSet::new();
-        let mut edits = Vec::new();
-        for &id in ids {
-            ensure!(unique.insert(id), "网格渲染目标重复：{id}");
-            // Resolve even unchanged targets: a nested member must reject the entire selection.
-            let target = self.resolve_field_target(id, assets)?;
-            let index = snapshot
-                .entities
-                .binary_search_by_key(&id, |entity| entity.id)
-                .map_err(|_| anyhow::anyhow!("模型对象已失效：{id}"))?;
-            let entity = &snapshot.entities[index];
-            let mut model = entity
-                .model
-                .clone()
-                .context("所有选中对象都必须已有网格渲染组件")?;
-            if field == schema::MESH {
-                model.mesh = asset;
-            } else {
-                model.surface.material = asset;
-            }
-            validate_products(&model, assets)
-                .with_context(|| format!("实体 {} 的网格渲染资源无效", entity.name))?;
-            comet_render::DrawTransform::prepare(transforms[&id])
-                .with_context(|| format!("实体 {} 的世界变换无法用于渲染模型", entity.name))?;
-            let value = FieldValue::Asset(asset);
-            if schema::descriptor(field)?.read(entity) != Some(value.clone()) {
-                edits.push(FieldEdit {
-                    target,
-                    field,
-                    value,
-                });
-            }
-        }
-        if edits.is_empty() {
-            return Ok(());
-        }
-        self.preview_document(assets, |document, assets| {
-            document.preview_field_values(&edits, assets)
-        })
+        let mut transforms = None;
+        self.preview_common_field(
+            ids,
+            field,
+            FieldValue::Asset(asset),
+            assets,
+            |candidate, snapshot, assets| {
+                if transforms.is_none() {
+                    transforms = Some(comet_scene::world_transforms(snapshot)?);
+                }
+                validate_products(
+                    candidate.model.as_ref().context("网格渲染组件已不存在")?,
+                    assets,
+                )?;
+                if candidate.skin.is_some() {
+                    crate::animation::validate_configuration(candidate, snapshot, assets)
+                        .context("网格与现有蒙皮绑定不兼容")?;
+                }
+                comet_render::DrawTransform::prepare(transforms.as_ref().unwrap()[&candidate.id])
+                    .context("对象的世界变换无法用于渲染模型")?;
+                Ok(())
+            },
+        )
     }
 }
 

@@ -1,8 +1,8 @@
 use crate::session::Editor;
 use anyhow::{Result, ensure};
 use comet_asset::AssetStore;
-use comet_asset_data::product::{AssetKind, Product};
-use comet_scene::{EntityData, EntityRef, Script, ScriptValue, schema};
+use comet_asset_data::product::AssetKind;
+use comet_scene::{EntityData, EntityRef, Script, ScriptValue};
 
 const TYPES: [&str; 6] = ["布尔", "整数", "数值", "文本", "三维向量", "实体引用"];
 
@@ -116,11 +116,7 @@ pub(super) fn draw(
         return;
     }
     if next != *script {
-        let result = if authored {
-            editor.edit_script(entity.id, Some(next), assets)
-        } else {
-            override_fields(editor, assets, entity, &next)
-        };
+        let result = editor.edit_script(entity.id, Some(next), assets);
         editor.notice(result);
     }
     if finish {
@@ -140,36 +136,6 @@ fn replace(
         .and_then(|_| editor.edit_script(id, value, assets))
         .and_then(|_| editor.commit());
     editor.notice(result);
-}
-
-fn override_fields(
-    editor: &mut Editor,
-    assets: &mut AssetStore,
-    entity: &EntityData,
-    next: &Script,
-) -> Result<()> {
-    ensure!(
-        matches!(&assets.load(next.asset)?.payload, Product::Script(_)),
-        "请选择脚本资源"
-    );
-    let before = entity.script.as_ref().unwrap();
-    if before.asset != next.asset {
-        editor.edit(
-            entity.id,
-            schema::SCRIPT_ASSET,
-            schema::FieldValue::Asset(next.asset),
-            assets,
-        )?;
-    }
-    if before.enabled != next.enabled {
-        editor.edit(
-            entity.id,
-            schema::SCRIPT_ENABLED,
-            schema::FieldValue::Bool(next.enabled),
-            assets,
-        )?;
-    }
-    Ok(())
 }
 
 fn parameters(

@@ -1,80 +1,12 @@
 use crate::session::Editor;
 use comet_asset::AssetStore;
-use comet_asset_data::product::{AssetKind, Product};
+use comet_asset_data::product::Product;
 use comet_core::{AssetId, EntityId, WorldId};
 use comet_editor_core::FieldTarget;
 use comet_scene::{Animator, EntityData, EntityRef, SkinBinding};
 use std::{collections::BTreeMap, sync::Arc};
 
-struct Choices {
-    revision: String,
-    skeletons: Vec<AssetId>,
-    clips: Vec<AssetId>,
-    skins: Vec<AssetId>,
-    skeleton: BTreeMap<AssetId, AssetId>,
-    labels: BTreeMap<AssetId, String>,
-}
-
-fn choices(ui: &egui::Ui, assets: &AssetStore) -> Arc<Choices> {
-    let key = egui::Id::unique("animation-product-choices");
-    if let Some(value) = ui
-        .data(|data| data.get_temp::<Arc<Choices>>(key))
-        .filter(|value| value.revision == assets.revision())
-    {
-        return value;
-    }
-    let mut value = Choices {
-        revision: assets.revision().into(),
-        skeletons: vec![],
-        clips: vec![],
-        skins: vec![],
-        skeleton: BTreeMap::new(),
-        labels: BTreeMap::new(),
-    };
-    for (&id, product) in &assets.index().products {
-        let (list, kind) = match product.kind {
-            AssetKind::Skeleton => (&mut value.skeletons, "骨架"),
-            AssetKind::AnimationClip => (&mut value.clips, "动画片段"),
-            AssetKind::Skin => (&mut value.skins, "蒙皮"),
-            _ => continue,
-        };
-        list.push(id);
-        let label = product
-            .editor
-            .as_ref()
-            .map(|editor| {
-                if editor.source == id {
-                    editor.label.clone()
-                } else {
-                    let source = assets
-                        .index()
-                        .products
-                        .get(&editor.source)
-                        .and_then(|entry| entry.editor.as_ref())
-                        .map(|source| source.label.as_str())
-                        .unwrap_or("未命名来源");
-                    format!("{source} / {}", editor.label)
-                }
-            })
-            .unwrap_or_else(|| format!("未命名{kind} {}", list.len()));
-        value.labels.insert(id, label);
-        if let Some(skeleton) = product.dependencies.iter().find(|dependency| {
-            assets
-                .index()
-                .products
-                .get(dependency)
-                .is_some_and(|entry| entry.kind == AssetKind::Skeleton)
-        }) {
-            value.skeleton.insert(id, *skeleton);
-        }
-    }
-    for list in [&mut value.skeletons, &mut value.clips, &mut value.skins] {
-        list.sort_by(|a, b| value.labels[a].cmp(&value.labels[b]).then(a.cmp(b)));
-    }
-    let value = Arc::new(value);
-    ui.data_mut(|data| data.insert_temp(key, value.clone()));
-    value
-}
+use super::assets::{Catalog as Choices, catalog as choices};
 
 #[derive(Clone)]
 struct Targets {

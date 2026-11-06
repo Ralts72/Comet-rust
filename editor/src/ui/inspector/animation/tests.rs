@@ -514,19 +514,31 @@ fn binding_repair_and_direct_prefab_fields_keep_source_ids_and_readonly_boundari
 fn empty_authored_controller_creation_and_play_field_ownership_use_actual_widgets() -> Result<()> {
     let mut f = Fixture::new()?;
     let existing = f.source();
+    let skeleton = existing
+        .base
+        .entities
+        .iter()
+        .find_map(|entity| entity.animator.as_ref())
+        .unwrap()
+        .skeleton;
     let blank = EntityData::new("新控制器");
     f.selected = blank.id;
     f.editor.document = Document::open(SceneSnapshot {
         entities: vec![blank],
         ..Default::default()
     })?;
-    let choices = f
-        .ctx
-        .data(|data| data.get_temp::<Arc<Choices>>(egui::Id::unique("animation-product-choices")))
-        .unwrap();
-    f.choose("请选择骨架", &choices.labels[&choices.skeletons[0]]);
+    let output = f.frame(vec![]);
+    let anchor = label(&output, "请选择骨架");
+    f.click(anchor);
+    let output = f.frame(vec![]);
+    let option = texts(&output)
+        .into_iter()
+        .find(|(text, p)| text.contains("SimpleSkin.gltf") && p.y > anchor.y + 3.)
+        .context("imported skeleton option")?
+        .1;
+    f.click(option);
     f.press("添加动画");
-    assert_eq!(f.animator().skeleton, choices.skeletons[0]);
+    assert_eq!(f.animator().skeleton, skeleton);
     assert!(f.animator().bindings.is_empty());
     f.press("移除动画");
     assert!(f.source().base.entities[0].animator.is_none());

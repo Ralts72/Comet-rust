@@ -1,10 +1,12 @@
 use super::*;
 use anyhow::Result;
+use comet_asset_data::product::AssetKind;
 use comet_asset_data::product::Product;
 use comet_editor_core::Document;
 use comet_scene::{ContentSource, PrefabInstance, SceneSnapshot};
 use egui::{Event, PointerButton, Pos2, Rect, Vec2};
 use std::fs;
+use std::sync::Arc;
 
 struct Fixture {
     _temp: tempfile::TempDir,

@@ -12,7 +12,7 @@ mod hierarchy;
 mod joints;
 mod selection;
 pub use joints::JointEdit;
-pub use selection::{CloneMap, FieldEdit, FieldTarget, ObjectTarget};
+pub use selection::{CloneMap, FieldEdit, FieldTarget, ObjectTarget, OverrideReset};
 #[derive(Clone)]
 struct State {
     id: u64,

@@ -1,4 +1,4 @@
-use super::PropertyGesture;
+use super::properties::PropertyGesture;
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_core::math::{EulerRot, Quat};

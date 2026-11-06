@@ -266,3 +266,89 @@ fn collapsed_geometry_allows_a_model_but_still_requires_valid_candidate_products
     editor.save(&mut assets)?;
     Ok(())
 }
+
+#[test]
+fn mesh_replacement_rejects_incompatible_skins_for_authored_and_grouped_prefab_targets()
+-> Result<()> {
+    use comet_scene::{ContentSource, PrefabInstance, PrefabResolver, SceneSnapshot};
+    let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;
+    let regular = fixture_model(&mut assets)?;
+    let prefab = crate::test_support::prepare_skin_asset(&editor)?;
+    assets.refresh()?;
+    let source = assets.prefab(prefab)?;
+    let renderer = source
+        .base
+        .entities
+        .iter()
+        .find(|entity| entity.skin.is_some())
+        .context("skinned renderer")?
+        .id;
+    let valid = source
+        .base
+        .entities
+        .iter()
+        .find(|entity| entity.id == renderer)
+        .unwrap()
+        .model
+        .clone()
+        .unwrap();
+    let mut incompatible = valid.clone();
+    incompatible.mesh = regular.mesh;
+    editor.document = Document::open_source(source.clone())?;
+    let original = editor.document.shared_source();
+    assert!(
+        editor
+            .edit_model(renderer, Some(incompatible.clone()), &mut assets)
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(&original, &editor.document.shared_source()));
+    assert!(!editor.document.is_editing());
+
+    let mut author = EntityData::new("普通模型");
+    author.model = Some(regular.clone());
+    let author_id = author.id;
+    let instance = comet_core::InstanceId::new();
+    editor.document = Document::open_source(ContentSource {
+        base: SceneSnapshot {
+            entities: vec![author],
+            ..Default::default()
+        },
+        instances: vec![PrefabInstance {
+            id: instance,
+            prefab,
+            parent: None,
+            overrides: vec![],
+        }],
+        ..Default::default()
+    })?;
+    let ids = [author_id, renderer.in_instance(instance)];
+    let original = editor.document.shared_source();
+    assert!(
+        editor
+            .replace_model_asset(&ids, schema::MESH, regular.mesh, &mut assets)
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(&original, &editor.document.shared_source()));
+    assert!(!editor.document.is_editing());
+    assert_eq!(editor.document.history_len(), 0);
+    let material = assets
+        .index()
+        .products
+        .iter()
+        .find_map(|(&id, entry)| {
+            (entry.kind == AssetKind::Material && id != valid.surface.material).then_some(id)
+        })
+        .context("alternate material")?;
+    editor.replace_model_asset(&ids, schema::MATERIAL, material, &mut assets)?;
+    editor.commit()?;
+    let snapshot = editor.snapshot(&mut assets)?;
+    assert_eq!(
+        comet_application::extract(&snapshot, &mut assets, &[])?.len(),
+        2
+    );
+    assert_eq!(editor.document.history_len(), 1);
+    assert_eq!(assets.prefab(prefab)?, source);
+    editor.document.undo()?;
+    assert_eq!(editor.document.shared_source(), original);
+    Ok(())
+}

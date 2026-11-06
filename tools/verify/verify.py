@@ -1017,7 +1017,7 @@ def main():
             assert common["common_properties"]["mixed_fields"] == ["位置（多值）", "旋转（多值）", "缩放（多值）"]
             assert common["common_properties"]["scalar_fields"] == ["粗糙度（多值）", "音量（多值）"]
             assert common["common_properties"]["mixed_flags"] == ["循环（多值）", "启动时播放（多值）", "空间音效（多值）"]
-            assert common["common_properties"]["asset_fields"] == ["网格（多值）", "材质（多值）"]
+            assert common["common_properties"]["asset_fields"] == ["网格（多值）", "材质（多值）", "音频片段（多值）", "脚本（多值）"]
             assert common["common_properties"]["source_unchanged"] and len(common["application"]["selected"]) == 2
             checks["editor_common_properties_evidence"] = {"status": "passed", "submitted_frames": common["submitted_frames"],
                 "mixed_fields": common["common_properties"]["mixed_fields"], "author_dirty": common["application"]["dirty"],
@@ -1026,6 +1026,15 @@ def main():
                 "asset_fields": common["common_properties"]["asset_fields"],
                 "png_sha256": inspect_png(OUT / "editor-common-properties.png")["sha256"],
                 "capture": str(OUT / "editor-common-properties.png")}
+            clips = offscreen_test("editor_common_animation_clips_gpu",
+                "ui::tests::inspector::group::clips::headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged",
+                "editor-common-animation-clips.json")
+            assert clips["common_properties"]["asset_fields"] == ["播放片段（多值）"]
+            assert clips["common_properties"]["source_unchanged"] and len(clips["application"]["selected"]) == 2
+            checks["editor_common_animation_clips_evidence"] = {"status": "passed", "submitted_frames": clips["submitted_frames"],
+                "asset_fields": clips["common_properties"]["asset_fields"], "author_dirty": clips["application"]["dirty"],
+                "png_sha256": inspect_png(OUT / "editor-common-animation-clips.png")["sha256"],
+                "capture": str(OUT / "editor-common-animation-clips.png")}
             marquee = offscreen_test("editor_marquee_gpu",
                 "ui::tests::viewport::headless_marquee_overlay_draws_without_changing_authoring",
                 "editor-marquee.json")

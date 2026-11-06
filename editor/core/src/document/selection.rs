@@ -35,6 +35,13 @@ pub struct FieldEdit {
     pub value: FieldValue,
 }
 
+#[derive(Clone, Debug)]
+pub struct OverrideReset {
+    pub instance: InstanceId,
+    pub entity: EntityId,
+    pub fields: Vec<FieldKey>,
+}
+
 impl Document {
     /// Remove explicit declarations on a direct prefab source entity, restoring inheritance.
     /// An existing declaration can be removed even if its source component was removed.
@@ -45,48 +52,75 @@ impl Document {
         fields: &[FieldKey],
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
+        self.revert_overrides_many(
+            &[OverrideReset {
+                instance,
+                entity,
+                fields: fields.to_vec(),
+            }],
+            resolver,
+        )
+    }
+
+    /// Restore all selected source declarations in one fully validated history change.
+    pub fn revert_overrides_many(
+        &mut self,
+        resets: &[OverrideReset],
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
         ensure!(self.preview.is_none(), "transaction active");
-        let target = self
-            .current
-            .source
-            .instances
-            .iter()
-            .find(|value| value.id == instance)
-            .context("stale prefab override selection")?;
-        let prefab = resolver.prefab(target.prefab)?;
-        let source_entity = prefab
-            .base
-            .entities
-            .iter()
-            .find(|value| value.id == entity)
-            .context("override reset requires a direct prefab source entity")?;
-        let mut keys = BTreeSet::new();
-        for &field in fields {
+        if resets.is_empty() {
+            return Ok(());
+        }
+        let mut targets = BTreeMap::new();
+        for reset in resets {
+            let target = self
+                .current
+                .source
+                .instances
+                .iter()
+                .find(|value| value.id == reset.instance)
+                .context("stale prefab override selection")?;
+            let prefab = resolver.prefab(target.prefab)?;
+            let source_entity = prefab
+                .base
+                .entities
+                .iter()
+                .find(|value| value.id == reset.entity)
+                .context("override reset requires a direct prefab source entity")?;
+            let mut keys = BTreeSet::new();
+            for &field in &reset.fields {
+                ensure!(
+                    keys.insert((field.component, field.field)),
+                    "duplicate override reset field"
+                );
+                let descriptor = schema::descriptor(field)?;
+                ensure!(
+                    descriptor.read(source_entity).is_some()
+                        || target
+                            .overrides
+                            .iter()
+                            .any(|value| value.entity == reset.entity && value.field == field),
+                    "prefab source entity has no field {}",
+                    descriptor.path
+                );
+            }
             ensure!(
-                keys.insert((field.component, field.field)),
-                "duplicate override reset field"
-            );
-            let descriptor = schema::descriptor(field)?;
-            ensure!(
-                descriptor.read(source_entity).is_some()
-                    || target
-                        .overrides
-                        .iter()
-                        .any(|value| value.entity == entity && value.field == field),
-                "prefab source entity has no field {}",
-                descriptor.path
+                targets
+                    .insert((reset.instance, reset.entity), keys)
+                    .is_none(),
+                "duplicate override reset target"
             );
         }
         self.change(resolver, |next| {
-            let target = next
-                .instances
-                .iter_mut()
-                .find(|value| value.id == instance)
-                .context("stale prefab override selection")?;
-            target.overrides.retain(|value| {
-                value.entity != entity
-                    || !keys.contains(&(value.field.component, value.field.field))
-            });
+            for instance in &mut next.instances {
+                let id = instance.id;
+                instance.overrides.retain(|value| {
+                    !targets.get(&(id, value.entity)).is_some_and(|keys| {
+                        keys.contains(&(value.field.component, value.field.field))
+                    })
+                });
+            }
             Ok(())
         })
     }

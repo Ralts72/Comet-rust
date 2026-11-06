@@ -377,7 +377,7 @@ fn idle_inspection_reuses_one_small_cache_and_recomputes_after_identity_or_versi
         "new document identity invalidates cached targets"
     );
     f.editor
-        .revert_prefab_fields(f.selected, &[schema::SCALE], &mut f.assets)?;
+        .revert_prefab_fields(&[f.selected], Some(&[schema::SCALE]), &mut f.assets)?;
     f.assets.evict(f.prefab);
     let output = frame(&ctx, &mut f, vec![]);
     assert!(!labels(&output, "实例覆盖 (2)").is_empty());

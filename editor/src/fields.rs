@@ -327,27 +327,117 @@ impl Editor {
         })
     }
 
+    /// Existing-field assignment validates every target before opening a single authoring preview.
+    pub(crate) fn preview_common_field(
+        &mut self,
+        ids: &[EntityId],
+        field: FieldKey,
+        value: FieldValue,
+        assets: &mut AssetStore,
+        mut validate: impl FnMut(
+            &comet_scene::EntityData,
+            &comet_scene::SceneSnapshot,
+            &mut AssetStore,
+        ) -> Result<()>,
+    ) -> Result<()> {
+        self.ensure_authoring_editable()?;
+        let descriptor = schema::descriptor(field)?;
+        descriptor.validate_value(&value)?;
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let snapshot = self.document.expand(assets)?;
+        let mut unique = std::collections::BTreeSet::new();
+        let mut edits = Vec::new();
+        for &id in ids {
+            ensure!(unique.insert(id), "共同属性目标重复：{id}");
+            // Unchanged nested members must still reject the whole selection.
+            let target = self
+                .resolve_field_target(id, assets)
+                .with_context(|| format!("无法编辑实体 {id} 的共同属性"))?;
+            let index = snapshot
+                .entities
+                .binary_search_by_key(&id, |entity| entity.id)
+                .map_err(|_| anyhow::anyhow!("共同属性对象已失效：{id}"))?;
+            let before = &snapshot.entities[index];
+            let initial = descriptor.read(before).with_context(|| {
+                format!(
+                    "实体 {} ({id}) 缺少共同属性 {}",
+                    before.name, descriptor.path
+                )
+            })?;
+            let mut candidate = before.clone();
+            descriptor.write(&mut candidate, value.clone())?;
+            validate(&candidate, &snapshot, assets)
+                .with_context(|| format!("实体 {} ({id}) 的共同属性候选无效", before.name))?;
+            if initial != value {
+                let mut source_value = value.clone();
+                self.source_field_value(target, &mut source_value, assets)?;
+                edits.push(comet_editor_core::FieldEdit {
+                    target,
+                    field,
+                    value: source_value,
+                });
+            }
+        }
+        if edits.is_empty() {
+            return Ok(());
+        }
+        self.preview_document(assets, |document, assets| {
+            document.preview_field_values(&edits, assets)
+        })
+    }
+
     pub(crate) fn revert_prefab_fields(
         &mut self,
-        id: EntityId,
-        fields: &[FieldKey],
+        ids: &[EntityId],
+        fields: Option<&[FieldKey]>,
         assets: &mut AssetStore,
     ) -> Result<()> {
-        ensure!(self.play.is_none(), "请先停止运行，再恢复继承");
-        ensure!(!self.is_busy(), "请等待后台任务完成，再恢复继承");
-        ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
-        let FieldTarget::Prefab { instance, entity } = self.resolve_field_target(id, assets)?
-        else {
-            anyhow::bail!("只有直接 Prefab 对象可以恢复继承");
-        };
-        for field in fields {
-            schema::descriptor(*field)?;
+        self.ensure_authoring_editable()?;
+        let mut keys = std::collections::BTreeSet::new();
+        for &field in fields.unwrap_or(&[]) {
+            schema::descriptor(field)?;
+            ensure!(
+                keys.insert((field.component, field.field)),
+                "实例覆盖字段重复"
+            );
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut resets = Vec::new();
+        for &id in ids {
+            ensure!(seen.insert(id), "实例覆盖目标重复：{id}");
+            let FieldTarget::Prefab { instance, entity } = self
+                .resolve_field_target(id, assets)
+                .with_context(|| format!("无法恢复实体 {id} 的继承"))?
+            else {
+                anyhow::bail!("恢复继承仅适用于直接 Prefab 实体");
+            };
+            let fields = self
+                .document
+                .shared_source()
+                .instances
+                .iter()
+                .find(|value| value.id == instance)
+                .unwrap()
+                .overrides
+                .iter()
+                .filter(|value| {
+                    value.entity == entity
+                        && fields.is_none_or(|fields| fields.contains(&value.field))
+                })
+                .map(|value| value.field)
+                .collect();
+            resets.push(comet_editor_core::OverrideReset {
+                instance,
+                entity,
+                fields,
+            });
         }
         self.commit()?;
-        self.document
-            .revert_overrides(instance, entity, fields, assets)?;
+        self.document.revert_overrides_many(&resets, assets)?;
         self.picking.clear();
-        self.status = "已恢复 Prefab 字段继承".into();
+        self.status = "已恢复所选 Prefab 字段继承".into();
         Ok(())
     }
 }

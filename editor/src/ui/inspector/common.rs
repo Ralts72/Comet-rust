@@ -1,4 +1,4 @@
-use super::PropertyGesture;
+use super::properties::{PropertyGesture, shared_value};
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_scene::{
@@ -137,7 +137,7 @@ pub(in crate::ui) fn draw(
         ("音频源", AUDIO, AUDIO_FLAGS),
         ("脚本", &[], SCRIPT_FLAGS),
         ("导航代理", NAVIGATION, NAVIGATION_FLAGS),
-        ("动画播放器", ANIMATOR, ANIMATOR_FLAGS),
+        ("动画", ANIMATOR, ANIMATOR_FLAGS),
     ];
     for &(name, fields, flags) in groups {
         let key = fields
@@ -154,8 +154,15 @@ pub(in crate::ui) fn draw(
         }
         ui.separator();
         ui.strong(name);
-        if key == schema::ROUGHNESS {
-            super::model::draw_common(editor, ui, assets, entities);
+        let assets_fields: &[FieldKey] = match key {
+            schema::ROUGHNESS => &[schema::MESH, schema::MATERIAL],
+            schema::AUDIO_GAIN => &[schema::AUDIO_CLIP],
+            schema::SCRIPT_ENABLED => &[schema::SCRIPT_ASSET],
+            schema::ANIMATOR_SPEED => &[schema::ANIMATOR_CLIP],
+            _ => &[],
+        };
+        if !assets_fields.is_empty() {
+            super::assets::draw_common(editor, ui, assets, entities, assets_fields);
         }
         draw_fields(editor, ui, assets, entities, fields, editor.play.is_none());
         draw_flags(editor, ui, assets, entities, flags);
@@ -174,6 +181,7 @@ pub(in crate::ui) fn draw(
             );
         }
     }
+    super::overrides::draw_group(editor, ui, assets, entities);
 }
 
 pub(super) fn draw_fields(
@@ -188,21 +196,10 @@ pub(super) fn draw_fields(
         return;
     };
     for property in fields {
-        let field = schema::descriptor(property.key).unwrap();
-        let Some(FieldValue::Scalar(mut value)) = field.read(primary) else {
+        let Some((FieldValue::Scalar(mut value), mixed)) = shared_value(entities, property.key)
+        else {
             continue;
         };
-        let mut mixed = false;
-        let shared = entities.iter().skip(1).all(|entity| {
-            let Some(FieldValue::Scalar(other)) = field.read(entity) else {
-                return false;
-            };
-            mixed |= other != value;
-            true
-        });
-        if !shared {
-            continue;
-        }
         ui.push_id(
             (
                 "scalar-property",
@@ -262,20 +259,10 @@ fn draw_flags(
         return;
     };
     for property in fields {
-        let field = schema::descriptor(property.key).unwrap();
-        let Some(FieldValue::Bool(mut value)) = field.read(primary) else {
+        let Some((FieldValue::Bool(mut value), mixed)) = shared_value(entities, property.key)
+        else {
             continue;
         };
-        let mut mixed = false;
-        if !entities.iter().skip(1).all(|entity| {
-            let Some(FieldValue::Bool(other)) = field.read(entity) else {
-                return false;
-            };
-            mixed |= other != value;
-            true
-        }) {
-            continue;
-        }
         ui.push_id(
             (
                 "common-flag",

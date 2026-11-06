@@ -4,41 +4,10 @@ use comet_asset_pipeline::{SourceMeta, prepare};
 use comet_core::InstanceId;
 use comet_scene::schema::{FieldKey, FieldValue};
 use comet_scene::{
-    Animator, AudioSource, ContentSource, EntityRef, NavigationAgent, PrefabInstance, Script,
-    schema,
+    Animator, ContentSource, EntityRef, NavigationAgent, PrefabInstance, Script, schema,
 };
-use std::path::PathBuf;
 
 impl Group {
-    pub(super) fn audio(&mut self) -> Result<PathBuf> {
-        let path = self.editor.project_root().join("assets/common.wav");
-        std::fs::copy(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../demo/assets/audio/play_chime.wav"),
-            &path,
-        )?;
-        prepare(self.editor.project_root(), &self.editor.products)?;
-        self.assets.refresh()?;
-        let clip = SourceMeta::load(&path)?.id;
-        let mut source = self.editor.document.source();
-        for (index, id) in self.ids.iter().enumerate() {
-            source
-                .base
-                .entities
-                .iter_mut()
-                .find(|entity| entity.id == *id)
-                .unwrap()
-                .audio_source = Some(AudioSource {
-                gain: 0.25 + index as f32 * 0.5,
-                looping: index == 0,
-                autoplay: index == 1,
-                spatial: index == 0,
-                ..AudioSource::new(clip)
-            });
-        }
-        self.editor.document = Document::open_source(source)?;
-        Ok(path)
-    }
     fn flag_values(&mut self, field: FieldKey) -> Result<[bool; 2]> {
         let snapshot = self.editor.snapshot(&mut self.assets)?;
         Ok(self.ids.map(|id| {

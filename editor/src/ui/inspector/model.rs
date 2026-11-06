@@ -1,62 +1,13 @@
 use crate::session::Editor;
 use comet_asset::AssetStore;
-use comet_asset_data::product::AssetKind;
 use comet_core::{AssetId, EntityId, WorldId};
 use comet_editor_core::FieldTarget;
 use comet_scene::{
     EntityData, Model,
     schema::{self, FieldKey, FieldValue},
 };
-use std::{collections::BTreeMap, sync::Arc};
 
-struct Choices {
-    revision: String,
-    meshes: Vec<AssetId>,
-    materials: Vec<AssetId>,
-    labels: BTreeMap<AssetId, String>,
-}
-
-fn choices(ui: &egui::Ui, assets: &AssetStore) -> Arc<Choices> {
-    let id = egui::Id::unique("inspector-model-choices");
-    ui.data(|data| data.get_temp::<Arc<Choices>>(id))
-        .filter(|choices| choices.revision == assets.revision())
-        .unwrap_or_else(|| {
-            let mut choices = Choices {
-                revision: assets.revision().to_owned(),
-                meshes: vec![],
-                materials: vec![],
-                labels: BTreeMap::new(),
-            };
-            for (&id, entry) in &assets.index().products {
-                let (list, kind) = match entry.kind {
-                    AssetKind::Mesh => (&mut choices.meshes, "网格"),
-                    AssetKind::Material => (&mut choices.materials, "材质"),
-                    _ => continue,
-                };
-                let label = match &entry.editor {
-                    Some(editor) if editor.source == id => editor.label.clone(),
-                    Some(editor) => {
-                        let source = assets
-                            .index()
-                            .products
-                            .get(&editor.source)
-                            .and_then(|source| source.editor.as_ref())
-                            .map_or("未命名来源", |source| source.label.as_str());
-                        format!("{source} / {}", editor.label)
-                    }
-                    None => format!("未命名{kind} ({})", list.len() + 1),
-                };
-                list.push(id);
-                choices.labels.insert(id, label);
-            }
-            for list in [&mut choices.meshes, &mut choices.materials] {
-                list.sort_by(|a, b| choices.labels[a].cmp(&choices.labels[b]).then(a.cmp(b)));
-            }
-            let choices = Arc::new(choices);
-            ui.data_mut(|data| data.insert_temp(id, choices.clone()));
-            choices
-        })
-}
+use super::assets::{Catalog as Choices, catalog as choices};
 
 #[derive(Clone)]
 struct Draft {
@@ -89,98 +40,23 @@ fn picker(
         schema::MATERIAL => ("材质", &choices.materials),
         _ => unreachable!("model asset picker field"),
     };
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(if mixed {
-            format!("{label}（多值）")
-        } else {
-            label.into()
-        });
-        let selected = value.map_or_else(
-            || format!("选择{label}"),
-            |id| {
-                choices
-                    .labels
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| format!("当前{label}已缺失"))
-            },
-        );
-        egui::ComboBox::from_id_salt((
-            "model-asset",
-            editor.world(),
-            entity,
-            editor.selection.generation(),
-            field.component,
-            field.field,
-        ))
-        .width(ui.available_width().min(240.))
-        .truncate()
-        .selected_text(if mixed { "多值" } else { &selected })
-        .show_ui(ui, |ui| {
-            for &id in list {
-                let active = !mixed && *value == Some(id);
-                if ui.selectable_label(active, &choices.labels[&id]).clicked() && !active {
-                    *value = Some(id);
-                    changed = true;
-                }
-            }
-        })
-        .response
-        .on_hover_text(selected);
-    });
-    changed
-}
-
-pub(super) fn draw_common(
-    editor: &mut Editor,
-    ui: &mut egui::Ui,
-    assets: &mut AssetStore,
-    entities: &[&EntityData],
-) {
-    let Some(primary) = entities.first() else {
-        return;
-    };
-    if !entities.iter().all(|entity| entity.model.is_some()) {
-        return;
-    }
-    let choices = choices(ui, assets);
-    let editable = editor.play.is_none()
-        && !editor.is_busy()
-        && !editor.documents.is_blocking()
-        && ui.is_enabled();
-    let cancel = ui.input(|input| input.key_pressed(egui::Key::Escape));
-    for field in [schema::MESH, schema::MATERIAL] {
-        let descriptor = schema::descriptor(field).unwrap();
-        let Some(FieldValue::Asset(primary_value)) = descriptor.read(primary) else {
-            unreachable!("model asset field");
-        };
-        let mixed = entities
-            .iter()
-            .skip(1)
-            .any(|entity| descriptor.read(entity) != Some(FieldValue::Asset(primary_value)));
-        let mut selected = Some(primary_value);
-        let changed = ui
-            .add_enabled_ui(editable, |ui| {
-                picker(
-                    ui,
-                    editor,
-                    primary.id,
-                    field,
-                    &mut selected,
-                    &choices,
-                    mixed,
-                )
-            })
-            .inner;
-        if editable && changed && !cancel {
-            let ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
-            let result = editor
-                .commit()
-                .and_then(|_| editor.replace_model_asset(&ids, field, selected.unwrap(), assets))
-                .and_then(|_| editor.commit());
-            editor.notice(result);
-        }
+    if let Some(Some(id)) = super::assets::draw(
+        ui,
+        editor,
+        entity,
+        super::assets::Choice {
+            field,
+            label,
+            current: *value,
+            mixed,
+            empty: None,
+        },
+        list.iter().map(|id| (*id, choices.labels[id].as_str())),
+    ) {
+        *value = Some(id);
+        true
+    } else {
+        false
     }
 }
 

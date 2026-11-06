@@ -125,7 +125,7 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
             }
         });
     if let Some(fields) = restore {
-        let result = editor.revert_prefab_fields(id, &fields, assets);
+        let result = editor.revert_prefab_fields(&[id], Some(&fields), assets);
         editor.notice(result);
     }
 }
@@ -189,7 +189,136 @@ fn field_label(field: FieldKey) -> &'static str {
         schema::AUDIO_SPATIAL => "音频源 · 空间音效",
         schema::AUDIO_MIN_DISTANCE => "音频源 · 开始衰减距离（米）",
         schema::AUDIO_MAX_DISTANCE => "音频源 · 最大距离（米）",
+        schema::ANIMATOR_SKELETON => "动画 · 骨架",
+        schema::ANIMATOR_CLIP => "动画 · 播放片段",
+        schema::ANIMATOR_BINDINGS => "动画 · 节点绑定",
+        schema::ANIMATOR_LOOPING => "动画 · 循环",
+        schema::ANIMATOR_SPEED => "动画 · 播放速度",
+        schema::SKIN_ASSET => "蒙皮绑定 · 蒙皮",
+        schema::SKIN_ANIMATOR => "蒙皮绑定 · 动画播放器",
         _ => "其他 · 字段",
+    }
+}
+
+struct GroupCache {
+    world: WorldId,
+    revision: u64,
+    products: String,
+    selection: u64,
+    ids: Option<Vec<EntityId>>,
+    fields: Vec<(FieldKey, usize)>,
+}
+
+pub(super) fn draw_group(
+    editor: &mut Editor,
+    ui: &mut egui::Ui,
+    assets: &mut AssetStore,
+    entities: &[&comet_scene::EntityData],
+) {
+    if editor.play.is_some() {
+        return;
+    }
+    let cache_id = egui::Id::unique("inspector-group-overrides-cache");
+    let cache = ui
+        .data(|data| data.get_temp::<Arc<GroupCache>>(cache_id))
+        .filter(|cache| {
+            cache.world == editor.document.world_id()
+                && cache.revision == editor.document.revision()
+                && cache.products == assets.revision()
+                && cache.selection == editor.selection.generation()
+        })
+        .unwrap_or_else(|| {
+            let mut ids = Vec::new();
+            let mut fields = std::collections::BTreeMap::new();
+            let mut eligible = true;
+            for entity in entities {
+                let Ok(FieldTarget::Prefab {
+                    instance,
+                    entity: source_entity,
+                }) = editor.resolve_field_target(entity.id, assets)
+                else {
+                    eligible = false;
+                    break;
+                };
+                ids.push(entity.id);
+                if let Some(instance) = editor
+                    .document
+                    .shared_source()
+                    .instances
+                    .iter()
+                    .find(|value| value.id == instance)
+                {
+                    for value in instance
+                        .overrides
+                        .iter()
+                        .filter(|value| value.entity == source_entity)
+                    {
+                        *fields
+                            .entry((value.field.component, value.field.field))
+                            .or_insert(0) += 1;
+                    }
+                }
+            }
+            let cache = Arc::new(GroupCache {
+                world: editor.document.world_id(),
+                revision: editor.document.revision(),
+                products: assets.revision().into(),
+                selection: editor.selection.generation(),
+                ids: eligible.then_some(ids),
+                fields: fields
+                    .into_iter()
+                    .map(|((component, field), count)| (FieldKey { component, field }, count))
+                    .collect(),
+            });
+            ui.data_mut(|data| data.insert_temp(cache_id, cache.clone()));
+            cache
+        });
+    let Some(ids) = &cache.ids else {
+        return;
+    };
+    let editable = !editor.is_busy() && !editor.documents.is_blocking() && ui.is_enabled();
+    let mut restore = None;
+    ui.separator();
+    egui::CollapsingHeader::new(format!("实例覆盖 ({})", cache.fields.len()))
+        .id_salt((
+            "inspector-group-overrides",
+            editor.world(),
+            editor.selection.generation(),
+        ))
+        .show(ui, |ui| {
+            ui.weak("恢复继承会删除所选实体的显式覆盖，分别采用源 Prefab 的值。");
+            if cache.fields.is_empty() {
+                ui.weak("当前选择没有显式覆盖。");
+            }
+            for &(field, count) in &cache.fields {
+                ui.push_id((field.component, field.field), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("{} ({}/{})", field_label(field), count, ids.len()));
+                        if ui
+                            .add_enabled(editable, egui::Button::new("恢复继承"))
+                            .clicked()
+                        {
+                            restore = Some(Some(field));
+                        }
+                    })
+                });
+            }
+            if !cache.fields.is_empty()
+                && ui
+                    .add_enabled(editable, egui::Button::new("恢复全部继承"))
+                    .clicked()
+            {
+                restore = Some(None);
+            }
+        });
+    if let Some(field) = restore {
+        let fields = field.map(|field| [field]);
+        let result = editor.revert_prefab_fields(
+            ids,
+            fields.as_ref().map(|fields| fields.as_slice()),
+            assets,
+        );
+        editor.notice(result);
     }
 }
 

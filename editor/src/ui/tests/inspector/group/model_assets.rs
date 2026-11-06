@@ -1,5 +1,4 @@
 use super::*;
-use comet_asset_data::product::AssetKind;
 use comet_asset_pipeline::{SourceMeta, prepare};
 use comet_core::{AssetId, InstanceId};
 use comet_scene::{
@@ -9,37 +8,6 @@ use comet_scene::{
 use std::sync::Arc;
 
 impl Group {
-    pub(super) fn mixed_models(&mut self) -> Result<([AssetId; 2], [AssetId; 2])> {
-        let products = |kind| -> Result<[AssetId; 2]> {
-            self.assets
-                .index()
-                .products
-                .iter()
-                .filter_map(|(&id, entry)| (entry.kind == kind).then_some(id))
-                .take(2)
-                .collect::<Vec<_>>()
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("two fixture model products"))
-        };
-        let meshes = products(AssetKind::Mesh)?;
-        let materials = products(AssetKind::Material)?;
-        let mut source = self.editor.document.source();
-        for (index, id) in self.ids.iter().enumerate() {
-            let model = source
-                .base
-                .entities
-                .iter_mut()
-                .find(|entity| entity.id == *id)
-                .unwrap()
-                .model
-                .as_mut()
-                .unwrap();
-            model.mesh = meshes[index];
-            model.surface.material = materials[index];
-        }
-        self.editor.document = Document::open_source(source)?;
-        Ok((meshes, materials))
-    }
     fn model_values(&mut self) -> Result<[Model; 2]> {
         let snapshot = self.editor.snapshot(&mut self.assets)?;
         Ok(self.ids.map(|id| {
@@ -53,54 +21,6 @@ impl Group {
                 .unwrap()
         }))
     }
-    fn asset_label(&self, asset: AssetId) -> String {
-        let metadata = self.assets.index().products[&asset]
-            .editor
-            .as_ref()
-            .unwrap();
-        if metadata.source == asset {
-            metadata.label.clone()
-        } else {
-            let source = self.assets.index().products[&metadata.source]
-                .editor
-                .as_ref()
-                .unwrap();
-            format!("{} / {}", source.label, metadata.label)
-        }
-    }
-    fn open_model_picker(&mut self, field: &str) -> Result<Pos2> {
-        self.frame(vec![]);
-        let output = self.frame(vec![]);
-        let values = texts(&output);
-        let row = values
-            .iter()
-            .find(|(text, pos)| {
-                pos.x > 970. && (text == field || text == &format!("{field}（多值）"))
-            })
-            .context("common model asset row")?
-            .1;
-        let anchor = values
-            .iter()
-            .find(|(_, pos)| (pos.y - row.y).abs() < 2. && pos.x > row.x + 20.)
-            .context("common model asset selector")?
-            .1;
-        self.frame(vec![Event::PointerMoved(anchor), button(anchor, true)]);
-        self.frame(vec![button(anchor, false)]);
-        Ok(anchor)
-    }
-    fn select_model_asset(&mut self, field: &str, asset: AssetId) -> Result<()> {
-        let label = self.asset_label(asset);
-        let anchor = self.open_model_picker(field)?;
-        let output = self.frame(vec![]);
-        let position = texts(&output)
-            .into_iter()
-            .find(|(text, pos)| text == &label && pos.y > anchor.y + 3.)
-            .with_context(|| format!("common model option {label}"))?
-            .1;
-        self.frame(vec![Event::PointerMoved(position), button(position, true)]);
-        self.frame(vec![button(position, false)]);
-        Ok(())
-    }
 }
 
 #[test]
@@ -113,12 +33,12 @@ fn common_model_pickers_unify_primary_assets_preserve_roughness_and_commit_each_
     let path = f.editor.project_root().join("assets/showcase.gltf");
     let bytes = std::fs::read(&path)?;
     let metadata = std::fs::read(SourceMeta::path(&path))?;
-    f.open_model_picker("网格")?;
+    f.open_asset_picker("网格")?;
     assert_eq!(f.editor.document.shared_source(), original);
     f.frame(vec![key(egui::Key::Escape, true, Default::default())]);
     f.frame(vec![key(egui::Key::Escape, false, Default::default())]);
     assert_eq!(f.editor.document.shared_source(), original);
-    f.select_model_asset("网格", meshes[1])?;
+    f.select_asset("网格", meshes[1])?;
     let models = f.model_values()?;
     assert_eq!(models.each_ref().map(|model| model.mesh), [meshes[1]; 2]);
     assert_eq!(
@@ -131,10 +51,10 @@ fn common_model_pickers_unify_primary_assets_preserve_roughness_and_commit_each_
     );
     assert_eq!(f.editor.document.history_len(), 1);
     let accepted = f.editor.document.shared_source();
-    f.select_model_asset("网格", meshes[1])?;
+    f.select_asset("网格", meshes[1])?;
     assert!(Arc::ptr_eq(&accepted, &f.editor.document.shared_source()));
     assert_eq!(f.editor.document.history_len(), 1);
-    f.select_model_asset("材质", materials[1])?;
+    f.select_asset("材质", materials[1])?;
     let models = f.model_values()?;
     assert_eq!(models.each_ref().map(|model| model.mesh), [meshes[1]; 2]);
     assert_eq!(
@@ -317,8 +237,8 @@ fn common_prefab_assets_keep_source_ids_existing_pins_and_undo_savepoints() -> R
     f.ids[1] = node_id.in_instance(instance);
     f.editor.selection.replace(f.ids);
     let original = f.editor.document.shared_source();
-    f.select_model_asset("网格", meshes[0])?;
-    f.select_model_asset("材质", materials[0])?;
+    f.select_asset("网格", meshes[0])?;
+    f.select_asset("材质", materials[0])?;
     let edited = f.editor.document.shared_source();
     let overrides = &edited.instances[0].overrides;
     assert_eq!(overrides.len(), 3);
@@ -444,8 +364,8 @@ fn common_model_resources_are_read_only_in_play() -> Result<()> {
     let original = f.editor.document.shared_source();
     f.editor.start(&mut f.assets)?;
     f.editor.selection.replace(f.ids);
-    f.open_model_picker("网格")?;
-    f.open_model_picker("材质")?;
+    f.open_asset_picker("网格")?;
+    f.open_asset_picker("材质")?;
     assert!(
         f.editor
             .replace_model_asset(&f.ids, schema::MESH, meshes[1], &mut f.assets)

@@ -9,174 +9,15 @@ use comet_core::{
 use comet_editor_core::Document;
 use comet_scene::{EntityData, SceneSnapshot, Transform};
 use egui::{Event, PointerButton, Pos2, Vec2};
+mod clips;
 mod configurations;
+mod fixtures;
+mod harness;
+use harness::*;
 mod model_assets;
+mod overrides;
+mod resources;
 mod scalars;
-
-struct Group {
-    _temp: tempfile::TempDir,
-    editor: Editor,
-    assets: AssetStore,
-    ctx: egui::Context,
-    ids: [EntityId; 2],
-    number: u64,
-}
-impl Group {
-    fn new() -> Result<Self> {
-        let (temp, mut editor, mut assets) = fixture()?;
-        let model = editor
-            .snapshot(&mut assets)?
-            .entities
-            .iter()
-            .find_map(|entity| entity.model.clone())
-            .context("renderable fixture model")?;
-        let mut parent = EntityData::new("主层级");
-        parent.transform = Transform {
-            translation: [-1., 1., 0.],
-            rotation: Quat::from_euler(EulerRot::XYZ, 0.1, 0.2, 0.3).to_array(),
-            scale: [1., 1., 1.],
-        };
-        parent.model = Some(model.clone());
-        parent.model.as_mut().unwrap().surface.roughness = 0.2;
-        let mut child = EntityData::new("主实体");
-        child.parent = Some(parent.id);
-        child.transform = Transform {
-            translation: [1., 2., 0.5],
-            rotation: Quat::from_euler(EulerRot::XYZ, 0.4, 0.5, 0.6).to_array(),
-            scale: [1.5, 1.5, 1.5],
-        };
-        child.model = Some(model);
-        child.model.as_mut().unwrap().surface.roughness = 0.8;
-        let ids = [parent.id, child.id];
-        editor.document = Document::open(SceneSnapshot {
-            entities: vec![parent, child],
-            ..Default::default()
-        })?;
-        editor.selection.replace(ids);
-        let ctx = egui::Context::default();
-        comet_application::configure_ui(&ctx);
-        ctx.options_mut(|options| options.max_passes = 1.try_into().unwrap());
-        Ok(Self {
-            _temp: temp,
-            editor,
-            assets,
-            ctx,
-            ids,
-            number: 0,
-        })
-    }
-    fn frame(&mut self, events: Vec<Event>) -> egui::FullOutput {
-        let context = FrameContext {
-            number: self.number,
-            dt: 1. / 60.,
-            active: true,
-            activity_changed: false,
-            target_generation: 1,
-            size: [1280, 800],
-            smoke: false,
-        };
-        self.number += 1;
-        crate::ui::tests::frame_with_output(
-            &self.ctx,
-            &mut self.editor,
-            &mut self.assets,
-            context,
-            events,
-        )
-        .1
-    }
-    fn transforms(&self) -> [Transform; 2] {
-        let source = self.editor.document.shared_source();
-        self.ids.map(|id| {
-            source
-                .base
-                .entities
-                .iter()
-                .find(|entity| entity.id == id)
-                .unwrap()
-                .transform
-                .clone()
-        })
-    }
-    fn drag(&mut self, field: &str, axis: &str, distance: f32) -> Result<(Pos2, Pos2)> {
-        self.frame(vec![]);
-        let output = self.frame(vec![]);
-        let start = control(&output, field, axis)?;
-        let end = start + Vec2::new(distance, 0.);
-        self.frame(vec![Event::PointerMoved(start), button(start, true)]);
-        self.frame(vec![Event::PointerMoved(end)]);
-        Ok((start, end))
-    }
-    fn type_value(&mut self, field: &str, axis: &str, value: &str) -> Result<()> {
-        self.frame(vec![]);
-        let output = self.frame(vec![]);
-        let pos = control(&output, field, axis)?;
-        self.type_at(pos, value);
-        Ok(())
-    }
-    fn type_at(&mut self, pos: Pos2, value: &str) {
-        self.frame(vec![Event::PointerMoved(pos), button(pos, true)]);
-        self.frame(vec![button(pos, false)]);
-        self.frame(vec![
-            key(egui::Key::A, true, egui::Modifiers::COMMAND),
-            key(egui::Key::A, false, egui::Modifiers::COMMAND),
-            Event::Text(value.into()),
-        ]);
-    }
-}
-fn texts(output: &egui::FullOutput) -> Vec<(String, Pos2)> {
-    fn collect(shape: &egui::epaint::Shape, result: &mut Vec<(String, Pos2)>) {
-        match shape {
-            egui::epaint::Shape::Text(text) => result.push((
-                text.galley.job.text.clone(),
-                text.pos + text.galley.rect.center().to_vec2(),
-            )),
-            egui::epaint::Shape::Vec(shapes) => {
-                shapes.iter().for_each(|shape| collect(shape, result))
-            }
-            _ => {}
-        }
-    }
-    let mut result = Vec::new();
-    output
-        .shapes
-        .iter()
-        .for_each(|shape| collect(&shape.shape, &mut result));
-    result
-}
-fn control(output: &egui::FullOutput, field: &str, axis: &str) -> Result<Pos2> {
-    let values = texts(output);
-    let heading = values
-        .iter()
-        .find(|(text, pos)| text.starts_with(field) && pos.x > 970.)
-        .context("common property heading")?
-        .1;
-    values
-        .iter()
-        .filter(|(text, pos)| {
-            text.starts_with(&format!("{axis} ")) && pos.x > 970. && pos.y > heading.y
-        })
-        .min_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
-        .map(|(_, pos)| *pos)
-        .context("common property control")
-}
-fn button(pos: Pos2, pressed: bool) -> Event {
-    Event::PointerButton {
-        pos,
-        button: PointerButton::Primary,
-        pressed,
-        modifiers: Default::default(),
-    }
-}
-fn key(key: egui::Key, pressed: bool, modifiers: egui::Modifiers) -> Event {
-    Event::Key {
-        key,
-        physical_key: None,
-        pressed,
-        repeat: false,
-        modifiers,
-    }
-}
 
 #[test]
 fn typed_common_values_commit_once_and_escape_restores_the_whole_group() -> Result<()> {
@@ -206,7 +47,7 @@ fn typed_common_values_commit_once_and_escape_restores_the_whole_group() -> Resu
 fn headless_common_properties_draws_mixed_transforms_without_authoring_changes() -> Result<()> {
     let mut f = Group::new()?;
     f.mixed_models()?;
-    f.audio()?;
+    f.resource_components()?;
     let output = f.frame(vec![]);
     let mixed: Vec<_> = texts(&output)
         .into_iter()
@@ -234,10 +75,23 @@ fn headless_common_properties_draws_mixed_transforms_without_authoring_changes()
         })
         .collect();
     assert_eq!(flags.len(), 3);
-    let asset_fields = ["网格（多值）", "材质（多值）"];
+    let asset_fields = [
+        "网格（多值）",
+        "材质（多值）",
+        "音频片段（多值）",
+        "脚本（多值）",
+    ];
     for label in asset_fields {
         assert!(texts(&output).iter().any(|(text, _)| text == label));
     }
+    capture_common(
+        f,
+        "editor-common-properties",
+        serde_json::json!({"mixed_fields": mixed, "scalar_fields": scalars, "mixed_flags": flags, "asset_fields": asset_fields, "source_unchanged": true}),
+    )
+}
+
+fn capture_common(f: Group, name: &str, properties: serde_json::Value) -> Result<()> {
     let author_file = f.editor.source.clone();
     let author_bytes = std::fs::read(&author_file)?;
     let world = f.editor.document.world_id();
@@ -248,8 +102,8 @@ fn headless_common_properties_draws_mixed_transforms_without_authoring_changes()
         .unwrap()
         .join("target/verification");
     std::fs::create_dir_all(&directory)?;
-    let report_path = directory.join("editor-common-properties.json");
-    let capture = directory.join("editor-common-properties.png");
+    let report_path = directory.join(format!("{name}.json"));
+    let capture = directory.join(format!("{name}.png"));
     let mut options = comet_application::HostOptions::new("common property test");
     options.headless = true;
     options.smoke = true;
@@ -275,7 +129,7 @@ fn headless_common_properties_draws_mixed_transforms_without_authoring_changes()
     );
     assert!(std::fs::metadata(&capture)?.len() > 8);
     assert_eq!(std::fs::read(author_file)?, author_bytes);
-    report["common_properties"] = serde_json::json!({"mixed_fields": mixed, "scalar_fields": scalars, "mixed_flags": flags, "asset_fields": asset_fields, "source_unchanged": true});
+    report["common_properties"] = properties;
     std::fs::write(report_path, serde_json::to_vec_pretty(&report)?)?;
     Ok(())
 }
