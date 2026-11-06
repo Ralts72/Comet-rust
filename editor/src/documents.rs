@@ -95,9 +95,9 @@ impl DocumentWorkflow {
         egui::Modal::new(egui::Id::unique("document-browser")).show(ctx, |ui| {
             ui.set_width(480.);
             ui.heading(match mode {
-                BrowserMode::Open => "打开文档",
+                BrowserMode::Open => "打开场景 / Prefab",
                 BrowserMode::NewScene => "新建场景",
-                BrowserMode::NewPrefab => "新建Prefab",
+                BrowserMode::NewPrefab => "新建 Prefab",
             });
             if create {
                 ui.label(if mode == BrowserMode::NewPrefab {
@@ -106,9 +106,9 @@ impl DocumentWorkflow {
                     "场景位置（相对项目 assets，使用 .scene 后缀）"
                 });
                 ui.text_edit_singleline(&mut self.browser.path);
-                ui.weak("创建后立即保存空作者文件及其身份文件，不覆盖已有文件。");
+                ui.weak("创建后立即保存，不覆盖已有文件。");
             } else {
-                ui.label("选择项目中的场景或原生 Prefab 作者源");
+                ui.label("选择项目中的场景或 Prefab 文件");
                 egui::ScrollArea::vertical()
                     .max_height(280.)
                     .show(ui, |ui| {

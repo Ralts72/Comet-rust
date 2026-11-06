@@ -36,7 +36,7 @@ pub(super) fn draw(
             editor.play.is_none(),
             egui::TextEdit::singleline(&mut name)
                 .id_salt(("entity-name", editor.world(), entity.id))
-                .hint_text("对象名称"),
+                .hint_text("名称"),
         );
         if ui.is_enabled() && response.changed() && !cancel {
             let result = editor.rename_object(entity.id, name);

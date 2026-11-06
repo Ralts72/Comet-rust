@@ -117,7 +117,7 @@ pub(super) fn draw(
     entity: &EntityData,
 ) {
     ui.separator();
-    ui.strong("模型");
+    ui.strong("网格渲染");
     let target = if editor.play.is_none() {
         Some(super::overrides::target(editor, ui, assets, entity.id))
     } else {
@@ -135,9 +135,9 @@ pub(super) fn draw(
         if !authored {
             clear_draft(ui.ctx());
             ui.weak(if editor.play.is_some() {
-                "运行期间模型配置只读。"
+                "运行期间网格渲染配置只读。"
             } else {
-                "Prefab 的模型组件结构请在源 Prefab 中编辑。"
+                "Prefab 的网格渲染组件结构请在源 Prefab 中编辑。"
             });
             return;
         }
@@ -174,16 +174,16 @@ pub(super) fn draw(
         roughness_response =
             Some(ui.add(egui::Slider::new(&mut roughness, 0. ..=1.).text("粗糙度")));
         if authored {
-            remove = ui.small_button("移除模型").clicked();
+            remove = ui.small_button("移除网格渲染").clicked();
         }
     });
     if !editable {
         ui.weak(if editor.play.is_some() {
-            "运行期间模型配置只读。"
+            "运行期间网格渲染配置只读。"
         } else if nested {
-            "嵌套实例的模型请在源 Prefab 中编辑。"
+            "嵌套实例的网格渲染请在源 Prefab 中编辑。"
         } else {
-            "当前模型配置暂不可编辑。"
+            "当前网格渲染配置暂不可编辑。"
         });
         return;
     }
@@ -265,7 +265,7 @@ fn add(
         add = ui
             .add_enabled(
                 draft.mesh.is_some() && draft.material.is_some(),
-                egui::Button::new("添加模型"),
+                egui::Button::new("添加网格渲染"),
             )
             .clicked();
     });

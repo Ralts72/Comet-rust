@@ -310,7 +310,7 @@ impl ExportController {
         let mut open = self.open;
         let busy = self.is_running() || blocked;
         let mut action = None;
-        egui::Window::new("导出游戏")
+        egui::Window::new("导出 App")
             .open(&mut open)
             .default_width(560.)
             .show(ctx, |ui| {

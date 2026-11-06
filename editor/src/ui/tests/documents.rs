@@ -128,7 +128,7 @@ impl Case {
 
     fn new_prefab_dialog(&mut self) -> egui::FullOutput {
         let output = self.frame(vec![]);
-        self.click(label(&output, "新建Prefab", resources()));
+        self.click(label(&output, "新建 Prefab", resources()));
         self.frame(vec![])
     }
 
@@ -265,7 +265,7 @@ fn open_document_lists_native_sources_and_prefab_preview_keeps_authoring_and_sce
         c.meta
     );
     let output = c.frame(vec![]);
-    c.click(label(&output, "导出游戏", Rect::EVERYTHING));
+    c.click(label(&output, "导出 App...", Rect::EVERYTHING));
     c.frame(vec![]);
     assert!(
         c.editor.export.open,
@@ -503,14 +503,14 @@ fn creating_a_prefab_through_resources_can_cancel_then_author_save_and_undo_a_mo
     assert_eq!(c.editor.document.history_len(), 0);
 
     let output = c.frame(vec![]);
-    c.click(label(&output, "新建对象", Rect::EVERYTHING));
+    c.click(label(&output, "创建实体", Rect::EVERYTHING));
     let empty_object = c.editor.document.shared_source();
     let entity = empty_object.base.entities[0].id;
     assert!(empty_object.base.entities[0].model.is_none());
     c.choose_model_asset("网格", "AmberTwoMaterials");
     c.choose_model_asset("材质", "Porcelain");
     let output = c.frame(vec![]);
-    c.click(label(&output, "添加模型", Rect::EVERYTHING));
+    c.click(label(&output, "添加网格渲染", Rect::EVERYTHING));
     assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
     let authored = c.editor.document.shared_source();
     assert_eq!(authored.base.entities[0].id, entity);

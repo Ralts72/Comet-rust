@@ -179,7 +179,7 @@ fn real_buttons_emit_one_action_and_failure_feedback_keeps_the_menu_open() {
     ui.menu.feedback(None);
     ui.settle();
     for (label, expected) in [
-        ("保存检查点", MenuAction::Save),
+        ("保存进度", MenuAction::Save),
         ("继续存档", MenuAction::Continue),
         ("退出游戏", MenuAction::Exit),
     ] {

@@ -15,7 +15,7 @@ struct Fixture {
 
 fn fixture() -> Result<Fixture> {
     let (temp, mut editor, assets) = crate::test_support::fixture()?;
-    let entity = EntityData::new("作者模型对象");
+    let entity = EntityData::new("作者模型实体");
     let selected = entity.id;
     editor.document = Document::open(SceneSnapshot {
         entities: vec![entity],
@@ -152,7 +152,7 @@ fn model(f: &mut Fixture) -> Option<Model> {
 
 fn press_add(ctx: &egui::Context, f: &mut Fixture) {
     let output = frame(ctx, f, vec![]);
-    click(ctx, f, label(&output, "添加模型"));
+    click(ctx, f, label(&output, "添加网格渲染"));
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn authored_model_widgets_keep_drafts_private_and_preserve_roughness_when_switch
     f.editor.save(&mut f.assets)?;
     assert_eq!(Document::load(&f.editor.source)?.shared_source(), source);
     let output = frame(&ctx, &mut f, vec![]);
-    click(&ctx, &mut f, label(&output, "移除模型"));
+    click(&ctx, &mut f, label(&output, "移除网格渲染"));
     assert!(model(&mut f).is_none());
     assert_eq!(f.editor.document.history_len(), 5);
     f.editor.document.undo()?;
@@ -464,7 +464,7 @@ fn prefab_asset_choices_only_override_changed_fields_and_play_or_nested_models_a
     assert!(
         !texts(&output)
             .iter()
-            .any(|(text, _)| text.contains("移除模型"))
+            .any(|(text, _)| text.contains("移除网格渲染"))
     );
     select(&ctx, &mut f, "材质", "Porcelain");
     let next = model(&mut f).unwrap();
@@ -493,7 +493,7 @@ fn prefab_asset_choices_only_override_changed_fields_and_play_or_nested_models_a
     assert!(
         texts(&output)
             .iter()
-            .any(|(text, _)| text == "运行期间模型配置只读。")
+            .any(|(text, _)| text == "运行期间网格渲染配置只读。")
     );
     click(&ctx, &mut f, combo(&output, "材质"));
     let output = frame(&ctx, &mut f, vec![]);
@@ -534,7 +534,7 @@ fn prefab_asset_choices_only_override_changed_fields_and_play_or_nested_models_a
     assert!(
         texts(&output)
             .iter()
-            .any(|(text, _)| text == "嵌套实例的模型请在源 Prefab 中编辑。")
+            .any(|(text, _)| text == "嵌套实例的网格渲染请在源 Prefab 中编辑。")
     );
     click(&ctx, &mut f, combo(&output, "材质"));
     let output = frame(&ctx, &mut f, vec![]);
@@ -607,7 +607,7 @@ fn a_project_without_render_assets_keeps_add_disabled_and_explains_how_to_prepar
             .iter()
             .any(|(text, _)| text.contains("导入含网格与材质的模型"))
     );
-    click(&ctx, &mut f, label(&output, "添加模型"));
+    click(&ctx, &mut f, label(&output, "添加网格渲染"));
     assert!(model(&mut f).is_none());
     assert!(Arc::ptr_eq(&original, &f.editor.document.shared_source()));
     Ok(())

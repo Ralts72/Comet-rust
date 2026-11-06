@@ -111,7 +111,7 @@ pub(super) fn draw(
                     edit.number(ui, "代理半径", &mut value.agent_radius, 0.001, f32::MAX);
                     edit.number(ui, "代理高度", &mut value.agent_height, 0.001, f32::MAX);
                     edit.number(ui, "最大攀爬", &mut value.max_climb, 0., f32::MAX);
-                    edit.number(ui, "最大坡度（度）", &mut value.max_slope_degrees, 0., 89.9);
+                    edit.number(ui, "最大坡度 (°)", &mut value.max_slope_degrees, 0., 89.9);
                 });
                 if editable {
                     if cancel {
@@ -158,7 +158,7 @@ pub(super) fn draw(
                 authored && editable && existing.is_none() && eligible,
                 egui::Button::new("添加导航区域"),
             )
-            .on_disabled_hover_text("场景只能有一个导航区域；需要单位旋转、单位缩放的静止根对象。")
+            .on_disabled_hover_text("场景只能有一个导航区域；需要单位旋转、单位缩放的静止根实体。")
             .clicked()
         {
             replace(

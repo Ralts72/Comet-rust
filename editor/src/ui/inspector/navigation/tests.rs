@@ -28,7 +28,7 @@ struct Case {
 impl Case {
     fn new(region_present: bool, agent_present: bool) -> Result<Self> {
         let (temp, mut editor, assets) = crate::test_support::fixture()?;
-        let mut region = EntityData::new("导航区域对象");
+        let mut region = EntityData::new("导航区域实体");
         region.navigation_region = region_present.then(|| NavigationRegion {
             half_extents: [4., 3., 4.],
             cell_size: 0.25,

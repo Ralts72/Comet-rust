@@ -74,13 +74,13 @@ fn picker(
     choices: &Choices,
 ) {
     ui.horizontal(|ui| {
-        ui.label("音频");
+        ui.label("音频片段");
         let selected = value.map_or("选择音频", |id| {
             choices
                 .clips
                 .iter()
                 .find(|(asset, _)| *asset == id)
-                .map_or("当前音频已缺失", |(_, label)| label.as_str())
+                .map_or("当前音频片段已缺失", |(_, label)| label.as_str())
         });
         egui::ComboBox::from_id_salt(("audio-clip", editor.world(), entity))
             .width(ui.available_width().min(240.))
@@ -103,7 +103,7 @@ pub(super) fn draw(
     entity: &EntityData,
 ) {
     ui.separator();
-    ui.strong("声音");
+    ui.strong("音频源");
     // A Play world's entity IDs do not identify fields in the author document.
     let target = if editor.play.is_none() {
         Some(super::overrides::target(editor, ui, assets, entity.id))
@@ -124,9 +124,9 @@ pub(super) fn draw(
         } else {
             clear_draft(ui);
             ui.weak(if editor.play.is_some() {
-                "运行期间声音配置只读。"
+                "运行期间音频源配置只读。"
             } else {
-                "Prefab 的声音组件结构请在源 Prefab 中编辑。"
+                "Prefab 的音频源组件结构请在源 Prefab 中编辑。"
             });
         }
         return;
@@ -142,17 +142,17 @@ pub(super) fn draw(
         picker(ui, editor, entity.id, &mut clip, &choices);
         gain_response = Some(ui.add(egui::Slider::new(&mut next.gain, 0. ..=1.).text("音量")));
         ui.checkbox(&mut next.looping, "循环");
-        ui.checkbox(&mut next.autoplay, "自动播放");
-        ui.checkbox(&mut next.spatial, "空间声音");
+        ui.checkbox(&mut next.autoplay, "启动时播放");
+        ui.checkbox(&mut next.spatial, "空间音效");
         ui.add_enabled_ui(next.spatial, |ui| {
             for (label, field, value) in [
                 (
-                    "近距离（米）",
+                    "开始衰减距离（米）",
                     schema::AUDIO_MIN_DISTANCE,
                     &mut next.min_distance,
                 ),
                 (
-                    "远距离（米）",
+                    "最大距离（米）",
                     schema::AUDIO_MAX_DISTANCE,
                     &mut next.max_distance,
                 ),
@@ -169,16 +169,16 @@ pub(super) fn draw(
             }
         });
         if authored {
-            remove = ui.small_button("移除声音").clicked();
+            remove = ui.small_button("移除音频源").clicked();
         }
     });
     if !editable {
         ui.weak(if editor.play.is_some() {
-            "运行期间声音配置只读。"
+            "运行期间音频源配置只读。"
         } else if nested {
-            "嵌套实例的声音请在源 Prefab 中编辑。"
+            "嵌套实例的音频源请在源 Prefab 中编辑。"
         } else {
-            "当前声音配置暂不可编辑。"
+            "当前音频源配置暂不可编辑。"
         });
         play_controls(editor, ui, entity.id);
         return;
@@ -251,11 +251,11 @@ fn add(
     ui.add_enabled_ui(editable, |ui| {
         picker(ui, editor, entity, &mut draft.clip, choices);
         add = ui
-            .add_enabled(draft.clip.is_some(), egui::Button::new("添加声音"))
+            .add_enabled(draft.clip.is_some(), egui::Button::new("添加音频源"))
             .clicked();
     });
     if choices.clips.is_empty() {
-        ui.weak("将 .wav 音频放入 assets 并刷新资源后，可添加声音。");
+        ui.weak("将 .wav 音频放入 assets 并刷新资源后，可添加音频源。");
     }
     if cancel {
         draft.clip = None;

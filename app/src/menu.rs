@@ -145,7 +145,7 @@ impl Menu {
     ) {
         for (label, command) in [
             ("返回游戏", MenuAction::Resume),
-            ("保存检查点", MenuAction::Save),
+            ("保存进度", MenuAction::Save),
             ("继续存档", MenuAction::Continue),
         ] {
             if button(ui, label) {

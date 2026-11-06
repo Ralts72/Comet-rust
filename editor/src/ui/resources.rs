@@ -15,7 +15,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
         .resizable(true)
         .show(root, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut editor.console.show, false, "资源");
+                ui.selectable_value(&mut editor.console.show, false, "项目");
                 let failures = editor
                     .console
                     .entries()
@@ -52,7 +52,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                                     entry.phase
                                 ),
                             );
-                            ui.small(format!("对象：{} · 脚本：{}", entry.entity, entry.asset))
+                            ui.small(format!("实体：{} · 脚本：{}", entry.entity, entry.asset))
                                 .on_hover_text(format!(
                                     "运行世界：{} · 序号：{}",
                                     entry.world, entry.sequence
@@ -71,7 +71,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                 if ui
                     .add_enabled(
                         !editor.is_busy() && !editor.documents.is_blocking(),
-                        egui::Button::new("新建Prefab"),
+                        egui::Button::new("新建 Prefab"),
                     )
                     .clicked()
                 {
@@ -123,9 +123,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                             && selected.as_ref().is_some_and(is_authoring_source),
                         egui::Button::new("编辑源"),
                     )
-                    .on_disabled_hover_text(
-                        "请选择原生 .prefab 作者源；glTF/GLB 请在建模工具中修改。",
-                    )
+                    .on_disabled_hover_text("请选择 .prefab 文件；glTF/GLB 请在建模工具中修改。")
                     .clicked()
                 {
                     action = selected

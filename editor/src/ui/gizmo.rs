@@ -27,7 +27,7 @@ pub(super) fn controls(editor: &mut Editor, ui: &mut egui::Ui, allow_start: bool
                 ui.selectable_value(&mut editor.transform_space, TransformSpace::World, "世界");
                 ui.selectable_value(&mut editor.transform_space, TransformSpace::Local, "局部")
                     .on_hover_text(
-                        "使用主选对象的层级旋转方向，忽略缩放和镜像；移动整组，或绕主选对象旋转整组。",
+                        "使用主选实体的层级旋转方向，忽略缩放和镜像；移动整组，或绕主选实体旋转整组。",
                     );
             }
             ui.separator();
@@ -38,7 +38,7 @@ pub(super) fn controls(editor: &mut Editor, ui: &mut egui::Ui, allow_start: bool
                     if editor.transform_space == TransformSpace::World {
                         "拖动坐标轴时吸附到绝对世界网格，步长使用世界单位。"
                     } else {
-                        "沿主选对象的局部方向移动，从拖动起点按位移步长吸附。"
+                        "沿主选实体的局部方向移动，从拖动起点按位移步长吸附。"
                     },
                     0.05,
                     1000.,

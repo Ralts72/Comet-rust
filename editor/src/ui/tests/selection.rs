@@ -5,7 +5,7 @@ use comet_render::{FrameFeedback, PickFeedback, ViewToken};
 
 fn setup(editor: &mut Editor) -> Result<Vec<EntityId>> {
     editor.document = comet_editor_core::Document::open(comet_scene::SceneSnapshot {
-        entities: ["对象甲", "对象乙", "对象丙"].map(EntityData::new).to_vec(),
+        entities: ["实体甲", "实体乙", "实体丙"].map(EntityData::new).to_vec(),
         ..Default::default()
     })?;
     Ok(editor

@@ -74,7 +74,7 @@ pub(super) fn draw(
     ui.separator();
     ui.strong("关节");
     if entity.physics.is_none() || entity.character.is_some() || entity.parent.is_some() {
-        ui.weak("关节需要根对象上的非角色刚体。");
+        ui.weak("关节需要根实体上的非角色刚体。");
         return;
     }
     let authored = editor
@@ -154,7 +154,7 @@ pub(super) fn draw(
                                     );
                                     joint.connected_anchor = connected.anchor;
                                 }
-                                edit.vector(ui, "自身锚点（本地，米）", &mut joint.anchor);
+                                edit.vector(ui, "本地锚点（米）", &mut joint.anchor);
                                 edit.vector(
                                     ui,
                                     connected_anchor_label(&joint.settings.connection),
@@ -251,9 +251,9 @@ pub(super) fn draw(
 
 fn name(kind: JointKind) -> &'static str {
     match kind {
-        JointKind::Point => "点约束",
-        JointKind::Hinge => "铰链",
-        JointKind::Slider => "滑轨",
+        JointKind::Point => "点关节",
+        JointKind::Hinge => "铰链关节",
+        JointKind::Slider => "滑动关节",
     }
 }
 fn fields(kind: JointKind) -> &'static [FieldKey] {
@@ -338,9 +338,9 @@ fn replace(
 }
 fn connected_anchor_label(connection: &JointConnection) -> &'static str {
     if matches!(connection, JointConnection::Body(_)) {
-        "连接端锚点（目标本地，米）"
+        "连接锚点（目标本地，米）"
     } else {
-        "连接端锚点（世界，米）"
+        "连接锚点（世界，米）"
     }
 }
 fn settings(
@@ -375,7 +375,7 @@ fn settings(
                     .find(|entity| entity.id == *id)
                     .map(|entity| entity.name.clone())
             })
-            .unwrap_or_else(|| format!("缺失对象 {id}")),
+            .unwrap_or_else(|| format!("缺失实体 {id}")),
         JointConnection::Body(EntityRef::External { .. }) => "外部场景引用".into(),
         JointConnection::Body(EntityRef::InInstance { .. }) => "实例引用".into(),
     };
@@ -451,7 +451,7 @@ fn frames(
     connected: &mut JointFrame,
     edit: &mut Edit,
 ) {
-    edit.vector(ui, "自身锚点（本地，米）", &mut frame.anchor);
+    edit.vector(ui, "本地锚点（米）", &mut frame.anchor);
     edit.vector(
         ui,
         connected_anchor_label(&settings.connection),
@@ -469,7 +469,17 @@ fn axial(
     edit: &mut Edit,
 ) {
     let mut enabled = limits.is_some();
-    if ui.checkbox(&mut enabled, "启用硬限位").changed() {
+    if ui
+        .checkbox(
+            &mut enabled,
+            if angular {
+                "角度限位"
+            } else {
+                "行程限位"
+            },
+        )
+        .changed()
+    {
         *limits = enabled.then_some(JointLimits {
             min: if angular {
                 -std::f32::consts::FRAC_PI_2
@@ -487,11 +497,11 @@ fn axial(
     if let Some(limits) = limits {
         if angular {
             ui.weak("铰链限位跨度不超过 360°；上下限相同会锁定该轴。");
-            edit.angle(ui, "下限 °", &mut limits.min);
-            edit.angle(ui, "上限 °", &mut limits.max);
+            edit.angle(ui, "最小角度 (°)", &mut limits.min);
+            edit.angle(ui, "最大角度 (°)", &mut limits.max);
         } else {
-            edit.number(ui, "下限 m", &mut limits.min, f32::MIN, f32::MAX);
-            edit.number(ui, "上限 m", &mut limits.max, f32::MIN, f32::MAX);
+            edit.number(ui, "最小行程 (m)", &mut limits.min, f32::MIN, f32::MAX);
+            edit.number(ui, "最大行程 (m)", &mut limits.max, f32::MIN, f32::MAX);
         }
     }
     let before_mode = match motor {
@@ -501,9 +511,9 @@ fn axial(
     };
     let mut mode = before_mode;
     egui::ComboBox::from_id_salt("motor")
-        .selected_text(["关闭马达", "速度马达", "位置马达"][mode])
+        .selected_text(["关闭驱动", "速度驱动", "位置驱动"][mode])
         .show_ui(ui, |ui| {
-            for (i, name) in ["关闭马达", "速度马达", "位置马达"].into_iter().enumerate()
+            for (i, name) in ["关闭驱动", "速度驱动", "位置驱动"].into_iter().enumerate()
             {
                 ui.selectable_value(&mut mode, i, name);
             }
@@ -528,9 +538,9 @@ fn axial(
         let effort = match motor {
             JointMotor::Velocity { speed, max_effort } => {
                 if angular {
-                    edit.angle(ui, "速度 °/s", speed);
+                    edit.angle(ui, "目标角速度 (°/s)", speed);
                 } else {
-                    edit.number(ui, "速度 m/s", speed, f32::MIN, f32::MAX);
+                    edit.number(ui, "目标速度 (m/s)", speed, f32::MIN, f32::MAX);
                 }
                 max_effort
             }
@@ -541,21 +551,21 @@ fn axial(
                 max_effort,
             } => {
                 if angular {
-                    edit.angle(ui, "目标 °", target);
+                    edit.angle(ui, "目标角度 (°)", target);
                 } else {
-                    edit.number(ui, "目标 m", target, f32::MIN, f32::MAX);
+                    edit.number(ui, "目标行程 (m)", target, f32::MIN, f32::MAX);
                 }
-                edit.number(ui, "响应频率 Hz", frequency_hz, 0.001, f32::MAX);
-                edit.number(ui, "阻尼比", damping_ratio, 0., f32::MAX);
+                edit.number(ui, "驱动频率 (Hz)", frequency_hz, 0.001, f32::MAX);
+                edit.number(ui, "驱动阻尼比", damping_ratio, 0., f32::MAX);
                 max_effort
             }
         };
         edit.number(
             ui,
             if angular {
-                "最大转矩 N·m"
+                "最大力矩 (N·m)"
             } else {
-                "最大推力 N"
+                "最大驱动力 (N)"
             },
             effort,
             0.,

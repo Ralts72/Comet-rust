@@ -52,8 +52,8 @@ fn hierarchy_drag_reparents_and_root_drop_undoes_as_one_command() -> Result<()> 
     render(&mut editor, vec![]);
     let output = render(&mut editor, vec![]);
     let root_position = text_center(&output, "场景根节点");
-    let parent_position = text_center(&output, "新对象");
-    let child_position = text_center(&output, "新对象 2");
+    let parent_position = text_center(&output, "新实体");
+    let child_position = text_center(&output, "新实体 2");
     let button = |pos, pressed| egui::Event::PointerButton {
         pos,
         button: egui::PointerButton::Primary,
@@ -89,7 +89,7 @@ fn hierarchy_drag_reparents_and_root_drop_undoes_as_one_command() -> Result<()> 
     assert_eq!(editor.selection.active(), Some(child));
     assert_eq!(editor.document.history_len(), 3);
     let reparented = editor.document.shared_source();
-    let child_position = text_center(&output, "新对象 2");
+    let child_position = text_center(&output, "新实体 2");
     drag(&mut editor, child_position, root_position);
     assert_eq!(
         editor

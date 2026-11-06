@@ -30,7 +30,7 @@ struct Fixture {
 
 fn fixture() -> Result<Fixture> {
     let (temp, mut editor, mut assets) = crate::test_support::fixture()?;
-    let mut entity = EntityData::new("可恢复对象");
+    let mut entity = EntityData::new("可恢复实体");
     entity.transform.translation = [1., 2., 3.];
     entity.physics = Some(PhysicsBody {
         motion: BodyMotion::Dynamic,
@@ -38,7 +38,7 @@ fn fixture() -> Result<Fixture> {
     });
     entity.hinge_joint = Some(HingeJoint::default());
     let source_entity = entity.id;
-    let other = EntityData::new("其他对象");
+    let other = EntityData::new("其他实体");
     let source_other = other.id;
     let source = ContentSource {
         base: SceneSnapshot {
@@ -224,7 +224,7 @@ fn explicit_pin_and_structured_overrides_restore_through_widgets_with_undo_redo_
     let other = fields(&f, f.instance, f.source_other);
     let ctx = context();
     let output = expanded(&ctx, &mut f);
-    assert!(!labels(&output, "铰链关节 · 马达").is_empty());
+    assert!(!labels(&output, "铰链关节 · 驱动").is_empty());
     let row = label(&output, "变换 · 位置");
     let restore = labels(&output, "恢复继承")
         .into_iter()
@@ -412,7 +412,7 @@ fn idle_inspection_reuses_one_small_cache_and_recomputes_after_identity_or_versi
 #[test]
 fn authored_and_nested_entities_do_not_offer_direct_instance_restore_actions() -> Result<()> {
     let mut f = fixture()?;
-    let authored = EntityData::new("作者对象");
+    let authored = EntityData::new("作者实体");
     f.selected = authored.id;
     f.editor.document.insert_entity(authored, &mut f.assets)?;
     let ctx = context();

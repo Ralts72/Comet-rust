@@ -185,7 +185,7 @@ fn authored_controls_keep_idle_assets_lazy_and_speed_transactions_cancel_undo_an
         "collapsed bindings and clip menus use accepted metadata"
     );
     let clip = f.frame(vec![]);
-    let row = label(&clip, "片段");
+    let row = label(&clip, "播放片段");
     let anchor = texts(&clip)
         .into_iter()
         .find(|(_, p)| (p.y - row.y).abs() < 2. && p.x > row.x + 20.)
@@ -199,7 +199,7 @@ fn authored_controls_keep_idle_assets_lazy_and_speed_transactions_cancel_undo_an
         "opening clip choices must not load clip products"
     );
     assert!(Arc::ptr_eq(&original, &f.source()));
-    f.press("循环动画");
+    f.press("循环");
     assert!(!f.animator().looping);
     let before_speed = f.source();
     let history = f.editor.document.history_len();
@@ -228,7 +228,7 @@ fn authored_controls_keep_idle_assets_lazy_and_speed_transactions_cancel_undo_an
     assert_eq!(f.source(), changed);
     f.editor.save(&mut f.assets)?;
     assert_eq!(Document::load(&f.editor.source)?.shared_source(), changed);
-    f.press("移除动画控制器");
+    f.press("移除动画");
     assert!(
         f.source()
             .base
@@ -487,7 +487,7 @@ fn binding_repair_and_direct_prefab_fields_keep_source_ids_and_readonly_boundari
         .unwrap()
         .id;
     assert_eq!(bindings[&source], Some(EntityRef::local(source_target)));
-    f.press("循环动画");
+    f.press("循环");
     assert!(
         f.source().instances[0]
             .overrides
@@ -501,11 +501,11 @@ fn binding_repair_and_direct_prefab_fields_keep_source_ids_and_readonly_boundari
     f.editor
         .documents
         .open_browser(crate::documents::BrowserMode::Open);
-    f.press("循环动画");
+    f.press("循环");
     assert!(Arc::ptr_eq(&before, &f.source()));
     f.editor.documents = Default::default();
     f.editor.refresh_resources()?;
-    f.press("循环动画");
+    f.press("循环");
     assert!(Arc::ptr_eq(&before, &f.source()));
     Ok(())
 }
@@ -525,10 +525,10 @@ fn empty_authored_controller_creation_and_play_field_ownership_use_actual_widget
         .data(|data| data.get_temp::<Arc<Choices>>(egui::Id::unique("animation-product-choices")))
         .unwrap();
     f.choose("请选择骨架", &choices.labels[&choices.skeletons[0]]);
-    f.press("添加动画控制器");
+    f.press("添加动画");
     assert_eq!(f.animator().skeleton, choices.skeletons[0]);
     assert!(f.animator().bindings.is_empty());
-    f.press("移除动画控制器");
+    f.press("移除动画");
     assert!(f.source().base.entities[0].animator.is_none());
     f.editor.document.undo()?;
     assert!(f.source().base.entities[0].animator.is_some());
@@ -550,7 +550,7 @@ fn empty_authored_controller_creation_and_play_field_ownership_use_actual_widget
         .animation_state(f.selected)
         .unwrap();
     let before = f.source();
-    f.press("循环动画");
+    f.press("循环");
     assert!(Arc::ptr_eq(&before, &f.source()));
     let output = f.frame(vec![]);
     assert!(texts(&output).iter().any(

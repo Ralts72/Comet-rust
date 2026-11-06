@@ -333,7 +333,7 @@ pub(super) fn draw(
             asset_picker(
                 ui,
                 ("animator-clip", editor.world(), entity.id),
-                "片段",
+                "播放片段",
                 &mut clip,
                 choices
                     .clips
@@ -343,7 +343,7 @@ pub(super) fn draw(
                 &choices,
                 Some("不播放片段"),
             );
-            discrete |= ui.checkbox(&mut looping, "循环动画").changed();
+            discrete |= ui.checkbox(&mut looping, "循环").changed();
             let response = ui.add(
                 egui::DragValue::new(&mut speed)
                     .range(0. ..=f32::MAX)
@@ -389,7 +389,7 @@ pub(super) fn draw(
                     }
                 });
             if authored {
-                remove = ui.small_button("移除动画控制器").clicked();
+                remove = ui.small_button("移除动画").clicked();
             }
         });
         if editable && !cancel {
@@ -438,10 +438,7 @@ pub(super) fn draw(
                 Some("请选择骨架"),
             );
             if ui
-                .add_enabled(
-                    draft.skeleton.is_some(),
-                    egui::Button::new("添加动画控制器"),
-                )
+                .add_enabled(draft.skeleton.is_some(), egui::Button::new("添加动画"))
                 .clicked()
                 && !cancel
             {
@@ -467,7 +464,7 @@ pub(super) fn draw(
             asset_picker(
                 ui,
                 ("skin-asset", editor.world(), entity.id),
-                "产品",
+                "蒙皮资源",
                 &mut asset,
                 choices.skins.iter().copied(),
                 &choices,
@@ -478,7 +475,7 @@ pub(super) fn draw(
             {
                 animator = None;
             }
-            ui.label("动画控制器");
+            ui.label("动画实体");
             entity_picker(
                 ui,
                 ("skin-animator", editor.world(), entity.id),
@@ -521,7 +518,7 @@ pub(super) fn draw(
             asset_picker(
                 ui,
                 ("new-skin", editor.world(), entity.id),
-                "产品",
+                "蒙皮资源",
                 &mut draft.skin,
                 choices.skins.iter().copied(),
                 &choices,
@@ -545,7 +542,7 @@ pub(super) fn draw(
             }
         });
     } else if authored {
-        ui.weak("先为对象添加模型，再绑定蒙皮。");
+        ui.weak("先为实体添加网格渲染，再绑定蒙皮。");
     }
     if !editable {
         ui.weak(if editor.play.is_some() {

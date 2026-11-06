@@ -16,8 +16,8 @@ enum Owner {
 
 impl Editor {
     pub(crate) fn rename_object(&mut self, id: EntityId, name: String) -> Result<()> {
-        ensure!(self.play.is_none(), "请先停止运行，再重命名作者对象");
-        ensure!(!self.is_busy(), "请等待后台任务完成，再重命名对象");
+        ensure!(self.play.is_none(), "请先停止运行，再重命名作者实体");
+        ensure!(!self.is_busy(), "请等待后台任务完成，再重命名实体");
         ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
         ensure!(
             self.document
@@ -26,7 +26,7 @@ impl Editor {
                 .entities
                 .iter()
                 .any(|entity| entity.id == id),
-            "Prefab 内部对象的名称需要在源文件中编辑"
+            "Prefab 内部实体的名称需要在源文件中编辑"
         );
         if !self.document.is_editing() {
             self.picking.clear();
@@ -55,7 +55,7 @@ impl Editor {
         }
         self.instance_owners(assets)?
             .remove(&id)
-            .context("Prefab 内部对象的结构需要在源 Prefab 中编辑")
+            .context("Prefab 内部实体的结构需要在源 Prefab 中编辑")
     }
 
     fn instance_owners(&self, assets: &mut AssetStore) -> Result<BTreeMap<EntityId, Owner>> {
@@ -89,16 +89,16 @@ impl Editor {
         if let Some(id) = parent {
             ensure!(
                 matches!(self.object_owner(id, assets)?, Owner::Authored),
-                "请在源 Prefab 中创建子对象"
+                "请在源 Prefab 中创建子实体"
             );
         }
         let source = self.document.shared_source();
         let mut index = 1;
         let name = loop {
             let name = if index == 1 {
-                "新对象".to_owned()
+                "新实体".to_owned()
             } else {
-                format!("新对象 {index}")
+                format!("新实体 {index}")
             };
             if !source.base.entities.iter().any(|e| e.name == name) {
                 break name;
@@ -110,7 +110,7 @@ impl Editor {
         let id = entity.id;
         self.document.insert_entity(entity, assets)?;
         self.selection.replace([id]);
-        self.status = "已创建对象".into();
+        self.status = "已创建实体".into();
         Ok(())
     }
 
@@ -162,7 +162,7 @@ impl Editor {
             }
         }
         self.selection.replace(selected);
-        self.status = "已复制对象".into();
+        self.status = "已复制实体".into();
         Ok(())
     }
 
@@ -176,7 +176,7 @@ impl Editor {
         let targets: Vec<_> = owners.iter().map(|(id, owner)| owner.target(*id)).collect();
         self.document.remove_selection(&targets, assets)?;
         self.selection.clear();
-        self.status = "已删除对象".into();
+        self.status = "已删除实体".into();
         Ok(())
     }
 
@@ -197,7 +197,7 @@ impl Editor {
         if let Some(parent) = parent {
             ensure!(
                 matches!(self.object_owner(parent, assets)?, Owner::Authored),
-                "不能将对象挂接到 Prefab 内部，请选择作者对象"
+                "不能将实体挂接到 Prefab 内部，请选择作者实体"
             );
         }
         self.document
@@ -242,7 +242,7 @@ impl Editor {
             .collect();
         let mut instances = None;
         for id in ids {
-            let mut parent = *parents.get(&id).context("选中的对象已不存在")?;
+            let mut parent = *parents.get(&id).context("选中的实体已不存在")?;
             let mut covered = false;
             while let Some(ancestor) = parent {
                 if selected.contains(&ancestor) {
@@ -262,7 +262,7 @@ impl Editor {
                         .as_mut()
                         .unwrap()
                         .remove(&id)
-                        .context("Prefab 内部对象的结构需要在源 Prefab 中编辑")?
+                        .context("Prefab 内部实体的结构需要在源 Prefab 中编辑")?
                 };
                 if let Owner::Instance {
                     id: instance,

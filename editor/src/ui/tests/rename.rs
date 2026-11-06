@@ -34,7 +34,7 @@ fn inspector_name_edit_commits_once_and_escape_restores_the_whole_preview() -> R
     fn name_position(shape: &egui::epaint::Shape, x: f32) -> Option<Pos2> {
         match shape {
             egui::epaint::Shape::Text(text)
-                if text.galley.job.text == "新对象" && text.pos.x > x =>
+                if text.galley.job.text == "新实体" && text.pos.x > x =>
             {
                 Some(text.pos + text.galley.rect.center().to_vec2())
             }
@@ -71,7 +71,7 @@ fn inspector_name_edit_commits_once_and_escape_restores_the_whole_preview() -> R
         &mut editor,
         vec![
             key(egui::Key::A, egui::Modifiers::COMMAND),
-            egui::Event::Text("中文对象".into()),
+            egui::Event::Text("中文实体".into()),
         ],
     );
     assert_eq!(
@@ -84,7 +84,7 @@ fn inspector_name_edit_commits_once_and_escape_restores_the_whole_preview() -> R
             .find(|entity| entity.id == id)
             .unwrap()
             .name,
-        "中文对象"
+        "中文实体"
     );
     assert!(editor.document.is_editing());
     assert_eq!(editor.document.history_len(), history);
@@ -106,7 +106,7 @@ fn inspector_name_edit_commits_once_and_escape_restores_the_whole_preview() -> R
         &mut editor,
         vec![
             key(egui::Key::A, egui::Modifiers::COMMAND),
-            egui::Event::Text("重命名对象".into()),
+            egui::Event::Text("重命名实体".into()),
         ],
     );
     render(
@@ -125,7 +125,7 @@ fn inspector_name_edit_commits_once_and_escape_restores_the_whole_preview() -> R
             .find(|entity| entity.id == id)
             .unwrap()
             .name,
-        "重命名对象"
+        "重命名实体"
     );
     editor.document.undo()?;
     assert_eq!(editor.document.shared_source(), before);

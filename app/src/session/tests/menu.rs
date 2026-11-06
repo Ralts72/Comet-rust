@@ -193,7 +193,7 @@ fn menu_save_continue_and_exit_use_the_real_host_without_replaying_stop() -> Res
     game.open()?;
     let steps = game.app.play.steps();
     let world = game.app.play.world_id();
-    game.click("保存检查点")?;
+    game.click("保存进度")?;
     let saved = game
         .app
         .checkpoints

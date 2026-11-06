@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore, EntityId, EntityId)> {
     let (temp, mut editor, assets) = crate::test_support::fixture()?;
-    let mut owner = EntityData::new("关节对象");
+    let mut owner = EntityData::new("关节实体");
     owner.transform.translation = [2., 3., 4.];
     owner.transform.rotation = Quat::from_rotation_y(0.3).to_array();
     owner.physics = Some(PhysicsBody {
         motion: BodyMotion::Dynamic,
         ..Default::default()
     });
-    let mut target = EntityData::new("连接对象");
+    let mut target = EntityData::new("连接实体");
     target.transform.translation = [5., 1., -2.];
     target.transform.scale = [2., 6., 3.];
     target.transform.rotation = Quat::from_rotation_z(0.4).to_array();
@@ -159,7 +159,7 @@ fn authored_joint_picker_connects_to_one_direct_instance_with_atomic_anchor_and_
         &mut editor,
         &mut assets,
         owner,
-        label(&output, "添加点约束"),
+        label(&output, "添加点关节"),
     );
     let before = editor.document.shared_source();
     let references = editor.cached_field_references(&ctx, owner, &mut assets)?;
@@ -243,7 +243,7 @@ fn adding_dragging_and_removing_a_joint_use_real_widgets_and_one_undo_step_per_g
         &mut editor,
         &mut assets,
         owner,
-        label(&output, "添加点约束"),
+        label(&output, "添加点关节"),
     );
     assert_eq!(editor.document.history_len(), 1);
     assert_eq!(point(&editor, owner).connected_anchor, [2., 3., 4.]);
@@ -330,7 +330,7 @@ fn adding_dragging_and_removing_a_joint_use_real_widgets_and_one_undo_step_per_g
         &mut editor,
         &mut assets,
         owner,
-        label(&output, "移除点约束"),
+        label(&output, "移除点关节"),
     );
     assert!(
         editor
@@ -359,7 +359,7 @@ fn prefab_joint_widgets_only_write_existing_field_overrides() -> Result<()> {
         ..Default::default()
     });
     entity.point_joint = Some(PointJoint::default());
-    let mut connected = EntityData::new("继承连接对象");
+    let mut connected = EntityData::new("继承连接实体");
     connected.physics = Some(PhysicsBody::default());
     let connected_id = connected.id;
     entity.point_joint.as_mut().unwrap().settings.connection =
@@ -496,7 +496,7 @@ fn prefab_connection_selection_stores_source_identity_and_remaps_on_save_and_exp
     assets.refresh()?;
     let asset = comet_asset_pipeline::SourceMeta::load(&file)?.id;
     let instance = comet_core::InstanceId::new();
-    let mut outside = EntityData::new("作者对象不应成为 Prefab 局部连接目标");
+    let mut outside = EntityData::new("作者实体不应成为 Prefab 局部连接目标");
     outside.physics = Some(PhysicsBody::default());
     editor.document = Document::open_source(comet_scene::ContentSource {
         base: SceneSnapshot {
@@ -618,7 +618,7 @@ fn non_dynamic_owners_add_unbound_joints_and_only_offer_dynamic_body_targets() -
         &mut editor,
         &mut assets,
         owner,
-        label(&output, "添加点约束"),
+        label(&output, "添加点关节"),
     );
     assert_eq!(
         point(&editor, owner).settings.connection,
@@ -703,7 +703,7 @@ fn changing_connection_rebases_scaled_rotated_target_anchors_and_passive_draw_pr
         &mut editor,
         &mut assets,
         owner,
-        label(&output, "连接对象"),
+        label(&output, "连接实体"),
     );
     let source = editor.document.shared_source();
     let joint = source
@@ -765,7 +765,7 @@ fn play_keeps_joint_widgets_read_only_and_editor_commands_reject_changes() -> Re
         &mut editor,
         &mut assets,
         owner,
-        label(&output, "移除点约束"),
+        label(&output, "移除点关节"),
     );
     assert!(
         editor

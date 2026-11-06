@@ -161,7 +161,7 @@ fn rename_previews_keep_identity_and_merge_until_commit_or_cancel() -> Result<()
     let id = editor.selection.active().unwrap();
     let before = editor.document.shared_source();
     let history = editor.document.history_len();
-    for name in ["", "中文", "中文对象"] {
+    for name in ["", "中文", "中文实体"] {
         editor.rename_object(id, name.into())?;
         assert_eq!(editor.document.history_len(), history);
     }
@@ -176,7 +176,7 @@ fn rename_previews_keep_identity_and_merge_until_commit_or_cancel() -> Result<()
             .find(|entity| entity.id == id)
             .unwrap()
             .name,
-        "中文对象"
+        "中文实体"
     );
     editor.save(&mut assets)?;
     assert_eq!(

@@ -61,7 +61,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                 if ui
                     .add_enabled(
                         editor.play.is_none() && !editor.is_busy(),
-                        egui::Button::new("新建对象"),
+                        egui::Button::new("创建实体"),
                     )
                     .clicked()
                 {
@@ -116,7 +116,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
             if can_edit {
                 let response = ui
                     .button(format!("{}根节点", editor.document_kind_label()))
-                    .on_hover_text("将作者对象拖到这里，取消父级并保持世界变换。");
+                    .on_hover_text("将作者实体拖到这里，取消父级并保持世界变换。");
                 action = drop_target(ui, &response, world, editor.selection.generation(), None);
                 if response.clicked() {
                     editor.selection.clear();
@@ -234,7 +234,7 @@ impl Tree<'_> {
                 response.context_menu(|ui| {
                     ui.add_enabled_ui(self.can_edit, |ui| {
                         for (label, operation) in [
-                            ("创建子对象", Action::CreateChild(entity.id)),
+                            ("创建子实体", Action::CreateChild(entity.id)),
                             ("复制", Action::Duplicate(entity.id)),
                             ("删除", Action::Delete(entity.id)),
                         ] {

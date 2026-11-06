@@ -27,7 +27,7 @@ impl Fixture {
                 .unwrap()
                 .id
         });
-        let entity = EntityData::new("声音对象");
+        let entity = EntityData::new("声音实体");
         let selected = entity.id;
         editor.document = Document::open(SceneSnapshot {
             version: 7,
@@ -79,7 +79,7 @@ impl Fixture {
         let output = self.frame(vec![]);
         let row = texts(&output)
             .into_iter()
-            .find(|(text, _)| text == "音频")
+            .find(|(text, _)| text == "音频片段")
             .unwrap()
             .1;
         let anchor = texts(&output)
@@ -199,7 +199,7 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
             .any(|(text, _)| text == "选择音频")
     );
     f.choose("first.wav");
-    f.press("添加声音");
+    f.press("添加音频源");
     assert_eq!(f.source().unwrap().clip, f.clips[0]);
     assert_eq!(
         f.editor.document.shared_source().base.version,
@@ -227,13 +227,13 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
     assert_eq!(f.editor.document.history_len(), history + 1);
     let gain = f.source().unwrap().gain;
     assert!(gain < 1.);
-    f.press("空间声音");
+    f.press("空间音效");
     assert!(f.source().unwrap().spatial);
     assert_eq!(f.editor.document.shared_source().base.version, 8);
     let before_distance = f.editor.document.shared_source();
     let history = f.editor.document.history_len();
     let output = f.frame(vec![]);
-    let start = distance_control(&output, "近距离（米）");
+    let start = distance_control(&output, "开始衰减距离（米）");
     let end = start + Vec2::new(12., 0.);
     f.frame(vec![Event::PointerMoved(start), button(start, true)]);
     f.frame(vec![Event::PointerMoved(end)]);
@@ -244,7 +244,7 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
     assert_eq!(f.editor.document.shared_source(), before_distance);
     assert_eq!(f.editor.document.history_len(), history);
     let output = f.frame(vec![]);
-    let start = distance_control(&output, "远距离（米）");
+    let start = distance_control(&output, "最大距离（米）");
     let end = start + Vec2::new(15., 0.);
     f.frame(vec![Event::PointerMoved(start), button(start, true)]);
     f.frame(vec![Event::PointerMoved(end)]);
@@ -255,7 +255,7 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
     f.editor.document.undo()?;
     assert_eq!(f.editor.document.shared_source(), before_distance);
     f.editor.document.redo()?;
-    f.press("空间声音");
+    f.press("空间音效");
     assert!(!f.source().unwrap().spatial);
     assert_eq!(
         f.source().unwrap().max_distance,
@@ -263,7 +263,7 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
         "switching back to 2d preserves the configured spatial profile"
     );
     f.press("循环");
-    f.press("自动播放");
+    f.press("启动时播放");
     f.choose("second.wav");
     let configured = f.source().unwrap();
     assert_eq!(configured.clip, f.clips[1]);
@@ -273,7 +273,7 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
     f.editor.save(&mut f.assets)?;
     let saved = f.editor.document.shared_source();
     assert_eq!(Document::load(&f.editor.source)?.shared_source(), saved);
-    f.press("移除声音");
+    f.press("移除音频源");
     assert!(f.source().is_none());
     f.editor.document.undo()?;
     assert_eq!(f.editor.document.shared_source(), saved);
@@ -329,7 +329,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
     f.selected = f.editor.snapshot(&mut f.assets)?.entities[0].id;
     let original = f.editor.document.shared_source();
     let output = f.frame(vec![]);
-    assert!(!texts(&output).iter().any(|(text, _)| text == "移除声音"));
+    assert!(!texts(&output).iter().any(|(text, _)| text == "移除音频源"));
     f.press("循环");
     let configured = f.editor.document.shared_source();
     assert_eq!(configured.instances[0].overrides.len(), 1);
@@ -339,7 +339,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
     f.editor.document.undo()?;
     assert_eq!(f.editor.document.shared_source(), original);
     f.editor.document.redo()?;
-    f.press("空间声音");
+    f.press("空间音效");
     let spatial = f.editor.document.shared_source();
     assert_eq!(spatial.instances[0].overrides.len(), 2);
     assert!(
@@ -351,7 +351,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
                 && change.value == FieldValue::Bool(true))
     );
     let output = f.frame(vec![]);
-    let start = distance_control(&output, "远距离（米）");
+    let start = distance_control(&output, "最大距离（米）");
     let end = start + Vec2::new(10., 0.);
     f.frame(vec![Event::PointerMoved(start), button(start, true)]);
     f.frame(vec![Event::PointerMoved(end)]);
@@ -406,10 +406,10 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
     assert!(
         texts(&output)
             .iter()
-            .any(|(text, _)| text == "嵌套实例的声音请在源 Prefab 中编辑。")
+            .any(|(text, _)| text == "嵌套实例的音频源请在源 Prefab 中编辑。")
     );
     f.press("循环");
-    f.press("空间声音");
+    f.press("空间音效");
     assert!(Arc::ptr_eq(&nested, &f.editor.document.shared_source()));
     assert!(
         f.editor
@@ -432,7 +432,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
             .any(|(text, _)| text == "恢复运行后才会出声。")
     );
     f.press("循环");
-    f.press("空间声音");
+    f.press("空间音效");
     assert!(Arc::ptr_eq(&before, &f.editor.document.shared_source()));
     f.press("播放声音");
     let frame = f.editor.play.as_mut().unwrap().audio_frame()?.unwrap();

@@ -34,12 +34,19 @@ pub(crate) fn show(
                 if ui.button("新建场景").clicked() {
                     editor.documents.open_browser(BrowserMode::NewScene);
                 }
-                if ui.button("打开文档").clicked() {
+                if ui.button("打开场景 / Prefab").clicked() {
                     editor.documents.open_browser(BrowserMode::Open);
                 }
                 project::menu(editor, ui);
                 if ui
-                    .add_enabled(editor.play.is_none(), egui::Button::new("保存"))
+                    .add_enabled(
+                        editor.play.is_none(),
+                        egui::Button::new(if editor.document.prefab_asset().is_some() {
+                            "保存 Prefab"
+                        } else {
+                            "保存场景"
+                        }),
+                    )
                     .clicked()
                 {
                     let result = editor.save(assets);
@@ -59,7 +66,7 @@ pub(crate) fn show(
                     let result = editor.commit().and_then(|_| editor.document.redo());
                     editor.notice(result);
                 }
-                if ui.button("导出游戏").clicked() {
+                if ui.button("导出 App...").clicked() {
                     editor.export.open = true;
                 }
                 ui.separator();
@@ -139,15 +146,15 @@ pub(crate) fn show(
                     });
                     if editor.selection.is_empty() {
                         inspector::clear_model_draft(ui.ctx());
-                        ui.weak("请在场景树或视口中选择对象。");
+                        ui.weak("请在层级或视口中选择实体。");
                     } else if editor.selection.len() > 1 {
                         inspector::clear_model_draft(ui.ctx());
-                        ui.strong(format!("已选择 {} 个对象", editor.selection.len()));
+                        ui.strong(format!("已选择 {} 个实体", editor.selection.len()));
                         if let Some(entity) = entity {
-                            ui.label(format!("主对象：{}", entity.name));
+                            ui.label(format!("主实体：{}", entity.name));
                         }
                         ui.weak(
-                            "拖动视口坐标轴可成组移动。右键层级对象可批量复制、删除或调整父级。",
+                            "拖动视口坐标轴可成组移动。右键层级实体可批量复制、删除或调整父级。",
                         );
                         if editor.play.is_some() {
                             ui.weak("运行期间暂不支持成组修改。");

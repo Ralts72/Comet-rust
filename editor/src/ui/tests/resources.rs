@@ -253,7 +253,7 @@ fn exercise_physics_resource(nested: bool) -> Result<()> {
 
     c.press("落体甲", hierarchy());
     let output = c.frame(vec![]);
-    let mass = position(&output, "质量", inspector());
+    let mass = position(&output, "质量 (kg)", inspector());
     c.drag(mass);
     assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
     let authored = c.editor.document.shared_source();
@@ -298,7 +298,7 @@ fn exercise_physics_resource(nested: bool) -> Result<()> {
     );
     c.press("落体甲", hierarchy());
     let output = c.frame(vec![]);
-    c.drag(position(&output, "质量", inspector()));
+    c.drag(position(&output, "质量 (kg)", inspector()));
     assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
     assert!(Arc::ptr_eq(&authored, &c.editor.document.shared_source()));
     assert_eq!(

@@ -43,7 +43,7 @@ pub(super) fn draw(
         return;
     }
     if entity.parent.is_some() {
-        ui.weak("物理组件仅支持场景根对象。");
+        ui.weak("物理组件仅支持场景根实体。");
         return;
     }
     if editor.play.is_some() {
@@ -61,7 +61,7 @@ pub(super) fn draw(
                         None,
                     );
                 }
-                if ui.button("添加胶囊角色").clicked() {
+                if ui.button("添加角色控制器").clicked() {
                     replace(
                         editor,
                         assets,
@@ -82,7 +82,7 @@ pub(super) fn draw(
             let mut character = entity.character.clone();
             if ui
                 .button(if character.is_some() {
-                    "移除刚体及角色"
+                    "移除刚体及角色控制器"
                 } else {
                     "移除刚体"
                 })
@@ -150,11 +150,11 @@ pub(super) fn draw(
                     half_height,
                     radius,
                 } => {
-                    edit.number(ui, "半高（不含端部）", half_height, 0., f32::MAX);
+                    edit.number(ui, "胶囊半高（不含端部，米）", half_height, 0., f32::MAX);
                     edit.number(ui, "半径", radius, 0.001, f32::MAX);
                 }
             }
-            edit.number(ui, "质量", &mut body.mass, 0.001, f32::MAX);
+            edit.number(ui, "质量 (kg)", &mut body.mass, 0.001, f32::MAX);
             edit.number(ui, "摩擦系数", &mut body.friction, 0., f32::MAX);
             edit.number(ui, "弹性系数", &mut body.restitution, 0., 1.);
             ui.collapsing("碰撞过滤", |ui| {
@@ -168,16 +168,22 @@ pub(super) fn draw(
             });
             ui.separator();
             if let Some(controller) = &mut character {
-                ui.strong("角色控制");
-                if ui.button("移除角色控制").clicked() {
+                ui.strong("角色控制器");
+                if ui.button("移除角色控制器").clicked() {
                     character = None;
                     edit.finish = true;
                 } else {
                     edit.checkbox(ui, &mut controller.player_controlled, "玩家控制");
-                    edit.number(ui, "移动速度", &mut controller.move_speed, 0.001, f32::MAX);
                     edit.number(
                         ui,
-                        "蹲伏速度",
+                        "移动速度 (m/s)",
+                        &mut controller.move_speed,
+                        0.001,
+                        f32::MAX,
+                    );
+                    edit.number(
+                        ui,
+                        "蹲伏速度 (m/s)",
                         &mut controller.crouch_speed,
                         0.001,
                         f32::MAX,
@@ -196,24 +202,42 @@ pub(super) fn draw(
                         0.001,
                         f32::MAX,
                     );
-                    edit.number(ui, "跳跃速度", &mut controller.jump_speed, 0.001, f32::MAX);
-                    edit.number(ui, "重力", &mut controller.gravity, 0.001, f32::MAX);
                     edit.number(
                         ui,
-                        "最大坡度（度）",
+                        "跳跃速度 (m/s)",
+                        &mut controller.jump_speed,
+                        0.001,
+                        f32::MAX,
+                    );
+                    edit.number(ui, "重力 (m/s²)", &mut controller.gravity, 0.001, f32::MAX);
+                    edit.number(
+                        ui,
+                        "最大坡度 (°)",
                         &mut controller.max_slope_degrees,
                         0.,
                         89.9,
                     );
-                    edit.number(ui, "台阶高度", &mut controller.step_height, 0., f32::MAX);
-                    edit.number(ui, "贴地距离", &mut controller.snap_distance, 0., f32::MAX);
+                    edit.number(
+                        ui,
+                        "台阶高度 (m)",
+                        &mut controller.step_height,
+                        0.,
+                        f32::MAX,
+                    );
+                    edit.number(
+                        ui,
+                        "地面吸附距离 (m)",
+                        &mut controller.snap_distance,
+                        0.,
+                        f32::MAX,
+                    );
                 }
             } else {
                 let compatible = body.motion == BodyMotion::Kinematic
                     && !body.sensor
                     && matches!(body.shape, ColliderShape::Capsule { .. });
                 if ui
-                    .add_enabled(compatible, egui::Button::new("添加角色控制"))
+                    .add_enabled(compatible, egui::Button::new("添加角色控制器"))
                     .on_hover_text("需要非触发器的运动学胶囊刚体、统一正缩放及直立朝向。")
                     .clicked()
                 {
@@ -260,16 +284,16 @@ fn new_character(editor: &Editor) -> Character {
 
 fn motion_name(motion: BodyMotion) -> &'static str {
     match motion {
-        BodyMotion::Fixed => "静态刚体",
-        BodyMotion::Dynamic => "动态刚体",
-        BodyMotion::Kinematic => "运动学刚体",
+        BodyMotion::Fixed => "静态",
+        BodyMotion::Dynamic => "动态",
+        BodyMotion::Kinematic => "运动学",
     }
 }
 fn shape_name(shape: &ColliderShape) -> &'static str {
     match shape {
-        ColliderShape::Box { .. } => "长方体",
+        ColliderShape::Box { .. } => "盒体",
         ColliderShape::Sphere { .. } => "球体",
-        ColliderShape::Capsule { .. } => "胶囊体",
+        ColliderShape::Capsule { .. } => "胶囊",
     }
 }
 
@@ -304,11 +328,11 @@ fn prefab_fields(
     }
     // Preserve the existing stable field overrides without introducing structural overrides.
     for (label, key) in [
-        ("质量", schema::MASS),
+        ("质量 (kg)", schema::MASS),
         ("摩擦系数", schema::FRICTION),
-        ("移动速度", schema::MOVE_SPEED),
-        ("跳跃速度", schema::JUMP_SPEED),
-        ("蹲伏速度", schema::CROUCH_SPEED),
+        ("移动速度 (m/s)", schema::MOVE_SPEED),
+        ("跳跃速度 (m/s)", schema::JUMP_SPEED),
+        ("蹲伏速度 (m/s)", schema::CROUCH_SPEED),
         ("蹲伏高度比例", schema::CROUCH_HEIGHT_RATIO),
     ] {
         let Some(schema::FieldValue::Scalar(mut value)) =
