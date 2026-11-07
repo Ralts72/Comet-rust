@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, ensure};
-use comet_asset_data::product::{Product, ProductFile, ProductIndex};
+use comet_asset_data::product::{
+    Product, ProductFile, ProductIndex, validate_scene_dependency_kinds,
+};
 use comet_core::{AssetId, digest};
 use comet_scene::{ContentSource, PrefabResolver, SceneSnapshot};
 use std::{
@@ -40,17 +42,9 @@ impl AssetStore {
                 let expanded = s
                     .expand(&mut store)
                     .with_context(|| format!("expand product {id}"))?;
-                let kinds = store
-                    .index
-                    .products
-                    .iter()
-                    .map(|(id, e)| (*id, e.kind))
-                    .collect();
-                Product::Scene(ContentSource {
-                    base: expanded,
-                    ..Default::default()
-                })
-                .validate_dependency_kinds(&kinds)?;
+                validate_scene_dependency_kinds(&expanded, |id| {
+                    store.index.products.get(&id).map(|entry| entry.kind)
+                })?;
             }
         }
         store.cache.clear();
@@ -123,13 +117,8 @@ impl AssetStore {
                 && file.payload.dependencies() == entry.dependencies,
             "product/index mismatch {id}"
         );
-        let kinds = self
-            .index
-            .products
-            .iter()
-            .map(|(id, e)| (*id, e.kind))
-            .collect();
-        file.payload.validate_dependency_kinds(&kinds)?;
+        file.payload
+            .validate_dependency_kinds(|id| self.index.products.get(&id).map(|entry| entry.kind))?;
         match &file.payload {
             Product::Skin(skin) => {
                 let skeleton = self.load(skin.skeleton)?;
@@ -302,23 +291,15 @@ impl AssetStore {
         }
         Ok((skeletons, animations))
     }
-    /// Return enabled bindings' source text; Runtime compiles it without owning an AssetStore.
+    /// Validate all world dependency kinds, then return enabled scripts for Runtime compilation.
     pub fn script_sources(
         &mut self,
         snapshot: &SceneSnapshot,
     ) -> Result<BTreeMap<AssetId, String>> {
         snapshot.validate()?;
-        let kinds = self
-            .index
-            .products
-            .iter()
-            .map(|(id, entry)| (*id, entry.kind))
-            .collect();
-        Product::Scene(ContentSource {
-            base: snapshot.clone(),
-            ..Default::default()
-        })
-        .validate_dependency_kinds(&kinds)?;
+        validate_scene_dependency_kinds(snapshot, |id| {
+            self.index.products.get(&id).map(|entry| entry.kind)
+        })?;
         let ids: BTreeSet<_> = snapshot
             .entities
             .iter()

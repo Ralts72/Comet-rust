@@ -110,9 +110,13 @@ fn authored_and_prefab_override_audio_dependencies_require_audio_products() -> R
     });
     assert_eq!(product.dependencies(), [clip].into_iter().collect());
     let mut kinds = BTreeMap::from([(clip, AssetKind::Audio)]);
-    product.validate_dependency_kinds(&kinds)?;
+    product.validate_dependency_kinds(|id| kinds.get(&id).copied())?;
     kinds.insert(clip, AssetKind::Material);
-    assert!(product.validate_dependency_kinds(&kinds).is_err());
+    assert!(
+        product
+            .validate_dependency_kinds(|id| kinds.get(&id).copied())
+            .is_err()
+    );
 
     let prefab = AssetId::new();
     let overridden = Product::Scene(ContentSource {
@@ -133,8 +137,12 @@ fn authored_and_prefab_override_audio_dependencies_require_audio_products() -> R
         [prefab, clip].into_iter().collect()
     );
     kinds.insert(prefab, AssetKind::Prefab);
-    assert!(overridden.validate_dependency_kinds(&kinds).is_err());
+    assert!(
+        overridden
+            .validate_dependency_kinds(|id| kinds.get(&id).copied())
+            .is_err()
+    );
     kinds.insert(clip, AssetKind::Audio);
-    overridden.validate_dependency_kinds(&kinds)?;
+    overridden.validate_dependency_kinds(|id| kinds.get(&id).copied())?;
     Ok(())
 }

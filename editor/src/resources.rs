@@ -1,7 +1,6 @@
 use crate::jobs::{Event, Job};
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
-use comet_asset_data::product::Product;
 use comet_asset_pipeline::SourceCatalog;
 use comet_core::{AssetId, ProjectPaths, WorldId};
 use comet_scene::{ContentSource, SceneSnapshot};
@@ -81,12 +80,6 @@ pub(crate) fn validate_sources(
     assets: &mut AssetStore,
     prefab_asset: Option<AssetId>,
 ) -> Result<SceneSnapshot> {
-    let kinds = assets
-        .index()
-        .products
-        .iter()
-        .map(|(id, entry)| (*id, entry.kind))
-        .collect();
     let mut current = None;
     let mut scripts = comet_runtime::ScriptValidator::default();
     for (index, source) in retained.iter().enumerate() {
@@ -95,16 +88,13 @@ pub(crate) fn validate_sources(
             None => source.expand(assets),
         }
         .context("资源更新与文档或历史中的 Prefab 不兼容")?;
-        // Render extraction skips hidden geometry and does not consume external scene links.
-        Product::Scene(ContentSource {
-            base: snapshot.clone(),
-            ..Default::default()
-        })
-        .validate_dependency_kinds(&kinds)
-        .context("资源更新缺少文档或历史依赖的产品，或产品类型不兼容")?;
+        // Script preparation checks every asset reference, including hidden geometry and external links.
+        let sources = assets
+            .script_sources(&snapshot)
+            .context("资源更新缺少文档或历史依赖的产品，或产品类型不兼容")?;
         validate_authoring(&snapshot, assets).context("资源更新缺少文档或历史依赖的产品")?;
         scripts
-            .validate(&snapshot, &assets.script_sources(&snapshot)?)
+            .validate(&snapshot, &sources)
             .context("资源更新与文档或历史中的脚本不兼容")?;
         if index == 0 {
             current = Some(snapshot);

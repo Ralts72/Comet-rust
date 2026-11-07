@@ -143,16 +143,16 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
     let products: BTreeMap<_, _> = inputs
         .iter()
         .flat_map(|i| i.products.iter())
-        .map(|p| (p.file.id, p.file.payload.clone()))
+        .map(|p| (p.file.id, &p.file.payload))
         .collect();
-    let kinds = products.iter().map(|(id, p)| (*id, p.kind())).collect();
+    let kind_of = |id| products.get(&id).map(|product| product.kind());
     let mut resolver = Sources(&products);
     for input in &inputs {
         for product in &input.products {
             product
                 .file
                 .payload
-                .validate_dependency_kinds(&kinds)
+                .validate_dependency_kinds(kind_of)
                 .with_context(|| format!("dependencies of {}", input.path.display()))?;
             match &product.file.payload {
                 Product::Skin(skin) => {
@@ -185,11 +185,7 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
                         skin.validate_mesh(mesh)?;
                     }
                 }
-                Product::Scene(ContentSource {
-                    base: expanded,
-                    ..Default::default()
-                })
-                .validate_dependency_kinds(&kinds)?;
+                comet_asset_data::product::validate_scene_dependency_kinds(&expanded, kind_of)?;
             }
         }
     }
@@ -395,8 +391,8 @@ fn verify_snapshot(assets: &Path, paths: &[PathBuf], inputs: &[Input]) -> Result
     }
     Ok(())
 }
-struct Sources<'a>(&'a BTreeMap<AssetId, Product>);
-impl PrefabResolver for Sources<'_> {
+struct Sources<'a, 'p>(&'a BTreeMap<AssetId, &'p Product>);
+impl PrefabResolver for Sources<'_, '_> {
     fn prefab(&mut self, id: AssetId) -> Result<ContentSource> {
         match self.0.get(&id) {
             Some(Product::Prefab(s)) => Ok(s.clone()),

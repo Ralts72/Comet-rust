@@ -82,12 +82,20 @@ fn script_bindings_and_external_entity_parameters_require_their_actual_asset_kin
         [asset, external].into_iter().collect()
     );
     let mut kinds = BTreeMap::from([(asset, AssetKind::Script), (external, AssetKind::Scene)]);
-    product.validate_dependency_kinds(&kinds)?;
+    product.validate_dependency_kinds(|id| kinds.get(&id).copied())?;
     kinds.insert(asset, AssetKind::Material);
-    assert!(product.validate_dependency_kinds(&kinds).is_err());
+    assert!(
+        product
+            .validate_dependency_kinds(|id| kinds.get(&id).copied())
+            .is_err()
+    );
     kinds.insert(asset, AssetKind::Script);
     kinds.insert(external, AssetKind::Prefab);
-    assert!(product.validate_dependency_kinds(&kinds).is_err());
+    assert!(
+        product
+            .validate_dependency_kinds(|id| kinds.get(&id).copied())
+            .is_err()
+    );
     Ok(())
 }
 
@@ -111,9 +119,13 @@ fn prefab_script_asset_overrides_require_script_products() -> Result<()> {
         ..Default::default()
     });
     let mut kinds = BTreeMap::from([(prefab, AssetKind::Prefab), (script, AssetKind::Script)]);
-    product.validate_dependency_kinds(&kinds)?;
+    product.validate_dependency_kinds(|id| kinds.get(&id).copied())?;
     kinds.insert(script, AssetKind::Material);
-    assert!(product.validate_dependency_kinds(&kinds).is_err());
+    assert!(
+        product
+            .validate_dependency_kinds(|id| kinds.get(&id).copied())
+            .is_err()
+    );
     Ok(())
 }
 

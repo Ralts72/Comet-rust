@@ -3,7 +3,7 @@ use crate::animation::{AnimationClipData, MAX_SKIN_VERTICES, SkeletonData, SkinD
 pub use crate::{audio::AudioData, navigation::NavigationData};
 use anyhow::{Context, Result, ensure};
 use comet_core::{AssetId, validate_digest};
-use comet_scene::{ContentSource, EntityRef, schema};
+use comet_scene::{ContentSource, EntityRef, SceneSnapshot, schema};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -235,50 +235,17 @@ impl Product {
             _ => BTreeSet::new(),
         }
     }
-    pub fn validate_dependency_kinds(&self, kinds: &BTreeMap<AssetId, AssetKind>) -> Result<()> {
-        let expect = |id: AssetId, kind: AssetKind| -> Result<()> {
-            ensure!(
-                kinds.get(&id) == Some(&kind),
-                "asset {id} expected {kind:?}, found {:?}",
-                kinds.get(&id)
-            );
-            Ok(())
-        };
+    pub fn validate_dependency_kinds(
+        &self,
+        kind_of: impl Fn(AssetId) -> Option<AssetKind>,
+    ) -> Result<()> {
+        let expect = |id, kind| expect_kind(&kind_of, id, kind);
         for id in self.dependencies() {
-            ensure!(kinds.contains_key(&id), "missing dependency {id}");
+            ensure!(kind_of(id).is_some(), "missing dependency {id}");
         }
         match self {
             Self::Scene(s) | Self::Prefab(s) => {
-                for e in &s.base.entities {
-                    if let Some(m) = &e.model {
-                        expect(m.mesh, AssetKind::Mesh)?;
-                        expect(m.surface.material, AssetKind::Material)?;
-                    }
-                    if let Some(script) = &e.script {
-                        expect(script.asset, AssetKind::Script)?;
-                    }
-                    if let Some(animator) = &e.animator {
-                        expect(animator.skeleton, AssetKind::Skeleton)?;
-                        if let Some(clip) = animator.clip {
-                            expect(clip, AssetKind::AnimationClip)?;
-                        }
-                    }
-                    if let Some(skin) = &e.skin {
-                        expect(skin.skin, AssetKind::Skin)?;
-                    }
-                    if let Some(audio) = &e.audio_source {
-                        expect(audio.clip, AssetKind::Audio)?;
-                    }
-                    if let Some(data) = e.navigation_region.as_ref().and_then(|region| region.data)
-                    {
-                        expect(data, AssetKind::Navigation)?;
-                    }
-                    for r in schema::entity_references(e) {
-                        if let EntityRef::External { scene, .. } = r {
-                            expect(scene, AssetKind::Scene)?;
-                        }
-                    }
-                }
+                validate_entity_dependency_kinds(&s.base, &kind_of)?;
                 for i in &s.instances {
                     expect(i.prefab, AssetKind::Prefab)?;
                     for o in &i.overrides {
@@ -325,6 +292,67 @@ impl Product {
         Ok(())
     }
 }
+/// Check a borrowed world without constructing a temporary product or copying its index.
+pub fn validate_scene_dependency_kinds(
+    snapshot: &SceneSnapshot,
+    kind_of: impl Fn(AssetId) -> Option<AssetKind>,
+) -> Result<()> {
+    for id in snapshot.asset_dependencies() {
+        ensure!(kind_of(id).is_some(), "missing dependency {id}");
+    }
+    validate_entity_dependency_kinds(snapshot, &kind_of)
+}
+
+fn expect_kind(
+    kind_of: &impl Fn(AssetId) -> Option<AssetKind>,
+    id: AssetId,
+    expected: AssetKind,
+) -> Result<()> {
+    let actual = kind_of(id);
+    ensure!(
+        actual == Some(expected),
+        "asset {id} expected {expected:?}, found {actual:?}"
+    );
+    Ok(())
+}
+
+fn validate_entity_dependency_kinds(
+    snapshot: &SceneSnapshot,
+    kind_of: &impl Fn(AssetId) -> Option<AssetKind>,
+) -> Result<()> {
+    let expect = |id, kind| expect_kind(kind_of, id, kind);
+    for e in &snapshot.entities {
+        if let Some(m) = &e.model {
+            expect(m.mesh, AssetKind::Mesh)?;
+            expect(m.surface.material, AssetKind::Material)?;
+        }
+        if let Some(script) = &e.script {
+            expect(script.asset, AssetKind::Script)?;
+        }
+        if let Some(animator) = &e.animator {
+            expect(animator.skeleton, AssetKind::Skeleton)?;
+            if let Some(clip) = animator.clip {
+                expect(clip, AssetKind::AnimationClip)?;
+            }
+        }
+        if let Some(skin) = &e.skin {
+            expect(skin.skin, AssetKind::Skin)?;
+        }
+        if let Some(audio) = &e.audio_source {
+            expect(audio.clip, AssetKind::Audio)?;
+        }
+        if let Some(data) = e.navigation_region.as_ref().and_then(|region| region.data) {
+            expect(data, AssetKind::Navigation)?;
+        }
+        for r in schema::entity_references(e) {
+            if let EntityRef::External { scene, .. } = r {
+                expect(scene, AssetKind::Scene)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProductFile {
