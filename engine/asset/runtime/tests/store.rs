@@ -1,7 +1,7 @@
 use anyhow::Result;
 use comet_asset::AssetStore;
 use comet_asset_data::product::{
-    EditorProvenance, INDEX_VERSION, IndexEntry, MaterialData, PRODUCT_VERSION, Product,
+    AssetKind, EditorProvenance, INDEX_VERSION, IndexEntry, MaterialData, PRODUCT_VERSION, Product,
     ProductFile, ProductIndex,
 };
 use comet_core::{AssetId, InstanceId, digest};
@@ -193,14 +193,29 @@ fn audio_worlds_share_pcm_and_reject_wrong_types_and_oversized_refreshes_without
         .write(true)
         .open(&product_path)?
         .set_len(comet_asset_data::audio::MAX_AUDIO_BYTES as u64 + 1)?;
-    let error = store
-        .refresh()
-        .expect_err("oversized audio must be rejected before JSON parsing");
-    assert!(format!("{error:#}").contains("file size budget"));
-    assert!(Arc::ptr_eq(&accepted_index, &store.shared_index()));
-    assert!(Arc::ptr_eq(&product, &store.load(clip)?));
-    assert_eq!(library[&clip].samples.as_ref(), &[0, 1200, -1200, 0]);
+    for kind in [
+        AssetKind::Audio,
+        AssetKind::Mesh,
+        AssetKind::Skeleton,
+        AssetKind::Skin,
+        AssetKind::AnimationClip,
+    ] {
+        let mut candidate = index.clone();
+        candidate.products.get_mut(&clip).unwrap().kind = kind;
+        write_index(directory.path(), &candidate)?;
+        let error = store
+            .refresh()
+            .expect_err("oversized products must be rejected before digest checks or JSON parsing");
+        assert!(
+            format!("{error:#}").contains("file size budget"),
+            "{kind:?}: {error:#}"
+        );
+        assert!(Arc::ptr_eq(&accepted_index, &store.shared_index()));
+        assert!(Arc::ptr_eq(&product, &store.load(clip)?));
+        assert_eq!(library[&clip].samples.as_ref(), &[0, 1200, -1200, 0]);
+    }
     fs::write(product_path, bytes)?;
+    write_index(directory.path(), &index)?;
     assert!(store.refresh()?.is_empty());
     Ok(())
 }

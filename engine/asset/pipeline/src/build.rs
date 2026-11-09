@@ -197,23 +197,13 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
     for input in &inputs {
         for prepared in &input.products {
             let product = &prepared.file;
+            let kind = product.payload.kind();
             let bytes = serde_json::to_vec(product)?;
-            if matches!(product.payload, Product::Audio(_)) {
+            if let Some(limit) = kind.encoded_byte_limit() {
                 ensure!(
-                    bytes.len() <= comet_asset_data::audio::MAX_AUDIO_BYTES,
-                    "audio product exceeds its encoded size budget"
-                );
-            }
-            if matches!(
-                product.payload,
-                Product::Mesh(_)
-                    | Product::Skeleton(_)
-                    | Product::Skin(_)
-                    | Product::AnimationClip(_)
-            ) {
-                ensure!(
-                    bytes.len() <= comet_asset_data::MAX_ANIMATION_BYTES,
-                    "animation/mesh product exceeds encoded byte budget"
+                    bytes.len() <= limit,
+                    "product {} ({kind:?}) exceeds encoded byte budget ({limit} bytes)",
+                    product.id
                 );
             }
             let hash = digest(&bytes);
@@ -228,7 +218,7 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
                 product.id,
                 IndexEntry {
                     digest: hash,
-                    kind: product.payload.kind(),
+                    kind,
                     dependencies: product.payload.dependencies(),
                     editor: Some(EditorProvenance {
                         source: input.meta.id,

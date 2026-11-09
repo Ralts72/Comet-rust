@@ -394,6 +394,8 @@ Settings 只包含实际生效的 master_volume 和 shadows，默认 1 和 true�
 
 Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常规文件，在分配前检查该句柄的大小，并限制实际读取量以拒绝读取中超出预算的文件。源导入、Asset Runtime、项目配置、最近项目和 App 数据槽复用这一原语；文件打开、路径与符号链接策略、缺失文件处理、格式预算及候选接纳仍归各自模块。Pipeline 在读取 Rhai、导航、WAV 和 glTF/GLB 源时执行各格式已有的上限，内存导入入口继续自行校验；WAV 模块只负责解码与内容规则。
 
+完整 `ProductFile` 编码后的字节上限归 Asset Data 的 `AssetKind::encoded_byte_limit`，Pipeline 在写入产品前检查编码结果，Asset Runtime 在摘要校验与解析前按同一规则限制读取。每种产品类型显式选择已有编码上限或尚未定义上限；源格式、解码后数据和运行世界的预算仍在各自边界维护。
+
 只需检查文件摘要的模板与导出流程复用 Core 的 `file_digest`，以固定 64 KiB 缓冲区读取常规文件，保持与字节摘要相同的 SHA-256 协议，不为校验二进制分配整文件缓冲。预期摘要、模板身份、可执行权限及复制后校验仍归 Pipeline；摘要计算不代替源内容快照、格式预算或候选发布校验。
 
 1. Pipeline 扫描项目 `assets/`，导入 `.scene`、`.prefab`、`.mesh`、`.material`、`.nav`、`.rhai`、PCM16 WAV、PNG、静态及蒙皮 glTF/GLB；自有场景、模型及导航格式使用 JSON 内容。

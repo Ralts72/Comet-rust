@@ -27,6 +27,23 @@ pub enum AssetKind {
     Skin,
     AnimationClip,
 }
+impl AssetKind {
+    /// Byte limit for a complete encoded ProductFile, separate from source and payload limits.
+    pub fn encoded_byte_limit(self) -> Option<usize> {
+        match self {
+            Self::Audio => Some(crate::audio::MAX_AUDIO_BYTES),
+            Self::Mesh | Self::Skeleton | Self::Skin | Self::AnimationClip => {
+                Some(crate::animation::MAX_ANIMATION_BYTES)
+            }
+            Self::Scene
+            | Self::Prefab
+            | Self::Material
+            | Self::Texture
+            | Self::Script
+            | Self::Navigation => None,
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptData {

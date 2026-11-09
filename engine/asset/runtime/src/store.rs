@@ -73,21 +73,9 @@ impl AssetStore {
             .join("products")
             .join(id.to_string())
             .join(format!("{}.json", entry.digest));
-        let bytes = if matches!(
-            entry.kind,
-            comet_asset_data::product::AssetKind::Audio
-                | comet_asset_data::product::AssetKind::Mesh
-                | comet_asset_data::product::AssetKind::Skeleton
-                | comet_asset_data::product::AssetKind::Skin
-                | comet_asset_data::product::AssetKind::AnimationClip
-        ) {
+        let bytes = if let Some(limit) = entry.kind.encoded_byte_limit() {
             let file =
                 fs::File::open(&path).with_context(|| format!("read bounded product {id}"))?;
-            let limit = if entry.kind == comet_asset_data::product::AssetKind::Audio {
-                comet_asset_data::audio::MAX_AUDIO_BYTES
-            } else {
-                comet_asset_data::MAX_ANIMATION_BYTES
-            };
             comet_core::read_bounded(file, limit)
                 .with_context(|| format!("read product {id} within its file size budget"))?
         } else {

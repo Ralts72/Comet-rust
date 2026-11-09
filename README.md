@@ -109,7 +109,7 @@ macOS 默认导出 `.app`，资源放在 `Contents/Resources`，发布前完成�
 | --- | --- |
 | `engine/core` | 分类 UUID、摘要、数学入口、项目路径、有界文件读取与原子发布 |
 | `engine/scene` | 组件、稳定字段 Schema、ECS 场景、层级、复制与 Prefab |
-| `engine/asset/data` | 网格、材质、纹理、场景、导航、PCM 音频产品与索引的 CPU 数据协议 |
+| `engine/asset/data` | 网格、材质、纹理、场景、导航、PCM 音频产品与索引的 CPU 数据协议、产品编码上限 |
 | `engine/asset/runtime` | 只读产品加载、校验、依赖闭包、版本切换与缓存 |
 | `engine/asset/pipeline` | 源目录与身份、导入构建、索引发布、打包与项目配置库 |
 | `engine/runtime` | 独立 Play 世界、固定步、物理/角色/导航、声音与 HUD 意图、动作消费与 Rhai 生命周期 |
