@@ -1,4 +1,5 @@
 use super::*;
+use comet_core::digest;
 #[test]
 fn templates_match_explicit_program_identity_and_verify_all_snapshot_inputs() -> Result<()> {
     let temp = tempfile::tempdir()?;

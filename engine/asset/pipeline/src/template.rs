@@ -1,7 +1,7 @@
 //! A session uses an immutable, verified App snapshot instead of a mutable Cargo artifact.
 use anyhow::{Context, Result, ensure};
 use comet_asset_data::package::{AppTemplateManifest, RuntimeIdentity};
-use comet_core::digest;
+use comet_core::file_digest;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -32,7 +32,7 @@ impl AppTemplate {
             "App template does not match this Editor; run ./start.sh"
         );
         ensure!(
-            digest(&fs::read(editor)?) == manifest.editor_sha256,
+            file_digest(editor)? == manifest.editor_sha256,
             "App template belongs to another Editor executable; run ./start.sh"
         );
         let root = path
@@ -95,16 +95,16 @@ impl AppTemplate {
             );
         }
         ensure!(
-            digest(&fs::read(&self.app).context("App template is missing; run ./start.sh")?)
+            file_digest(&self.app).context("App template is missing; run ./start.sh")?
                 == self.manifest.app_sha256,
             "App template changed; run ./start.sh"
         );
         for file in self.notices.iter().chain(std::iter::once(&self.app_icon)) {
             ensure!(
-                digest(&fs::read(&file.path).with_context(|| format!(
+                file_digest(&file.path).with_context(|| format!(
                     "App template file {} is missing; run ./start.sh",
                     file.name
-                ))?) == file.sha256,
+                ))? == file.sha256,
                 "App template file {} changed; run ./start.sh",
                 file.name
             );

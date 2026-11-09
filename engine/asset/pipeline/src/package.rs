@@ -157,7 +157,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
     fs::copy(&app, programs.join(executable))?;
     if let Some(expected) = app_digest {
         ensure!(
-            comet_core::digest(&fs::read(programs.join(executable))?) == expected,
+            comet_core::file_digest(&programs.join(executable))? == expected,
             "App changed while exporting; run ./start.sh"
         );
     }
@@ -172,7 +172,7 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         fs::create_dir_all(destination.parent().context("notice destination")?)?;
         fs::copy(&notice.path, &destination)?;
         ensure!(
-            comet_core::digest(&fs::read(destination)?) == notice.sha256,
+            comet_core::file_digest(&destination)? == notice.sha256,
             "program notice changed while packaging"
         );
     }

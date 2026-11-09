@@ -10,6 +10,33 @@ use uuid::Uuid;
 pub fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+
+/// Hash a regular file with a fixed buffer; path policy and expected hashes belong to callers.
+pub fn file_digest(path: &Path) -> Result<String> {
+    let result = (|| {
+        let file = File::open(path)?;
+        ensure!(
+            file.metadata()?.is_file(),
+            "digest input is not a regular file"
+        );
+        digest_reader(file)
+    })();
+    result.with_context(|| format!("hash file {}", path.display()))
+}
+
+fn digest_reader(mut reader: impl Read) -> Result<String> {
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(format!("{:x}", hasher.finalize())),
+            Ok(length) => hasher.update(&buffer[..length]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 pub fn validate_digest(value: &str) -> Result<()> {
     ensure!(
         value.len() == 64
@@ -101,20 +128,50 @@ mod tests {
     }
 
     #[test]
-    fn read_errors_and_overflow_limits_never_return_partial_bytes() {
+    fn read_errors_and_overflow_limits_never_return_partial_results() {
         struct Failed;
         impl Read for Failed {
             fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
                 Err(io::Error::other("injected read failure"))
             }
         }
-        let error = read_contents(Cursor::new(b"prefix").chain(Failed), 16).unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<io::Error>().unwrap().kind(),
-            io::ErrorKind::Other
-        );
+        for error in [
+            read_contents(Cursor::new(b"prefix").chain(Failed), 16).unwrap_err(),
+            digest_reader(Cursor::new(b"prefix").chain(Failed)).unwrap_err(),
+        ] {
+            assert_eq!(
+                error.downcast_ref::<io::Error>().unwrap().kind(),
+                io::ErrorKind::Other
+            );
+        }
         let mut input = Cursor::new(b"never consumed");
         assert!(read_contents(&mut input, usize::MAX).is_err());
         assert_eq!(input.position(), 0);
+    }
+
+    #[test]
+    fn streaming_digests_match_bytes_across_short_reads_and_interruptions() -> Result<()> {
+        struct Chunked<'a> {
+            input: Cursor<&'a [u8]>,
+            interrupt: bool,
+        }
+        impl Read for Chunked<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.interrupt = !self.interrupt;
+                if self.interrupt {
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                assert!(buffer.len() <= 64 * 1024);
+                let length = buffer.len().min(1023);
+                self.input.read(&mut buffer[..length])
+            }
+        }
+        let bytes: Vec<_> = (0..163_853).map(|index| (index % 251) as u8).collect();
+        let reader = Chunked {
+            input: Cursor::new(bytes.as_slice()),
+            interrupt: false,
+        };
+        assert_eq!(digest_reader(reader)?, digest(&bytes));
+        Ok(())
     }
 }

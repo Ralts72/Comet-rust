@@ -2,7 +2,7 @@ use anyhow::Result;
 use comet_asset::AssetStore;
 use comet_asset_data::package::RuntimeIdentity;
 use comet_asset_pipeline::{PackageRequest, package_scenes};
-use comet_core::{AssetId, digest};
+use comet_core::{AssetId, digest, file_digest};
 use comet_scene::{ContentSource, EntityData, Model, Surface};
 use std::{fs, path::Path};
 fn source(path: &Path, name: &str, bytes: Vec<u8>) -> Result<AssetId> {
@@ -57,7 +57,7 @@ fn project_icons_are_persistent_portable_and_never_modify_the_app_template() -> 
     )?;
     comet_asset_pipeline::prepare(&project, &products)?;
     let app = std::env::current_exe()?;
-    let app_hash = digest(&fs::read(&app)?);
+    let app_hash = file_digest(&app)?;
     let output = temp.path().join("export");
     let game_id = comet_core::GameId::new();
     let request = |id| PackageRequest {
@@ -91,7 +91,7 @@ fn project_icons_are_persistent_portable_and_never_modify_the_app_template() -> 
         serde_json::from_slice(&fs::read(output.join("package.json"))?)?;
     assert_eq!(manifest.game_icon_sha256, Some(digest(&image)));
     assert_eq!(manifest.game_id, game_id);
-    assert_eq!(digest(&fs::read(&app)?), app_hash);
+    assert_eq!(file_digest(&app)?, app_hash);
     assert_eq!(
         AssetStore::open(package.products)?.index().products.len(),
         1
@@ -191,6 +191,10 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
     assert!(package_scenes(request(None, Some(&app_hash))).is_err());
     assert!(!output.exists());
     fs::write(&icon_path, icon_bytes)?;
+    fs::write(&notice_file, b"changed license")?;
+    assert!(package_scenes(request(None, Some(&app_hash))).is_err());
+    assert!(!output.exists());
+    fs::write(&notice_file, b"font license")?;
     let game = package_scenes(request(Some(store.revision()), Some(&app_hash)))?;
     let packaged = AssetStore::open(&game.products)?;
     assert_eq!(packaged.index().products.len(), 4);
