@@ -19,6 +19,7 @@ mod session;
 mod test_support;
 mod transform;
 mod ui;
+mod validation;
 use anyhow::{Context, Result, ensure};
 use comet_application::HostOptions;
 use std::path::PathBuf;

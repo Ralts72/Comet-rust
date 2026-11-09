@@ -72,7 +72,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 
 资产导入、保存、打包、破坏性输入和恢复测试只写临时项目，不修改 demo 作者源。模型与声音复用正式资产或既有 fixtures，修改输入时先复制；自动测试不访问玩家存档、设置或最近项目记录。
 
-Scene 与 Editor Core 负责内容规则和历史，Editor 负责产品类型及绘制预检；测试分别覆盖这些边界。字段、组件增删与插入命令按实际配置和引用值升级最低 Scene 版本；旧文档只读打开或保存保留原版本。失败不能发布半个组件、改写保存点或清除已有有效手势。
+Scene 与 Editor Core 负责内容规则和历史；Editor 的组件命令校验所选产品，validation.rs 统一作者内容与保留历史的预检，其[回归](../editor/src/validation/tests.rs)验证当前快照返回、历史脚本检查与失败保持。测试分别覆盖这些边界。字段、组件增删与插入命令按实际配置和引用值升级最低 Scene 版本；旧文档只读打开或保存保留原版本。失败不能发布半个组件、改写保存点或清除已有有效手势。
 
 Gizmo 回归重点保留世界/局部坐标、父子归并、镜像及非均匀缩放、奇异/剪切/极端尺度拒绝、零位移与回到初始值、Escape、失焦、模态和世界切换。几何、法线及蒙皮的 CPU 结果另与真实 GPU 图像比较；合成输入和窗口烟测不替代物理鼠标操作与目标桌面验收。
 
@@ -142,7 +142,7 @@ Scene/Core 回归检查 v6 与旧格式、可空资产依赖、目标复制/删�
 
 运行 `./start.sh --scene audio.scene`，背景循环使用 `audio/ambient_loop.wav`，`scripts/audio_demo.rhai` 在启动时播放 `audio/play_chime.wav`，E 重播、Space 停止提示音。`./start.sh --scene spatial_audio.scene` 使用同一提示音循环，声源以 3 米半径移动，E 开关声音；监听器取当前成功视图的相机，可旋转视角比较声像与距离变化。R 新建运行世界并重新初始化；暂停、单步和音频源面板按钮用于检查播放意图，暂停时新播放保持待播。
 
-音频作者源为 PCM16 WAV，只接收单/双声道、8–192 kHz；把 `.wav` 与其 `.meta` 一起维护。Pipeline 在资产构建时用 Hound 解码，生成 AudioData v1 的共享 i16 PCM；独立游戏只读音频产品，不需要原 WAV、作者目录或解码工具。Scene 当前为 v9（读取 v1–8），产品 v5、索引 v6；PCM 仍为 v1。缺失空间字段使用 false/1 米/30 米且不补写默认值，原 `audio.scene` 的 Scene7 作者和产品保持 2D 格式；空间或非默认距离配置才升级，撤销可回到 Scene7。生产工具从合法旧缓存重建时保留 metadata 身份，Runtime 不直接读取旧产品。
+音频作者源为 PCM16 WAV，只接收单/双声道、8–192 kHz；把 `.wav` 与其 `.meta` 一起维护。Pipeline 在资产构建时用 Hound 解码，生成 AudioData v1 的共享 i16 PCM；独立游戏只读音频产品，不需要原 WAV、作者目录或解码工具。Scene、产品与索引的当前协议版本见[架构说明](architecture.md)，PCM 仍为 v1。缺失空间字段使用 false/1 米/30 米且不补写默认值，原 `audio.scene` 的 Scene7 作者和产品保持 2D 格式；空间或非默认距离配置才升级，撤销可回到 Scene7。生产工具从合法旧缓存重建时保留 metadata 身份，Runtime 不直接读取旧产品。
 
 ```sh
 cargo test --locked -p comet-audio -p comet-runtime

@@ -181,7 +181,11 @@ impl ExportController {
             ));
             let _ = sender.send("正在打包所选场景与 Release App".into());
             let mut assets = AssetStore::open(&products).context("读取资源产品失败")?;
-            crate::resources::validate_sources(&retained, &mut assets, prefab_asset)?;
+            crate::validation::validate_sources(
+                retained.iter().map(|source| source.as_ref()),
+                &mut assets,
+                prefab_asset,
+            )?;
             ensure!(
                 comet_asset_pipeline::ProjectSettings::load(&ProjectPaths::open(&project)?)?
                     == settings,

@@ -205,7 +205,7 @@ impl Editor {
         ensure!(!self.is_busy(), "请等待后台任务完成，再保存文档");
         self.verify_document_identity()?;
         self.commit()?;
-        crate::resources::validate_authoring(&self.document.expand(assets)?, assets)?;
+        crate::validation::validate_authoring(&self.document.expand(assets)?, assets)?;
         let path = self.paths.resolve_asset_path(&self.source)?;
         self.document.save(&path)?;
         self.status = format!("{}已保存", self.document_kind_label());

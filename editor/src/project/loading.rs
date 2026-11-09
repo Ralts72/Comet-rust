@@ -216,8 +216,8 @@ impl ProjectCandidate {
             built == content,
             "作者文件在资源构建后发生变化，请重新打开项目"
         );
-        let snapshot = crate::resources::validate_sources(
-            &[Arc::new(content.clone())],
+        let snapshot = crate::validation::validate_sources(
+            [&content],
             &mut assets,
             prefab.then_some(source_asset),
         )

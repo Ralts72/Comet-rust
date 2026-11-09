@@ -219,8 +219,8 @@ impl NavigationController {
                 let _ = sender.send("正在构建导航资源并校验文档历史".into());
                 comet_asset_pipeline::prepare(paths.root(), &products)?;
                 let mut assets = AssetStore::open(&products)?;
-                crate::resources::validate_sources(
-                    &retained,
+                crate::validation::validate_sources(
+                    retained.iter().map(|source| source.as_ref()),
                     &mut assets,
                     baked.guard.prefab_asset,
                 )?;

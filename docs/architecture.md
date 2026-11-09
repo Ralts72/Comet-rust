@@ -62,7 +62,7 @@ engine/
 editor/
   core/                  document.rs：编辑文档与历史
   src/                   main.rs：启动；session.rs：会话；documents.rs / objects.rs / fields.rs / selection.rs / picking.rs / transform.rs
-                         models.rs / resources.rs / navigation.rs / audio.rs / scripts.rs / console.rs / export.rs / project.rs / jobs.rs
+                         models.rs / validation.rs / resources.rs / navigation.rs / audio.rs / scripts.rs / console.rs / export.rs / project.rs / jobs.rs
     ui/                  面板与交互；层级、资源、属性和 Gizmo 各归所属文件
   resources/icons/       编辑器原版 PNG / ICNS / ICO 图标
 app/
@@ -203,6 +203,7 @@ Editor 按状态所有权组织模块；UI 沿用旧版的功能目标与中文�
 | `objects.rs`、`selection.rs`、`picking.rs`、`transform.rs` | 结构命令、选择身份、在途拾取和成组变换基线；选择本身不进入作者历史 |
 | `fields.rs` | 作者/直接 Prefab 字段定位、引用的词法身份转换、整批候选和预览事务守卫；单选与多选共用入口 |
 | `models.rs`、`audio.rs`、`scripts.rs`、`animation.rs` 等组件命令 | 校验产品种类、组件间兼容性与编辑权限，再请求文档发布；不把产品规则放到 UI 或 Editor Core |
+| `validation.rs` | 共享作者内容与保留历史的预检；借用输入，写入和接纳归调用方 |
 | `resources.rs`、`export.rs` | 构建/导出候选、接纳策略及导出子进程 |
 | `jobs.rs` | 工作线程、进度通道和唯一结果的所有权与回收；候选接纳由各控制器决定 |
 | `ui/inspector/` | 面板组合、输入与派生显示缓存；`properties.rs` 管理数值手势，`assets.rs` 管理共享元数据目录和资源菜单 |
@@ -402,11 +403,11 @@ Settings 只包含实际生效的 master_volume 和 shadows，默认 1 和 true�
 
 Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径和版本校验；SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
-产品协议为 5，索引协议为 6，NavigationData、AudioData、SkeletonData、SkinData 与 AnimationClipData 协议均为 1。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 可从有效 v1–5 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
+SceneSnapshot 协议为 10，产品协议为 5，索引协议为 6，NavigationData、AudioData、SkeletonData、SkinData 与 AnimationClipData 协议均为 1。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 可从有效 v1–5 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
 
 标签变化发布新索引身份；构建复用与 `AssetStore::refresh` 的内容比较只使用摘要、类型和运行依赖，后者保留未变产品的原 Arc。源文件与 metadata 一起改路径时可仅更新标签；glTF 内部内容修改仍参与输入摘要，唯一名称也参与既有子身份规则，不承诺改名保留 UUID。模型选择界面只读取已接纳索引，按 revision 缓存轻量 ID/标签列表，不加载产品或重新解析 glTF。
 
-资源刷新只在 Edit 模式启动，提交活动预览但不自动保存作者文件。后台线程调用 Pipeline 构建、打开独立 AssetStore、准备 SourceCatalog，并校验当前文档、保存点和 undo/redo 保留内容的 Prefab 展开、全部依赖类型和渲染提取。零缩放模型和渲染尚未使用的外部场景引用同样不能缺失；Store 的脚本准备先检查整个快照的依赖类型，再返回启用脚本源码，历史校验复用此入口后进行渲染与脚本预检。Document 仅提供不可变内容引用，不拥有 Store；此检查只在资源更新时执行。任务期间禁用修改、Play、保存、切换和并发导出；主线程再次核对文档世界和 revision，成功后一起接纳 Store、目录和快照，失败保留当前状态。外部源删除或结构变化使历史不可解析时拒绝接纳；保留可解析性不表示撤销会恢复旧版本资产内容。
+资源刷新只在 Edit 模式启动，提交活动预览但不自动保存作者文件。后台线程调用 Pipeline 构建、打开独立 AssetStore、准备 SourceCatalog，并校验当前文档、保存点和 undo/redo 保留内容的 Prefab 展开、全部依赖类型和渲染提取。零缩放模型和渲染尚未使用的外部场景引用同样不能缺失；Store 的脚本准备先检查整个快照的依赖类型，再返回启用脚本源码，历史校验复用此入口后进行渲染与脚本预检。Document 仅提供不可变内容引用，不拥有 Store。共享预检归 validation.rs，借用当前文档及保留历史；加载、刷新、导出与导航按各自边界调用，保存使用其中的作者可编辑性检查，空闲帧不扫描历史。任务期间禁用修改、Play、保存、切换和并发导出；主线程再次核对文档世界和 revision，成功后一起接纳 Store、目录和快照，失败保留当前状态。外部源删除或结构变化使历史不可解析时拒绝接纳；保留可解析性不表示撤销会恢复旧版本资产内容。
 
 构建发布磁盘索引与编辑器接纳候选是两层边界：候选被编辑器拒绝时，磁盘上可能已有完整新索引，当前会话继续使用旧索引及保留的产品文件，不回滚作者源或自动清理产品。导出复用相同的历史依赖校验，防止完成后切换 Store 导致撤销失效。
 

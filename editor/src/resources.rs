@@ -41,7 +41,11 @@ impl ResourceBuild {
                 comet_asset_pipeline::prepare(paths.root(), &products).context("资源构建失败")?;
             let _ = sender.send("正在校验当前文档与撤销历史".into());
             let mut assets = AssetStore::open(&products)?;
-            let snapshot = validate_sources(&retained, &mut assets, prefab_asset)?;
+            let snapshot = crate::validation::validate_sources(
+                retained.iter().map(|source| source.as_ref()),
+                &mut assets,
+                prefab_asset,
+            )?;
             let sources = SourceCatalog::read(&paths, assets.index())?;
             let _ = sender.send(format!(
                 "资源已准备：{} 个更新，{} 个复用",
@@ -64,53 +68,5 @@ impl ResourceBuild {
         let result = self.job.as_mut()?.poll(|stage| self.stage = stage)?;
         self.job.take();
         Some(result)
-    }
-}
-
-/// Retained undo/redo and savepoint content must remain usable after an asset switch.
-pub(crate) fn validate_sources(
-    retained: &[Arc<ContentSource>],
-    assets: &mut AssetStore,
-    prefab_asset: Option<AssetId>,
-) -> Result<SceneSnapshot> {
-    let mut current = None;
-    let mut scripts = comet_runtime::ScriptValidator::default();
-    for (index, source) in retained.iter().enumerate() {
-        let snapshot = match prefab_asset {
-            Some(root) => source.expand_prefab(root, assets),
-            None => source.expand(assets),
-        }
-        .context("资源更新与文档或历史中的 Prefab 不兼容")?;
-        // Script preparation checks every asset reference, including hidden geometry and external links.
-        let sources = assets
-            .script_sources(&snapshot)
-            .context("资源更新缺少文档或历史依赖的产品，或产品类型不兼容")?;
-        validate_authoring(&snapshot, assets).context("资源更新缺少文档或历史依赖的产品")?;
-        scripts
-            .validate(&snapshot, &sources)
-            .context("资源更新与文档或历史中的脚本不兼容")?;
-        if index == 0 {
-            current = Some(snapshot);
-        }
-    }
-    current.context("缺少作者文档")
-}
-
-/// Incomplete explicit bindings remain editable; every other asset or draw error still rejects.
-pub(crate) fn validate_authoring(snapshot: &SceneSnapshot, assets: &mut AssetStore) -> Result<()> {
-    allow_unbound(comet_application::extract(snapshot, assets, &[]).map(|_| ()))?;
-    let (skeletons, animations) = assets.animation_sources(snapshot)?;
-    allow_unbound(comet_runtime::validate_animations(
-        snapshot,
-        &skeletons,
-        &animations,
-    ))
-}
-
-fn allow_unbound(result: Result<()>) -> Result<()> {
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) if error.is::<comet_scene::UnboundRig>() => Ok(()),
-        Err(error) => Err(error),
     }
 }
