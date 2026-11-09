@@ -1,7 +1,4 @@
-use crate::{
-    jobs::{Event, Job},
-    session::Editor,
-};
+use crate::{jobs::Job, session::Editor};
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::{
@@ -190,7 +187,7 @@ impl NavigationController {
         );
         let target = NavigationTarget::open(paths, relative)?;
         self.job = Some(Job::spawn("comet-navigation-bake", move |sender| {
-            let _ = sender.send(Event::Stage("正在烘焙导航多边形".into()));
+            let _ = sender.send("正在烘焙导航多边形".into());
             let data = comet_asset_pipeline::bake_navigation(&input)?;
             Ok(NavigationResult::Baked(BakedNavigation {
                 guard,
@@ -215,11 +212,11 @@ impl NavigationController {
         let products = products.to_owned();
         self.job = Some(Job::spawn("comet-navigation-publish", move |sender| {
             let output = baked.target.path().to_owned();
-            let _ = sender.send(Event::Stage("正在发布导航作者文件".into()));
+            let _ = sender.send("正在发布导航作者文件".into());
             let asset =
                 comet_asset_pipeline::publish_navigation(&paths, &baked.target, &baked.data)?;
             let prepared = (|| -> Result<AssetStore> {
-                let _ = sender.send(Event::Stage("正在构建导航资源并校验文档历史".into()));
+                let _ = sender.send("正在构建导航资源并校验文档历史".into());
                 comet_asset_pipeline::prepare(paths.root(), &products)?;
                 let mut assets = AssetStore::open(&products)?;
                 crate::resources::validate_sources(
@@ -247,19 +244,12 @@ impl NavigationController {
     }
 
     pub fn poll(&mut self) -> Option<std::result::Result<NavigationResult, String>> {
-        while let Some(job) = &self.job {
-            match job.poll()? {
-                Event::Stage(stage) => self.stage = stage,
-                Event::Finished(result) => {
-                    self.job.take();
-                    if let Err(error) = &result {
-                        self.fail(error.clone());
-                    }
-                    return Some(result);
-                }
-            }
+        let result = self.job.as_mut()?.poll(|stage| self.stage = stage)?;
+        self.job.take();
+        if let Err(error) = &result {
+            self.fail(error.clone());
         }
-        None
+        Some(result)
     }
     pub fn fail(&mut self, error: String) {
         self.stage = "导航烘焙失败".into();

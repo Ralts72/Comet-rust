@@ -224,15 +224,8 @@ fn a_published_package_survives_when_a_changed_prefab_identity_prevents_store_ac
         products: published.join("products"),
         root: published.clone(),
     };
-    let task = Job::spawn("completed-prefab-export", move |_| Ok((output, candidate)))?;
     let mut export = ExportController::new(editor.export.entry_scene())?;
-    export.job = Some(ExportJob {
-        task,
-        run: true,
-        paths: ProjectPaths::open(editor.project_root())?,
-        source: source.clone(),
-        prefab_asset: Some(root),
-    });
+    let paths = ProjectPaths::open(editor.project_root())?;
     fs::write(
         SourceMeta::path(&source),
         serde_json::to_vec(&SourceMeta {
@@ -240,9 +233,36 @@ fn a_published_package_survives_when_a_changed_prefab_identity_prevents_store_ac
             id: AssetId::new(),
         })?,
     )?;
+    let (ready, started) = std::sync::mpsc::channel();
+    let (release, resume) = std::sync::mpsc::channel();
+    let task = Job::spawn("completed-prefab-export", move |sender| {
+        sender.send("游戏包已发布，等待接纳".into())?;
+        ready.send(())?;
+        resume.recv()?;
+        Ok((output, candidate))
+    })?;
+    export.job = Some(ExportJob {
+        task,
+        run: true,
+        paths,
+        source,
+        prefab_asset: Some(root),
+    });
+    let ready = started.recv_timeout(Duration::from_secs(5));
+    export.poll(&mut accepted);
+    let running = export.is_running();
+    let progress = export.stage.clone();
+    let released = release.send(());
+    ready?;
+    released?;
+    assert!(
+        running,
+        "progress must retain the pending export and its acceptance identity"
+    );
+    assert_eq!(progress, "游戏包已发布，等待接纳");
     let deadline = Instant::now() + Duration::from_secs(10);
     while export.is_running() {
-        export.poll(&mut accepted)?;
+        export.poll(&mut accepted);
         ensure!(Instant::now() < deadline, "export completion timed out");
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -257,6 +277,9 @@ fn a_published_package_survives_when_a_changed_prefab_identity_prevents_store_ac
             .is_some_and(|error| error.contains("游戏包已生成") && error.contains("作者身份变化"))
     );
     assert!(export.children.is_empty());
+    let logs = export.logs.clone();
+    export.poll(&mut accepted);
+    assert_eq!(export.logs, logs, "completion must not be delivered twice");
     Ok(())
 }
 

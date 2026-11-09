@@ -1,4 +1,4 @@
-use crate::jobs::{Event, Job};
+use crate::jobs::Job;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_pipeline::SourceCatalog;
@@ -36,17 +36,17 @@ impl ResourceBuild {
         let paths = paths.clone();
         let products = products.to_owned();
         let job = Job::spawn("comet-resource-build", move |sender| {
-            let _ = sender.send(Event::Stage("正在构建项目资源".into()));
+            let _ = sender.send("正在构建项目资源".into());
             let report =
                 comet_asset_pipeline::prepare(paths.root(), &products).context("资源构建失败")?;
-            let _ = sender.send(Event::Stage("正在校验当前文档与撤销历史".into()));
+            let _ = sender.send("正在校验当前文档与撤销历史".into());
             let mut assets = AssetStore::open(&products)?;
             let snapshot = validate_sources(&retained, &mut assets, prefab_asset)?;
             let sources = SourceCatalog::read(&paths, assets.index())?;
-            let _ = sender.send(Event::Stage(format!(
+            let _ = sender.send(format!(
                 "资源已准备：{} 个更新，{} 个复用",
                 report.changed, report.reused
-            )));
+            ));
             Ok(Candidate {
                 world,
                 document_revision,
@@ -61,16 +61,9 @@ impl ResourceBuild {
         Ok(())
     }
     pub fn poll(&mut self) -> Option<std::result::Result<Candidate, String>> {
-        while let Some(job) = &self.job {
-            match job.poll()? {
-                Event::Stage(stage) => self.stage = stage,
-                Event::Finished(result) => {
-                    self.job.take();
-                    return Some(result);
-                }
-            }
-        }
-        None
+        let result = self.job.as_mut()?.poll(|stage| self.stage = stage)?;
+        self.job.take();
+        Some(result)
     }
 }
 

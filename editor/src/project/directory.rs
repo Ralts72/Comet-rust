@@ -1,5 +1,5 @@
 //! One bounded directory read runs at a time; closing a picker never joins filesystem work.
-use crate::jobs::{Event, Job};
+use crate::jobs::Job;
 use anyhow::{Context, Result, ensure};
 use comet_core::{ProjectPaths, resolve_destination};
 use std::{ffi::OsString, fs, path::PathBuf, sync::Arc};
@@ -73,11 +73,10 @@ impl DirectoryReader {
             .flatten()
     }
     pub fn poll(&mut self) {
-        if let Some(running) = &self.running
-            && let Some(Event::Finished(result)) = running.job.poll()
+        if let Some(running) = &mut self.running
+            && let Some(result) = running.job.poll(|_| {})
         {
             let id = running.id;
-            // Finished workers have no remaining filesystem operation when Job::drop joins them.
             self.running = None;
             if self.active == Some(id) {
                 self.result = Some(result.map(Arc::new));

@@ -349,7 +349,7 @@ impl Application for Editor {
         self.poll_project_transition(assets);
         self.poll_navigation(assets);
         self.poll_resources(assets);
-        self.export.poll(assets)?;
+        self.export.poll(assets);
         if self.source_revision != assets.revision() {
             match SourceCatalog::read(&self.paths, assets.index()) {
                 Ok(sources) => self.sources = sources,

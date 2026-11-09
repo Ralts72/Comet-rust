@@ -1,5 +1,5 @@
 //! Export orchestration owns background CPU work; document and UI mutation stay on the main thread.
-use crate::jobs::{Event, Job};
+use crate::jobs::Job;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_pipeline::{AppTemplate, PackageOutput, PackageRequest};
@@ -163,7 +163,7 @@ impl ExportController {
         let products = products.to_owned();
         let task = Job::spawn("comet-export", move |sender| {
             crate::project::verify_prefab_identity(&origin, &source, prefab_asset)?;
-            let _ = sender.send(Event::Stage("正在构建项目资源".into()));
+            let _ = sender.send("正在构建项目资源".into());
             ensure!(
                 comet_core::digest(&std::fs::read(&source)?) == saved_digest,
                 "作者文件在保存后发生变化，请重新导出"
@@ -175,11 +175,11 @@ impl ExportController {
                 "作者文件在导出期间发生变化，请重新导出"
             );
             crate::project::verify_prefab_identity(&origin, &source, prefab_asset)?;
-            let _ = sender.send(Event::Stage(format!(
+            let _ = sender.send(format!(
                 "资源构建完成：{} 个产品，{} 个更新，{} 个复用",
                 report.products, report.changed, report.reused
-            )));
-            let _ = sender.send(Event::Stage("正在打包所选场景与 Release App".into()));
+            ));
+            let _ = sender.send("正在打包所选场景与 Release App".into());
             let mut assets = AssetStore::open(&products).context("读取资源产品失败")?;
             crate::resources::validate_sources(&retained, &mut assets, prefab_asset)?;
             ensure!(
@@ -220,75 +220,77 @@ impl ExportController {
         });
         Ok(())
     }
-    pub fn poll(&mut self, assets: &mut AssetStore) -> Result<()> {
-        while let Some(job) = &self.job {
-            match job.task.poll() {
-                Some(Event::Stage(message)) => {
-                    self.stage = message.clone();
-                    self.log(message);
-                }
-                Some(Event::Finished(result)) => {
-                    let job = self.job.take().context("export job")?;
-                    let ExportJob {
-                        task,
-                        run,
-                        paths,
-                        source,
-                        prefab_asset,
-                    } = job;
-                    drop(task);
-                    match result {
-                        Ok((output, candidate)) => {
-                            self.stage = "导出完成".into();
-                            self.log(format!("已导出：{}", output.root.display()));
-                            self.last_output = Some(output.clone());
-                            if let Err(error) = crate::project::verify_prefab_identity(
-                                &paths,
-                                &source,
-                                prefab_asset,
-                            ) {
-                                self.stage = "导出完成，资源未接纳".into();
-                                let message = format!(
-                                    "游戏包已生成，但作者身份变化，当前资源未切换，请重新打开文档：{error:#}"
-                                );
-                                self.log(message.clone());
-                                self.failure = Some(message);
-                                continue;
-                            }
-                            *assets = candidate;
-                            if run {
-                                match std::process::Command::new(&output.executable)
-                                    .current_dir(&output.root)
-                                    .spawn()
-                                {
-                                    Ok(child) => {
-                                        self.children.push(child);
-                                        self.log("已启动导出的游戏".into());
-                                    }
-                                    Err(error) => {
-                                        self.failure =
-                                            Some(format!("导出已完成，但启动游戏失败：{error}"))
-                                    }
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            self.stage = "导出失败".into();
-                            self.log(error.clone());
-                            self.failure = Some(error);
-                        }
-                    }
-                }
-                None => break,
+    pub fn poll(&mut self, assets: &mut AssetStore) {
+        if let Some(mut job) = self.job.take() {
+            let result = job.task.poll(|message| {
+                self.stage = message.clone();
+                self.log(message);
+            });
+            if let Some(result) = result {
+                self.finish(job, result, assets);
+            } else {
+                self.job = Some(job);
             }
         }
         self.children
             .retain_mut(|child| matches!(child.try_wait(), Ok(None)));
-        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        job: ExportJob,
+        result: std::result::Result<(PackageOutput, AssetStore), String>,
+        assets: &mut AssetStore,
+    ) {
+        let ExportJob {
+            run,
+            paths,
+            source,
+            prefab_asset,
+            ..
+        } = job;
+        match result {
+            Ok((output, candidate)) => {
+                self.stage = "导出完成".into();
+                self.log(format!("已导出：{}", output.root.display()));
+                self.last_output = Some(output.clone());
+                if let Err(error) =
+                    crate::project::verify_prefab_identity(&paths, &source, prefab_asset)
+                {
+                    self.stage = "导出完成，资源未接纳".into();
+                    let message = format!(
+                        "游戏包已生成，但作者身份变化，当前资源未切换，请重新打开文档：{error:#}"
+                    );
+                    self.log(message.clone());
+                    self.failure = Some(message);
+                    return;
+                }
+                *assets = candidate;
+                if run {
+                    match std::process::Command::new(&output.executable)
+                        .current_dir(&output.root)
+                        .spawn()
+                    {
+                        Ok(child) => {
+                            self.children.push(child);
+                            self.log("已启动导出的游戏".into());
+                        }
+                        Err(error) => {
+                            self.failure = Some(format!("导出已完成，但启动游戏失败：{error}"))
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                self.stage = "导出失败".into();
+                self.log(error.clone());
+                self.failure = Some(error);
+            }
+        }
     }
     pub fn wait(&mut self, assets: &mut AssetStore) -> Result<PackageOutput> {
         while self.is_running() {
-            self.poll(assets)?;
+            self.poll(assets);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         ensure!(

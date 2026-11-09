@@ -1,6 +1,6 @@
 //! Project candidates own CPU data only; the main thread accepts them as an editor session.
 use super::ProjectPanel;
-use crate::jobs::{Event, Job};
+use crate::jobs::Job;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
@@ -304,12 +304,12 @@ impl ProjectLoad {
                 let products = resolve_destination(&products)?;
                 ensure_disjoint(&products, &resolve_destination(&root.join("assets"))?)?;
                 protect_assets(&products, protected_assets.as_deref())?;
-                let _ = sender.send(Event::Stage("正在创建项目".into()));
+                let _ = sender.send("正在创建项目".into());
                 comet_asset_pipeline::create_project(&root)?;
                 created.store(true, Ordering::Release);
             }
             ProjectCandidate::prepare(root, products, source, protected_assets, |stage| {
-                let _ = sender.send(Event::Stage(stage));
+                let _ = sender.send(stage);
             })
         })?;
         self.job = Some(job);
@@ -319,19 +319,12 @@ impl ProjectLoad {
     }
 
     pub fn poll(&mut self) -> Option<std::result::Result<ProjectCandidate, String>> {
-        while let Some(job) = &self.job {
-            match job.poll()? {
-                Event::Stage(stage) => self.stage = stage,
-                Event::Finished(result) => {
-                    self.job.take();
-                    if let Err(error) = &result {
-                        self.failure = Some(error.clone());
-                    }
-                    return Some(result);
-                }
-            }
+        let result = self.job.as_mut()?.poll(|stage| self.stage = stage)?;
+        self.job.take();
+        if let Err(error) = &result {
+            self.failure = Some(error.clone());
         }
-        None
+        Some(result)
     }
 }
 

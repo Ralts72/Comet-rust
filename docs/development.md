@@ -64,7 +64,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 | 作者文档与历史 | 组件及字段共用候选校验；多选、层级、Prefab、保存点与 undo/redo；失败保留当前预览 | [Editor Core 测试](../editor/core/tests/) |
 | 运行世界 | 固定步与输入、物理/角色、脚本意图事务、暂停/重开/换关、显式进度与作者隔离 | [Runtime 测试](../engine/runtime/tests/)、[App 会话测试](../app/src/session/) |
 | 资源身份与产品 | metadata 稳定、导入失败与索引原子发布、依赖类型（含禁用绑定/隐藏模型/外部引用）、闭包及标签剥离 | [Pipeline 测试](../engine/asset/pipeline/tests/)、[Store 测试](../engine/asset/runtime/tests/) |
-| 后台接纳与项目切换 | 文档与历史依赖、世界/revision 守卫、取消与旧候选拒绝、工作线程错误和退出 | [会话测试](../editor/src/session/tests/)、[项目加载测试](../editor/src/project/loading/tests.rs) |
+| 后台接纳与项目切换 | 进度先于结果、一次性交付与所有者回收；世界/revision 守卫、取消及旧候选拒绝、错误和退出 | [Job 测试](../editor/src/jobs.rs)、[会话测试](../editor/src/session/tests/)、[项目加载测试](../editor/src/project/loading/tests.rs) |
 | 编辑器交互 | 真实 egui 输入下的多选、Gizmo、吸附、Inspector、拖动事务、焦点和模态隔离 | [UI 测试](../editor/src/ui/tests/)、[Inspector 测试](../editor/src/ui/inspector/) |
 | 项目与文档流程 | 路径边界、身份预留、排他创建、保存失败重试、未保存提示与 Play 隔离 | [文档流程测试](../editor/src/documents/tests/)、[Core 路径与发布测试](../engine/core/tests/) |
 | 帧与原生输出 | 场景/索引缓存身份、在途产品保活、静态及蒙皮变换、拾取、音频输出和线程关闭 | [Application 测试](../engine/application/src/)、[Render 测试](../engine/render/src/)、[Audio 测试](../engine/audio/src/) |
