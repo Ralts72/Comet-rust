@@ -402,12 +402,12 @@ Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常�
 2. 源旁的 `<文件名>.meta` 保存版本与 AssetId。重命名时随源移动；复制为新资产时分配新身份。目录重构保留现有 metadata 与协议版本。
 3. 构建持有项目与输出锁，读取输入快照，校验内容、引用类型、依赖及展开；发布前复核源集合、字节、metadata 和外部文件。
 4. 产品写入 `products/<AssetId>/<SHA256>.json`，保存版本、身份、输入摘要及 CPU payload。相同内容复用文件，不就地覆盖旧版本。
-5. 最后通过同目录临时文件、sync 与 rename 原子发布 `index.json`；失败时旧索引仍可使用。当前不自动清理旧产品版本。
+5. 新 metadata 通过 `SourceMeta` 排他预留，不替换已存在的身份；全部预留成功后，才通过同目录临时文件、sync 与 rename 原子发布 `index.json`。某次预留失败保留旧索引，已预留成功的身份供重试复用。当前不自动清理旧产品版本。
 6. AssetStore 只读产品目录。打开与刷新时全量校验候选索引、摘要、协议、依赖及展开，成功后切换；缓存使用 Arc，消费者已持有的旧版本继续有效。`shared_index()` 返回已接纳索引的 `Arc<ProductIndex>`：每次打开都有独立身份；同一 Store 刷新完整验证成功且索引字节 revision 未变时复用原 Arc，revision 改变时发布新 Arc。不同 Store 即使摘要相同也不合并身份；失败不替换旧索引及驻留产品，`evict` 只释放 Store 持有的产品引用。
 
 依赖类型规则归 Asset Data，产品声明与借用的展开快照共用同一实现。校验通过只读查询取得资产类型：Pipeline 借用已导入产品，Store 查询已接纳索引，不为每个产品重新构造完整类型表，也不为校验快照复制场景或包装临时产品。此接口不导入资源、不创建运行世界，完整候选验证和发布边界保持独立。
 
-Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径和版本校验；SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
+Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径、版本校验与排他身份预留；构建、Scene/Prefab 创建和导航发布复用同一 metadata 写入规则，路径与候选校验仍归各自调用方。SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。有编辑来源信息时，作者身份必须对应源根，不能借用同类型的衍生产品 ID；源文件携带 metadata 改名后仍使用原身份，目录不按旧显示标签推断路径。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
 SceneSnapshot 协议为 10，产品协议为 5，索引协议为 6，NavigationData、AudioData、SkeletonData、SkinData 与 AnimationClipData 协议均为 1。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 可从有效 v1–5 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
 

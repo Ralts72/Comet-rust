@@ -200,6 +200,63 @@ fn normal_generation_widens_before_subtracting_finite_coordinates() -> Result<()
     Ok(())
 }
 #[test]
+fn source_catalog_rejects_derived_identities_without_restricting_source_renames() -> Result<()> {
+    use comet_asset_data::product::AssetKind;
+    use comet_asset_pipeline::{SourceCatalog, SourceMeta};
+
+    let p = Project::new()?;
+    p.prepare()?;
+    let paths = comet_core::ProjectPaths::open(&p.path)?;
+    let mut store = AssetStore::open(&p.output)?;
+    let model = SourceMeta::load(&p.source("showcase.gltf"))?.id;
+    let mesh = model.child("mesh:name:AmberTwoMaterials/primitive:0");
+    let product = store.load(mesh)?;
+    let Product::Mesh(data) = &product.payload else {
+        panic!("expected a derived mesh");
+    };
+    let alias = p.source("unbuilt.mesh");
+    fs::write(&alias, serde_json::to_vec(data)?)?;
+    fs::write(
+        SourceMeta::path(&alias),
+        serde_json::to_vec(&SourceMeta {
+            version: 1,
+            id: mesh,
+        })?,
+    )?;
+    let error = SourceCatalog::read(&paths, store.index())
+        .err()
+        .expect("a derived product must not become an author source");
+    assert!(format!("{error:#}").contains("derived product"));
+    assert_eq!(SourceMeta::load(&alias)?.id, mesh);
+    fs::remove_file(SourceMeta::path(&alias))?;
+    fs::remove_file(&alias)?;
+
+    let renamed = p.source("renamed.gltf");
+    fs::rename(p.source("showcase.gltf"), &renamed)?;
+    fs::rename(p.source("showcase.gltf.meta"), SourceMeta::path(&renamed))?;
+    let catalog = SourceCatalog::read(&paths, store.index())?;
+    assert_eq!(
+        catalog
+            .of_kind(AssetKind::Prefab)
+            .find(|source| source.id == model)
+            .unwrap()
+            .source,
+        Path::new("renamed.gltf")
+    );
+    let mut unlabelled = store.index().clone();
+    for entry in unlabelled.products.values_mut() {
+        entry.editor = None;
+    }
+    unlabelled.validate()?;
+    assert!(
+        SourceCatalog::read(&paths, &unlabelled)?
+            .of_kind(AssetKind::Prefab)
+            .any(|source| source.id == model)
+    );
+    Ok(())
+}
+
+#[test]
 fn static_multimaterial_model_and_external_buffer_updates() -> Result<()> {
     let p = Project::new()?;
     let first = p.prepare()?;

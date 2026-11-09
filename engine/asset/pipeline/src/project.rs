@@ -72,7 +72,7 @@ fn create_content(paths: &ProjectPaths, relative: &Path, extension: &str) -> Res
                 version: 1,
                 id: AssetId::new(),
             };
-            comet_core::atomic_create(&metadata, &serde_json::to_vec_pretty(&meta)?)?;
+            meta.reserve(&path)?;
         }
         Err(e) => return Err(e).context("读取作者文件身份失败"),
     }

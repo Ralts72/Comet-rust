@@ -22,17 +22,28 @@ impl SourceMeta {
     }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let meta: Self = serde_json::from_slice(bytes).context("parse source metadata")?;
-        ensure!(
-            meta.version == 1,
-            "unsupported metadata version {}",
-            meta.version
-        );
+        meta.validate()?;
         Ok(meta)
+    }
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            self.version == 1,
+            "unsupported metadata version {}",
+            self.version
+        );
+        Ok(())
     }
     pub fn load(source: &Path) -> Result<Self> {
         let path = Self::path(source);
         Self::from_bytes(&fs::read(&path).with_context(|| format!("read {}", path.display()))?)
             .with_context(|| format!("metadata {}", path.display()))
+    }
+    /// Reserve an identity without replacing metadata created since the caller's last check.
+    pub(crate) fn reserve(&self, source: &Path) -> Result<()> {
+        self.validate()?;
+        let path = Self::path(source);
+        comet_core::atomic_create(&path, &serde_json::to_vec_pretty(self)?)
+            .with_context(|| format!("reserve metadata {}", path.display()))
     }
 }
 
@@ -67,6 +78,14 @@ impl SourceCatalog {
             ensure!(
                 Some(product.kind) == crate::import::source_kind(&file),
                 "source/product kind mismatch: {}",
+                file.display()
+            );
+            ensure!(
+                product
+                    .editor
+                    .as_ref()
+                    .is_none_or(|origin| origin.source == meta.id),
+                "source identity refers to a derived product: {}",
                 file.display()
             );
             ensure!(ids.insert(meta.id), "duplicate source identity {}", meta.id);

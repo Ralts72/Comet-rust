@@ -230,11 +230,6 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
     }
     index.validate()?;
     verify_snapshot(&assets, &paths, &inputs)?;
-    for input in &inputs {
-        if input.new_meta {
-            atomic_write(&input.meta_path, &serde_json::to_vec_pretty(&input.meta)?)?;
-        }
-    }
     let bytes = serde_json::to_vec_pretty(&index)?;
     let changed = index
         .products
@@ -252,7 +247,14 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
             .filter(|id| !index.products.contains_key(id))
             .count()
     });
-    atomic_write(&output.join("index.json"), &bytes)?;
+    publish_index(
+        output,
+        &bytes,
+        inputs
+            .iter()
+            .filter(|input| input.new_meta)
+            .map(|input| (input.path.as_path(), &input.meta)),
+    )?;
     Ok(BuildReport {
         sources: inputs.len(),
         products: index.products.len(),
@@ -261,6 +263,17 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
         removed,
         index_digest: digest(&bytes),
     })
+}
+/// Reserve every new identity before publishing the already validated index.
+fn publish_index<'a>(
+    output: &Path,
+    bytes: &[u8],
+    metadata: impl IntoIterator<Item = (&'a Path, &'a SourceMeta)>,
+) -> Result<()> {
+    for (source, meta) in metadata {
+        meta.reserve(source)?;
+    }
+    atomic_write(&output.join("index.json"), bytes)
 }
 fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
     let bytes = match fs::read(output.join("index.json")) {
@@ -388,5 +401,94 @@ impl PrefabResolver for Sources<'_, '_> {
             Some(Product::Prefab(s)) => Ok(s.clone()),
             _ => anyhow::bail!("missing prefab product {id}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn publication_preserves_external_metadata_and_retries_with_reserved_identities() -> Result<()>
+    {
+        let temp = tempfile::tempdir()?;
+        let project = temp.path().join("project");
+        let output = temp.path().join("products");
+        fs::create_dir_all(project.join("assets"))?;
+        let sources = [
+            project.join("assets/新场景.scene"),
+            project.join("assets/second.scene"),
+        ];
+        for source in &sources {
+            fs::write(source, ContentSource::default().to_json()?)?;
+        }
+        let index = ProductIndex {
+            version: INDEX_VERSION,
+            products: BTreeMap::new(),
+        };
+        let accepted = serde_json::to_vec(&index)?;
+        let candidate = serde_json::to_vec_pretty(&index)?;
+        atomic_write(&output.join("index.json"), &accepted)?;
+        let pending = [
+            SourceMeta {
+                version: 1,
+                id: AssetId::new(),
+            },
+            SourceMeta {
+                version: 1,
+                id: AssetId::new(),
+            },
+        ];
+        let external = SourceMeta {
+            version: 1,
+            id: AssetId::new(),
+        };
+        let external_bytes = serde_json::to_vec(&external)?;
+        // An external writer appears after the caller's final snapshot check.
+        fs::write(SourceMeta::path(&sources[1]), &external_bytes)?;
+        let error = publish_index(
+            &output,
+            &candidate,
+            sources
+                .iter()
+                .zip(&pending)
+                .map(|(path, meta)| (path.as_path(), meta)),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read(output.join("index.json"))?, accepted);
+        let reserved = fs::read(SourceMeta::path(&sources[0]))?;
+        assert_eq!(SourceMeta::load(&sources[0])?.id, pending[0].id);
+        assert_eq!(fs::read(SourceMeta::path(&sources[1]))?, external_bytes);
+        assert!(
+            comet_asset::AssetStore::open(&output)?
+                .index()
+                .products
+                .is_empty()
+        );
+
+        let invalid = SourceMeta {
+            version: 2,
+            id: AssetId::new(),
+        };
+        let invalid_source = project.join("assets/invalid.scene");
+        assert!(
+            publish_index(&output, &candidate, [(invalid_source.as_path(), &invalid)]).is_err()
+        );
+        assert!(!SourceMeta::path(&invalid_source).exists());
+        assert_eq!(fs::read(output.join("index.json"))?, accepted);
+
+        prepare(&project, &output)?;
+        let products = comet_asset::AssetStore::open(&output)?;
+        assert_eq!(products.index().products.len(), 2);
+        assert!(products.index().products.contains_key(&pending[0].id));
+        assert!(products.index().products.contains_key(&external.id));
+        assert!(!products.index().products.contains_key(&pending[1].id));
+        assert_eq!(fs::read(SourceMeta::path(&sources[0]))?, reserved);
+        assert_eq!(fs::read(SourceMeta::path(&sources[1]))?, external_bytes);
+        Ok(())
     }
 }

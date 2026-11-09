@@ -210,13 +210,11 @@ pub fn publish_navigation(
         "navigation metadata changed while baking"
     );
     if target.previous_metadata.is_none() {
-        atomic_create(
-            &target.metadata,
-            &serde_json::to_vec_pretty(&crate::SourceMeta {
-                version: 1,
-                id: target.asset,
-            })?,
-        )?;
+        crate::SourceMeta {
+            version: 1,
+            id: target.asset,
+        }
+        .reserve(&target.path)?;
     }
     // Metadata is reserved separately; a failed source publication can reuse it on the next attempt.
     if target.previous_source.is_none() {
