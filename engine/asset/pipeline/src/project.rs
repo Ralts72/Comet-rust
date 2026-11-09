@@ -3,7 +3,6 @@ use comet_core::{AssetId, DirectoryCandidate, GameId, ProjectPaths, atomic_creat
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -114,11 +113,8 @@ impl ProjectSettings {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e).context("读取项目设置失败"),
         };
-        const MAX_BYTES: u64 = 64 * 1024;
-        ensure!(file.metadata()?.len() <= MAX_BYTES, "项目设置超过 64 KiB");
-        let mut bytes = Vec::new();
-        file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-        ensure!(bytes.len() as u64 <= MAX_BYTES, "项目设置超过 64 KiB");
+        let bytes = comet_core::read_bounded(file, 64 * 1024)
+            .context("读取项目设置失败（大小限制 64 KiB）")?;
         let settings: Self = serde_json::from_slice(&bytes).context("解析项目设置失败")?;
         Ok(settings)
     }

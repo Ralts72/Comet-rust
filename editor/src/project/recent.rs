@@ -6,7 +6,6 @@ use std::{
     collections::BTreeSet,
     ffi::OsString,
     fs::{self, File},
-    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -44,18 +43,8 @@ impl RecentProjects {
             }
             Err(error) => return Err(error).context("read recent projects"),
         };
-        ensure!(
-            file.metadata()?.len() <= MAX_FILE_BYTES as u64,
-            "recent projects file exceeds 64 KiB"
-        );
-        let mut bytes = Vec::new();
-        file.take(MAX_FILE_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)
-            .context("read recent projects")?;
-        ensure!(
-            bytes.len() <= MAX_FILE_BYTES,
-            "recent projects file grew beyond 64 KiB"
-        );
+        let bytes = comet_core::read_bounded(file, MAX_FILE_BYTES)
+            .context("read recent projects within 64 KiB")?;
         let entries = decode(&bytes).context("invalid recent projects configuration")?;
         Ok(Self {
             storage: Some(storage),

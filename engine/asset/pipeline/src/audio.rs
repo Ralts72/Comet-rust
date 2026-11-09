@@ -4,31 +4,10 @@ use comet_asset_data::{
     AudioData,
     audio::{AUDIO_VERSION, MAX_AUDIO_SAMPLES},
 };
-use std::{
-    fs,
-    io::{Cursor, Read},
-    path::Path,
-};
+use std::io::Cursor;
 
 // PCM16 payload plus bounded RIFF headers and metadata chunks.
-const MAX_WAV_BYTES: usize = MAX_AUDIO_SAMPLES * 2 + 64 * 1024;
-
-pub(super) fn read(path: &Path) -> Result<Vec<u8>> {
-    let file = fs::File::open(path).with_context(|| format!("read {}", path.display()))?;
-    ensure!(
-        file.metadata()?.len() <= MAX_WAV_BYTES as u64,
-        "WAV source exceeds its byte budget: {}",
-        path.display()
-    );
-    let mut bytes = Vec::new();
-    file.take(MAX_WAV_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= MAX_WAV_BYTES,
-        "WAV source grew beyond its byte budget"
-    );
-    Ok(bytes)
-}
+pub(super) const MAX_WAV_BYTES: usize = MAX_AUDIO_SAMPLES * 2 + 64 * 1024;
 
 pub(super) fn import(bytes: &[u8]) -> Result<AudioData> {
     ensure!(

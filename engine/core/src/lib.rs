@@ -19,4 +19,4 @@ pub use progress::{
     ProgressEntry, ProgressValue, ProgressValues, validate_progress_key,
 };
 pub use publication::DirectoryCandidate;
-pub use storage::{atomic_create, atomic_write, digest, validate_digest};
+pub use storage::{atomic_create, atomic_write, digest, read_bounded, validate_digest};

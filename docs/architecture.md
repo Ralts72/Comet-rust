@@ -392,6 +392,8 @@ Settings 只包含实际生效的 master_volume 和 shadows，默认 1 和 true�
 
 ## 资产生产与消费
 
+Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常规文件，在分配前检查该句柄的大小，并限制实际读取量以拒绝读取中超出预算的文件。源导入、Asset Runtime、项目配置、最近项目和 App 数据槽复用这一原语；文件打开、路径与符号链接策略、缺失文件处理、格式预算及候选接纳仍归各自模块。Pipeline 在读取 Rhai、导航、WAV 和 glTF/GLB 源时执行各格式已有的上限，内存导入入口继续自行校验；WAV 模块只负责解码与内容规则。
+
 1. Pipeline 扫描项目 `assets/`，导入 `.scene`、`.prefab`、`.mesh`、`.material`、`.nav`、`.rhai`、PCM16 WAV、PNG、静态及蒙皮 glTF/GLB；自有场景、模型及导航格式使用 JSON 内容。
 2. 源旁的 `<文件名>.meta` 保存版本与 AssetId。重命名时随源移动；复制为新资产时分配新身份。目录重构保留现有 metadata 与协议版本。
 3. 构建持有项目与输出锁，读取输入快照，校验内容、引用类型、依赖及展开；发布前复核源集合、字节、metadata 和外部文件。

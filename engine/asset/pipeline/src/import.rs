@@ -5,7 +5,7 @@ use comet_asset_data::product::{
 use comet_core::AssetId;
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
+    io::Cursor,
     path::{Path, PathBuf},
 };
 
@@ -91,32 +91,23 @@ pub(crate) fn import(path: &Path, bytes: &[u8]) -> Result<Product> {
     Ok(value)
 }
 pub(crate) fn read(path: &Path) -> Result<Vec<u8>> {
-    if path.extension().is_some_and(|extension| extension == "wav") {
-        crate::audio::read(path)
-    } else if path
-        .extension()
-        .is_some_and(|extension| extension == "gltf" || extension == "glb")
-    {
-        read_bounded(path, comet_asset_data::MAX_ANIMATION_BYTES)
+    let limit = match path.extension().and_then(|extension| extension.to_str()) {
+        Some("wav") => Some(crate::audio::MAX_WAV_BYTES),
+        Some("gltf" | "glb") => Some(comet_asset_data::MAX_ANIMATION_BYTES),
+        Some("rhai") => Some(MAX_SCRIPT_BYTES),
+        Some("nav") => Some(comet_asset_data::navigation::MAX_NAVIGATION_BYTES),
+        _ => None,
+    };
+    if let Some(limit) = limit {
+        read_bounded(path, limit)
     } else {
         std::fs::read(path).with_context(|| format!("read {}", path.display()))
     }
 }
 pub(super) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let file = std::fs::File::open(path).with_context(|| format!("read {}", path.display()))?;
-    ensure!(
-        file.metadata()?.len() <= limit as u64,
-        "source byte budget exceeded: {}",
-        path.display()
-    );
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= limit,
-        "source grew beyond byte budget: {}",
-        path.display()
-    );
-    Ok(bytes)
+    comet_core::read_bounded(file, limit)
+        .with_context(|| format!("read source {} within its byte budget", path.display()))
 }
 fn png(bytes: &[u8]) -> Result<TextureData> {
     let mut decoder = png::Decoder::new(Cursor::new(bytes));
@@ -161,4 +152,31 @@ fn png(bytes: &[u8]) -> Result<TextureData> {
     };
     value.validate()?;
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_formats_apply_their_declared_budget_before_import_or_allocation() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        for (extension, limit) in [
+            ("rhai", MAX_SCRIPT_BYTES),
+            ("nav", comet_asset_data::navigation::MAX_NAVIGATION_BYTES),
+            ("gltf", comet_asset_data::MAX_ANIMATION_BYTES),
+            ("glb", comet_asset_data::MAX_ANIMATION_BYTES),
+            ("wav", crate::audio::MAX_WAV_BYTES),
+        ] {
+            let path = temp.path().join(format!("oversized.{extension}"));
+            std::fs::File::create(&path)?.set_len(limit as u64 + 1)?;
+            let error = read(&path).unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("budget") && message.contains(extension),
+                "{message}"
+            );
+        }
+        Ok(())
+    }
 }

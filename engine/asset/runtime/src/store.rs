@@ -7,7 +7,6 @@ use comet_scene::{ContentSource, PrefabResolver, SceneSnapshot};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -88,18 +87,9 @@ impl AssetStore {
                 comet_asset_data::audio::MAX_AUDIO_BYTES
             } else {
                 comet_asset_data::MAX_ANIMATION_BYTES
-            } as u64;
-            ensure!(
-                file.metadata()?.len() <= limit,
-                "product exceeds its file size budget: {id}"
-            );
-            let mut bytes = Vec::new();
-            file.take(limit + 1).read_to_end(&mut bytes)?;
-            ensure!(
-                bytes.len() as u64 <= limit,
-                "product grew beyond its file size budget: {id}"
-            );
-            bytes
+            };
+            comet_core::read_bounded(file, limit)
+                .with_context(|| format!("read product {id} within its file size budget"))?
         } else {
             fs::read(&path).with_context(|| format!("read product {}", path.display()))?
         };

@@ -3,7 +3,6 @@ use anyhow::{Context, Result, ensure};
 use comet_core::{Checkpoint, GameId, MAX_CHECKPOINT_BYTES, atomic_write};
 use std::{
     fs::{self, File},
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -120,21 +119,8 @@ impl Store {
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                     Err(error) => return Err(error).context("读取游戏数据失败"),
                 };
-                let metadata = file.metadata()?;
-                ensure!(metadata.is_file(), "游戏数据不是普通文件");
-                ensure!(
-                    metadata.len() <= slot.max_bytes() as u64,
-                    "{} 超过大小限制",
-                    slot.name()
-                );
-                let mut bytes = Vec::new();
-                file.take(slot.max_bytes() as u64 + 1)
-                    .read_to_end(&mut bytes)?;
-                ensure!(
-                    bytes.len() <= slot.max_bytes(),
-                    "{} 超过大小限制",
-                    slot.name()
-                );
+                let bytes = comet_core::read_bounded(file, slot.max_bytes())
+                    .with_context(|| format!("读取游戏数据 {} 失败", path.display()))?;
                 // Recheck the published path after reading, before consuming external data.
                 slot_path(root, self.game_id, slot, false)?.context("读取时游戏数据目录已改变")?;
                 Ok(Some(bytes))

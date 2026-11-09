@@ -60,6 +60,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 
 | 验证边界 | 主要覆盖 | 入口 |
 | --- | --- | --- |
+| 文件读取预算 | 超限元数据在读取前拒绝、精确上限、读取中增长、I/O 失败和预算溢出；源格式在导入前执行既有上限 | [Core 公共接口测试](../engine/core/tests/storage.rs)、[Core 读取单元测试](../engine/core/src/storage.rs)、[源读取测试](../engine/asset/pipeline/src/import.rs) |
 | 场景与引用协议 | 旧格式读取、新组件最低版本、实例词法作用域、复制重映射、删除清理、候选失败保持 | [Scene 测试](../engine/scene/tests/)、[文档协议回归](../editor/core/tests/protocols.rs) |
 | 作者文档与历史 | 组件及字段共用候选校验；多选、层级、Prefab、保存点与 undo/redo；失败保留当前预览 | [Editor Core 测试](../editor/core/tests/) |
 | 运行世界 | 固定步与输入、物理/角色、脚本意图事务、暂停/重开/换关、显式进度与作者隔离 | [Runtime 测试](../engine/runtime/tests/)、[App 会话测试](../app/src/session/) |
