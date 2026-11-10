@@ -79,6 +79,23 @@ impl CheckpointInput {
     }
 }
 
+fn primary_event(event: &egui::Event, rect: egui::Rect) -> Option<(usize, bool)> {
+    match event {
+        egui::Event::Key {
+            key: egui::Key::J,
+            pressed,
+            repeat: false,
+            ..
+        } => Some((0, *pressed)),
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            ..
+        } if rect.contains(*pos) => Some((1, *pressed)),
+        _ => None,
+    }
+}
 /// Default keyboard/mouse mapping shared by Editor Play and App.
 pub fn sample_actions(
     response: &egui::Response,
@@ -98,45 +115,54 @@ pub fn sample_actions(
         held.set(Action::Crouch, input.modifiers.ctrl);
         held.set(Action::Interact, input.key_down(egui::Key::E));
         held.set(Action::Restart, input.key_down(egui::Key::R));
-        held.set(
-            Action::Primary,
+        let mut primary_sources = [
+            input.key_down(egui::Key::J),
             input.pointer.primary_down()
                 && input
                     .pointer
                     .latest_pos()
                     .is_some_and(|p| response.rect.contains(p)),
-        );
+        ];
+        held.set(Action::Primary, primary_sources[0] || primary_sources[1]);
+        // Recover the beginning of this event batch, then emit edges of the combined action.
+        for event in input.events.iter().rev() {
+            if let Some((source, pressed)) = primary_event(event, response.rect) {
+                primary_sources[source] = !pressed;
+            }
+        }
         let events = input
             .events
             .iter()
-            .filter_map(|event| match event {
-                egui::Event::Key {
-                    key,
-                    pressed,
-                    repeat: false,
-                    ..
-                } => {
-                    let action = match key {
-                        egui::Key::Space => Action::Jump,
-                        egui::Key::E => Action::Interact,
-                        egui::Key::R => Action::Restart,
-                        _ => return None,
-                    };
-                    Some(ActionEvent {
-                        action,
-                        pressed: *pressed,
-                    })
+            .filter_map(|event| {
+                if let Some((source, pressed)) = primary_event(event, response.rect) {
+                    let before = primary_sources[0] || primary_sources[1];
+                    primary_sources[source] = pressed;
+                    let after = primary_sources[0] || primary_sources[1];
+                    return (before != after).then_some(ActionEvent {
+                        action: Action::Primary,
+                        pressed: after,
+                    });
                 }
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    ..
-                } if response.rect.contains(*pos) => Some(ActionEvent {
-                    action: Action::Primary,
-                    pressed: *pressed,
-                }),
-                _ => None,
+                match event {
+                    egui::Event::Key {
+                        key,
+                        pressed,
+                        repeat: false,
+                        ..
+                    } => {
+                        let action = match key {
+                            egui::Key::Space => Action::Jump,
+                            egui::Key::E => Action::Interact,
+                            egui::Key::R => Action::Restart,
+                            _ => return None,
+                        };
+                        Some(ActionEvent {
+                            action,
+                            pressed: *pressed,
+                        })
+                    }
+                    _ => None,
+                }
             })
             .collect();
         let axis = |positive, negative| {

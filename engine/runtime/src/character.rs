@@ -17,8 +17,11 @@ pub struct CharacterState {
     pub crouched: bool,
     /// Collision-constrained horizontal movement, in world metres per second.
     pub horizontal_velocity: [f32; 2],
+    /// Last requested or locomotion-derived unit heading in world X/Z; initially unspecified.
+    pub facing: Option<[f32; 2]>,
 }
 pub(super) struct Motor {
+    pub motion_enabled: bool,
     pub config: Character,
     pub state: CharacterState,
     standing: SharedShape,
@@ -36,6 +39,7 @@ impl Motor {
         let crouch_half_height =
             ((half_height + radius) * config.crouch_height_ratio - radius).max(0.);
         Self {
+            motion_enabled: true,
             config,
             state: CharacterState {
                 entity,
@@ -44,6 +48,7 @@ impl Motor {
                 vertical_velocity: 0.,
                 crouched: false,
                 horizontal_velocity: [0.; 2],
+                facing: None,
             },
             standing: SharedShape::capsule_y(half_height, radius),
             crouching: SharedShape::capsule_y(crouch_half_height, radius),
@@ -58,6 +63,9 @@ impl Motor {
         collider_handle: ColliderHandle,
         input: &ActionInput,
     ) -> bool {
+        if !self.motion_enabled {
+            return false;
+        }
         let crouched =
             self.config.player_controlled && input.enabled && input.held.contains(Action::Crouch);
         if crouched == self.state.crouched {
@@ -106,7 +114,7 @@ impl Motor {
     ) -> Pose {
         let dt = FIXED_DELTA as f32;
         let c = &self.config;
-        let controlled = c.player_controlled && input.enabled;
+        let controlled = c.player_controlled && input.enabled && self.motion_enabled;
         let jump = controlled
             && input
                 .events
@@ -131,7 +139,9 @@ impl Motor {
         } else {
             c.move_speed
         };
-        let horizontal = if c.player_controlled {
+        let horizontal = if !self.motion_enabled {
+            Vector::ZERO
+        } else if c.player_controlled {
             direction * speed
         } else {
             Vector::from_array(navigation_velocity.unwrap_or([0.; 3]))
@@ -164,6 +174,13 @@ impl Motor {
         let movement =
             controller.move_shape(dt, &queries, collider.shape(), &current, desired, |_| {});
         self.state.horizontal_velocity = [movement.translation.x / dt, movement.translation.z / dt];
+        if self.motion_enabled
+            && self.state.horizontal_velocity[0].hypot(self.state.horizontal_velocity[1]) > 0.01
+        {
+            let v = self.state.horizontal_velocity;
+            let length = f64::from(v[0]).hypot(f64::from(v[1]));
+            self.state.facing = Some(v.map(|x| (f64::from(x) / length) as f32));
+        }
         self.state.grounded = movement.grounded;
         if (movement.grounded && self.state.vertical_velocity < 0.)
             || (self.state.vertical_velocity > 0. && movement.translation.y + 1e-4 < desired.y)

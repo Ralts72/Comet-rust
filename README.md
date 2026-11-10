@@ -5,6 +5,8 @@ Comet 的独立 Rust 3D 引擎工程，沿用引擎、编辑器、游戏与工�
 编辑器界面使用简体中文，内置中文字体，独立游戏包无需另行安装字体。当前支持 glTF/GLB 静态与蒙皮模型导入、单片段播放与参数动画控制器、多材质 PBR/阴影、场景编辑、撤销/重做、保存与独立游戏打包。桌面共同支持目标为 macOS、Windows、Linux；macOS 使用原生 Metal，Windows/Linux 使用原生 Vulkan，暂不接入 DX12。Metal 已实际运行，Windows/Linux 已纳入交叉编译检查，目标设备运行仍需验证。Rhai 游戏脚本、文字 HUD、离线静态导航、2D 与点声源空间音频已接入；完整角色动画系统和旧玩法仍待迁移。
 Editor Play 与 App 共用 60 Hz 固定步、暂停单步、失焦冻结及动作输入消费；长帧补步有上限并记录掉时。Rapier 已接入基础刚体、碰撞层、触发器、胶囊角色，以及点关节、铰链关节和滑动关节；默认 demo 可观察落体，Play 和独立游戏均可操作角色。编辑器关闭窗口时检查未保存的场景，支持保存后退出、直接退出或取消；保存失败保留窗口。视图内容错误同样保留编辑器和作者事务，显示诊断以便修复或撤销；Play 出错时停止运行并返回作者世界。
 
+`./start.sh --scene combat.scene` 可进入战斗样例：J / 鼠标左键出拳，按住不连发；动画的命中阶段检查距离、朝向与墙体遮挡。两名守卫通过导航绕墙接近并攻击，HUD 显示双方血量与击败数；受击有声音和缩放反馈，胜败后按 R 重开。暂停、单步、Stop 和独立导出沿用公共流程。当前未接入粒子、描边、倒地动作和击败后的实体移除，战斗血量属于本局运行状态，继续存档会重新开始本局。
+
 ## 开发与启动
 
 使用 `rust-toolchain.toml` 固定的 Rust 工具链、Edition 2024 和 `Cargo.lock`。启动与验证工具使用 Python 3 标准库。workspace 共用根 `target/`，编译并行配置在 `.cargo/config.toml`；macOS 最低为 14.2，需要 Xcode Command Line Tools 提供 SDK 与链接器；Linux 构建音频需要 `pkg-config` 和 ALSA 开发包（Debian/Ubuntu 为 `libasound2-dev`）。

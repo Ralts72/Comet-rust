@@ -158,7 +158,7 @@ pub(super) fn drive(
                 value: FieldValue::Vec3(translation),
             });
         }
-        if speed > 0.01 {
+        if let Some(facing) = state.facing {
             let actor = snapshot
                 .entities
                 .iter()
@@ -167,7 +167,7 @@ pub(super) fn drive(
             let local_velocity = Quat::from_array(actor.transform.rotation)
                 .normalize()
                 .inverse()
-                * Vec3::new(velocity[0], 0., velocity[1]);
+                * Vec3::new(facing[0], 0., facing[1]);
             let rotation =
                 Quat::from_rotation_y((-local_velocity.x).atan2(-local_velocity.z)).to_array();
             if rotation != owner.transform.rotation {

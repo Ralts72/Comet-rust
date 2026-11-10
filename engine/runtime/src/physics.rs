@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 // Gameplay callbacks and character intent still run once per fixed tick.
 const PHYSICS_SUBSTEPS: usize = 4;
 mod joints;
+pub(crate) mod queries;
 pub use joints::{JointKind, JointStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +25,8 @@ pub(crate) enum PhysicsCommand {
     Teleport(PoseUpdate),
     Velocity(EntityId, [f32; 3]),
     Impulse(EntityId, [f32; 3]),
+    CharacterMotion(EntityId, bool),
+    CharacterFacing(EntityId, [f32; 2]),
 }
 struct Body {
     handle: RigidBodyHandle,
@@ -39,6 +42,7 @@ pub(crate) struct Physics {
     events: Vec<TriggerEvent>,
     joints: joints::Joints,
     navigation_static: bool,
+    query_snapshot: Option<std::sync::Arc<queries::Queries>>,
 }
 fn groups(body: &PhysicsBody) -> InteractionGroups {
     InteractionGroups::new(
@@ -57,11 +61,27 @@ impl Physics {
     pub(crate) fn validate_commands(&self, commands: &[PhysicsCommand]) -> Result<()> {
         let mut candidates = BTreeMap::new();
         for command in commands {
+            if let PhysicsCommand::CharacterMotion(id, _) | PhysicsCommand::CharacterFacing(id, _) =
+                command
+            {
+                ensure!(
+                    self.bodies.get(id).is_some_and(|b| b.motor.is_some()),
+                    "character command requires a character"
+                );
+                if let PhysicsCommand::CharacterFacing(_, v) = command {
+                    ensure!(
+                        v.iter().all(|v| v.is_finite()) && (v[0] != 0. || v[1] != 0.),
+                        "character facing must be finite and nonzero"
+                    );
+                }
+                continue;
+            }
             let (id, value) = match command {
                 PhysicsCommand::Teleport(pose) => (pose.entity, pose.translation),
                 PhysicsCommand::Velocity(id, value) | PhysicsCommand::Impulse(id, value) => {
                     (*id, *value)
                 }
+                _ => unreachable!(),
             };
             ensure!(
                 value.into_iter().all(f32::is_finite),
@@ -95,6 +115,7 @@ impl Physics {
                     );
                     candidate.apply_impulse(Vector::from_array(value), true);
                 }
+                _ => unreachable!(),
             }
             ensure!(
                 candidate.linvel().is_finite(),
@@ -173,6 +194,7 @@ impl Physics {
         let joints = joints::Joints::new(&mut world, &bodies, snapshot)?;
         refresh_queries(&mut world);
         Ok(Self {
+            query_snapshot: None,
             world,
             bodies,
             collider_ids,
@@ -218,6 +240,32 @@ impl Physics {
     pub fn contains(&self, id: EntityId) -> bool {
         self.bodies.contains_key(&id)
     }
+    pub(crate) fn queries(&mut self) -> std::sync::Arc<queries::Queries> {
+        if self.query_snapshot.is_none() {
+            self.query_snapshot = Some(std::sync::Arc::new(queries::Queries::capture(self)));
+        }
+        self.query_snapshot.as_ref().unwrap().clone()
+    }
+    pub(crate) fn set_character_motion_enabled(&mut self, id: EntityId, enabled: bool) {
+        self.bodies
+            .get_mut(&id)
+            .unwrap()
+            .motor
+            .as_mut()
+            .unwrap()
+            .motion_enabled = enabled;
+    }
+    pub(crate) fn face_character(&mut self, id: EntityId, v: [f32; 2]) {
+        let length = f64::from(v[0]).hypot(f64::from(v[1]));
+        self.bodies
+            .get_mut(&id)
+            .unwrap()
+            .motor
+            .as_mut()
+            .unwrap()
+            .state
+            .facing = Some(v.map(|x| (f64::from(x) / length) as f32));
+    }
     pub fn step(
         &mut self,
         input: &ActionInput,
@@ -225,6 +273,7 @@ impl Physics {
         scene: &mut Scene,
         navigation: Option<&BTreeMap<EntityId, [f32; 3]>>,
     ) -> Result<()> {
+        self.query_snapshot = None;
         for body in self.bodies.values_mut() {
             if let Some(motor) = &mut body.motor
                 && motor.update_posture(&mut self.world, body.handle, body.collider, input)
@@ -340,6 +389,7 @@ impl Physics {
         Ok(())
     }
     pub fn teleport(&mut self, update: &PoseUpdate) -> Result<()> {
+        self.query_snapshot = None;
         let body = self
             .bodies
             .get_mut(&update.entity)
@@ -359,6 +409,7 @@ impl Physics {
             motor.state.grounded = false;
             motor.state.vertical_velocity = 0.;
             motor.state.horizontal_velocity = [0.; 2];
+            motor.state.facing = None;
         }
         refresh_queries(&mut self.world);
         Ok(())

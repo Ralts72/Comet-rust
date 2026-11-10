@@ -31,6 +31,8 @@ pub(super) enum Command {
     Teleport(EntityId, [f32; 3]),
     Velocity(EntityId, [f32; 3]),
     Impulse(EntityId, [f32; 3]),
+    CharacterMotion(EntityId, bool),
+    CharacterFacing(EntityId, [f32; 2]),
     NavigateTo(EntityId, [f32; 3]),
     FollowNavigation(EntityId, EntityId),
     StopNavigation(EntityId),
@@ -74,6 +76,14 @@ pub(super) fn apply(
     let mut values = Vec::new();
     for command in commands {
         let id = match *command {
+            Command::CharacterMotion(id, value) => {
+                physical.push(PhysicsCommand::CharacterMotion(id, value));
+                continue;
+            }
+            Command::CharacterFacing(id, value) => {
+                physical.push(PhysicsCommand::CharacterFacing(id, value));
+                continue;
+            }
             Command::SetProgress(id, ref key, ref value) => {
                 values.push(ProgressCommand::Set(id, key.clone(), value.clone()));
                 continue;
@@ -225,6 +235,8 @@ pub(super) fn apply(
                 (schema::TRANSLATION, FieldValue::Vec3(translation))
             }
             Command::Velocity(..)
+            | Command::CharacterMotion(..)
+            | Command::CharacterFacing(..)
             | Command::Impulse(..)
             | Command::NavigateTo(..)
             | Command::FollowNavigation(..)
@@ -270,6 +282,10 @@ pub(super) fn apply(
             PhysicsCommand::Teleport(update) => physics.teleport(&update)?,
             PhysicsCommand::Velocity(id, value) => physics.set_velocity(id, value)?,
             PhysicsCommand::Impulse(id, value) => physics.apply_impulse(id, value)?,
+            PhysicsCommand::CharacterMotion(id, value) => {
+                physics.set_character_motion_enabled(id, value)
+            }
+            PhysicsCommand::CharacterFacing(id, value) => physics.face_character(id, value),
         }
     }
     if let Some(navigation) = navigation.as_mut() {

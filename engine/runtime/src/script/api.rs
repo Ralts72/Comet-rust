@@ -41,6 +41,10 @@ impl Entity {
 }
 
 pub(super) struct Call {
+    pub queries: Arc<crate::physics::queries::Queries>,
+    pub query_budget: Rc<std::cell::Cell<usize>>,
+    pub world_matrices:
+        std::cell::OnceCell<std::collections::BTreeMap<EntityId, comet_core::math::Mat4>>,
     pub world: WorldId,
     pub owner: EntityId,
     pub snapshot: Arc<SceneSnapshot>,
@@ -225,10 +229,25 @@ fn action(name: &str) -> ScriptResult<Action> {
     }
 }
 
+mod spatial;
 #[cfg(test)]
 mod tests;
 
 pub(super) fn register(engine: &mut Engine) {
+    spatial::register(engine);
+    engine.register_fn(
+        "set_character_motion_enabled",
+        |context: &mut Context, entity: Entity, enabled: bool| -> ScriptResult<()> {
+            context.enqueue(entity, |id| Command::CharacterMotion(id, enabled))
+        },
+    );
+    engine.register_fn(
+        "face_character",
+        |context: &mut Context, entity: Entity, x: Dynamic, z: Dynamic| -> ScriptResult<()> {
+            let direction = [number(x)?, number(z)?];
+            context.enqueue(entity, |id| Command::CharacterFacing(id, direction))
+        },
+    );
     engine
         .register_type_with_name::<Context>("Context")
         .register_type_with_name::<Entity>("Entity");

@@ -5,7 +5,7 @@ use comet_core::{Action, ActionEvent, ActionInput, ProgressValue};
 use comet_scene::PoseUpdate;
 use std::{fs, path::Path, sync::Arc};
 
-fn copy_project(source: &Path, destination: &Path) -> Result<()> {
+pub(super) fn copy_project(source: &Path, destination: &Path) -> Result<()> {
     fs::create_dir_all(destination)?;
     for entry in fs::read_dir(source)? {
         let entry = entry?;

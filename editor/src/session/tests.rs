@@ -2,6 +2,7 @@ use super::*;
 mod animation;
 mod character;
 mod checkpoint;
+mod combat;
 mod hud;
 mod scene_requests;
 mod script_host;

@@ -718,6 +718,7 @@ def main():
     import collect as collect_verification
     import animation as animation_verification
     import character as character_verification
+    import combat as combat_verification
     import spatial_audio as spatial_verification
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", action="store_true", help="Run actual offscreen GPU frames")
@@ -840,6 +841,7 @@ def main():
                               "--include-scene", animation_verification.SCENE,
                               "--include-scene", character_verification.SCENES[0],
                               "--include-scene", character_verification.SCENES[1],
+                              "--include-scene", combat_verification.SCENE,
                               "--report", OUT / "editor-export.json"], cwd=case)
         exported = json.loads((OUT / "editor-export.json").read_text())
         assert exported["status"] == "passed"
@@ -851,7 +853,7 @@ def main():
         project_settings = json.loads((project / "project.json").read_text())
         assert project_settings["version"] == 2 and uuid.UUID(project_settings["game_id"]).int != 0
         assert manifest["version"] == 4 and manifest["game_id"] == project_settings["game_id"]
-        assert set(manifest["scenes"]) == {scene, extra, DEMO_JOINT_SCENE, NAVIGATION_SCENE, audio_verification.AUDIO_SCENE, spatial_verification.SCENE, collect_verification.SCENE, animation_verification.SCENE, *TRAVEL_SCENES, *character_verification.SCENES} and manifest["entry_scene"] == scene
+        assert set(manifest["scenes"]) == {scene, extra, DEMO_JOINT_SCENE, NAVIGATION_SCENE, audio_verification.AUDIO_SCENE, spatial_verification.SCENE, collect_verification.SCENE, animation_verification.SCENE, *TRAVEL_SCENES, *character_verification.SCENES, combat_verification.SCENE} and manifest["entry_scene"] == scene
         assert manifest["runtime"]["build_id"] == programs["build_id"]
         template_manifest = json.loads(template.read_text())
         assert template_manifest["version"] == 4
@@ -894,7 +896,7 @@ def main():
         run("standalone_products", [assetc, "inspect", relocated / products_relative, scene], cwd=empty)
         inspected = json.loads((OUT / "standalone_products.log").read_text())
         assert DEMO_SCRIPT in inspected["dependencies"]
-        inspect_script_package(relocated / products_relative, scene, manifest["runtime"]["protocols"], [audio_verification.SCRIPT, spatial_verification.SCRIPT, collect_verification.SCRIPT, character_verification.SCRIPT, character_verification.FEEDBACK])
+        inspect_script_package(relocated / products_relative, scene, manifest["runtime"]["protocols"], [audio_verification.SCRIPT, spatial_verification.SCRIPT, collect_verification.SCRIPT, character_verification.SCRIPT, character_verification.FEEDBACK, combat_verification.SCRIPT])
         package_entries = json.loads((relocated / products_relative / "index.json").read_text())["products"]
         assert set(package_entries) == expected_products, "package differs from the declared scene dependency union"
         audio_ids = {asset for asset, entry in package_entries.items() if entry["kind"] == "audio"}
@@ -906,6 +908,7 @@ def main():
         checks["collect_package"] = collect_verification.inspect_package(relocated / products_relative, manifest["runtime"]["protocols"], read_product, ROOT / "demo/assets")
         checks["animation_package"] = animation_verification.inspect_package(relocated / products_relative, manifest["runtime"]["protocols"], read_product, ROOT / "demo/assets")
         checks["character_package"] = character_verification.inspect_package(relocated / products_relative, manifest["runtime"]["protocols"], read_product, ROOT / "demo/assets")
+        checks["combat_package"] = combat_verification.inspect_package(relocated / products_relative, manifest["runtime"]["protocols"], read_product, ROOT / "demo/assets")
         app = relocated / executable_relative
         checks["persistent_game_identity"] = {"status": "passed", "game_id": manifest["game_id"],
             "package_version": manifest["version"], "project_settings_version": project_settings["version"]}
@@ -981,6 +984,13 @@ def main():
                         "--report", OUT / f"{name}.json", "--capture", OUT / f"{name}.png"], cwd=empty)
                     value, _ = inspect_capture(name, native, draw_count)
                     checks[f"{level_name}_{mode}_runtime_evidence"] = character_verification.inspect_runtime(value, level_scene, label, native)
+            for native in ((False, True) if args.native else (False,)):
+                mode = "native" if native else "headless"
+                name = f"combat-app-{mode}"
+                run_capture(name, [app, "--scene", combat_verification.SCENE, *([] if native else ["--headless"]), "--smoke",
+                    "--report", OUT / f"{name}.json", "--capture", OUT / f"{name}.png"], cwd=empty)
+                value, _ = inspect_capture(name, native, combat_verification.DRAW_COUNT)
+                checks[f"combat_{mode}_runtime_evidence"] = combat_verification.inspect_runtime(value, native)
             data_directory = case / "isolated-checkpoint-data"
             run_capture("checkpoint-directory-headless", [app, "--scene", extra, "--headless", "--smoke",
                 "--data-dir", data_directory, "--report", OUT / "checkpoint-directory-headless.json",

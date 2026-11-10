@@ -47,6 +47,7 @@ pub struct ScriptDiagnostic {
 }
 #[derive(Default)]
 struct Fuel {
+    queries: Rc<Cell<usize>>,
     remaining: Cell<u64>,
     previous: Cell<u64>,
     exhausted: Cell<bool>,
@@ -268,6 +269,7 @@ impl Scripts {
         true
     }
     fn phase(&self) {
+        self.fuel.queries.set(128);
         self.fuel.remaining.set(MAX_PHASE_OPERATIONS);
         self.fuel.exhausted.set(false);
     }
@@ -498,6 +500,9 @@ impl Scripts {
             world: scene.world_id(),
             owner: binding.entity,
             snapshot: scene.shared_snapshot(),
+            queries: physics.queries(),
+            query_budget: self.fuel.queries.clone(),
+            world_matrices: Default::default(),
             parameters: binding.parameters.clone(),
             input: input.clone(),
             time: tick as f64 * FIXED_DELTA,

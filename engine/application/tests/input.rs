@@ -43,6 +43,70 @@ fn frame(
     sampled.unwrap()
 }
 #[test]
+fn primary_aliases_emit_one_logical_edge_while_either_keyboard_or_mouse_remains_held() {
+    let key = |pressed| egui::Event::Key {
+        key: egui::Key::J,
+        physical_key: Some(egui::Key::J),
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let pos = egui::pos2(100., 100.);
+    let mouse = |pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for mouse_first in [false, true] {
+        let ctx = egui::Context::default();
+        frame(&ctx, vec![], false, true);
+        let first = if mouse_first { mouse(true) } else { key(true) };
+        let second = if mouse_first { key(true) } else { mouse(true) };
+        let released = if mouse_first {
+            mouse(false)
+        } else {
+            key(false)
+        };
+        let last = if mouse_first {
+            key(false)
+        } else {
+            mouse(false)
+        };
+        let pressed = frame(
+            &ctx,
+            vec![egui::Event::PointerMoved(pos), first],
+            false,
+            true,
+        );
+        assert_eq!(
+            pressed.events,
+            vec![ActionEvent {
+                action: Action::Primary,
+                pressed: true
+            }]
+        );
+        for event in [second, released] {
+            let sample = frame(&ctx, vec![event], false, true);
+            assert!(sample.held.contains(Action::Primary));
+            assert!(sample.events.is_empty());
+        }
+        let sample = frame(&ctx, vec![last], false, true);
+        assert!(!sample.held.contains(Action::Primary));
+        assert_eq!(
+            sample.events,
+            vec![ActionEvent {
+                action: Action::Primary,
+                pressed: false
+            }]
+        );
+    }
+    let ctx = egui::Context::default();
+    let tap = frame(&ctx, vec![key(true), key(false)], false, true);
+    assert_eq!(tap.events.len(), 2);
+}
+
+#[test]
 fn sampling_preserves_fast_taps_and_skips_key_repeat_events() {
     let ctx = egui::Context::default();
     let input = frame(&ctx, vec![key(true, false), key(false, false)], false, true);

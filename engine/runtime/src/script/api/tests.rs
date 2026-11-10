@@ -15,6 +15,9 @@ fn follow_resolves_both_world_identities_and_stop_callbacks_only_query_navigatio
     }
     snapshot.canonicalize();
     let call = Rc::new(RefCell::new(Call {
+        queries: Arc::new(Default::default()),
+        query_budget: Rc::new(std::cell::Cell::new(128)),
+        world_matrices: Default::default(),
         world,
         owner,
         snapshot: Arc::new(snapshot),
@@ -79,6 +82,9 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
     let world = WorldId::new();
     owner.transform.translation = [1., 0., 0.];
     let call = Rc::new(RefCell::new(Call {
+        queries: Arc::new(Default::default()),
+        query_budget: Rc::new(std::cell::Cell::new(128)),
+        world_matrices: Default::default(),
         world,
         owner: id,
         snapshot: Arc::new(SceneSnapshot {
@@ -124,6 +130,10 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
         "ctx.resume_animation(foreign)",
         "ctx.set_animation_speed(foreign, 1)",
         "ctx.animation_state(foreign)",
+        "ctx.face_character(foreign,1,0)",
+        "ctx.set_character_motion_enabled(foreign,false)",
+        "ctx.transform_point(foreign,0,0,0)",
+        "ctx.raycast([0,0,0],[1,0,0],1,foreign)",
     ] {
         let error = engine
             .eval_with_scope::<Dynamic>(&mut scope, expression)
@@ -149,6 +159,8 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
         "ctx.pause_animation(owner);",
         "ctx.resume_animation(owner);",
         "ctx.set_animation_speed(owner, 2);",
+        "ctx.face_character(owner,1,0);",
+        "ctx.set_character_motion_enabled(owner,false);",
     ] {
         let error = engine
             .eval_with_scope::<()>(&mut scope, expression)

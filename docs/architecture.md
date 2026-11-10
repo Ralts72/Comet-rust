@@ -367,6 +367,14 @@ Runtime 从取模前的推进区间收集事件，跨多圈按圈及轨道顺序
 
 CharacterAnimation 位于角色的直接视觉子实体，绑定父 Character 与视觉子树内 Animator。固定步顺序为脚本、导航、物理、角色参数/外观定位、动画、触发回调、动画事件回调。驱动读取碰撞后的水平速度、着地、上升和实际蹲伏状态，写 speed/grounded/rising/crouched；视觉容器将世界移动方向换算到父角色的局部空间后设置朝向，并将模型放在胶囊脚底，模型对齐与缩放由其子层承担。多个驱动争用 Animator、动画片段争用视觉字段、角色驱动物理根均拒绝，不引入第二个角色位置来源。未绑定可在作者文档中保存修复，Play/导出必须完整。
 
+## 空间查询与战斗编排
+
+战斗样例的血量、冷却、阵营、胜负与命中编排属于 `combat.rhai` 的独立运行实例，不写作者文档或持久 progress，也不新增引擎 Combat/Health 单例。三个角色复用已有骨架和模型；`combat.ani` 增加 attacking 参数及 attack 状态，以旧版的 0.43 / 0.95 阶段派发 combat.strike / combat.recover。命中只在事件回调中发生，按住输入与持续接触不会再次扣血。守卫复用 Navigation/Rapier，伤害反馈复用音频与无物理模型容器缩放；击败后停止移动并冻结姿态，保留可见碰撞实体，粒子及移除尚未接入。
+
+Rhai 的 `raycast(origin, displacement, layers, ignore)` 查询回调开始时的只读碰撞快照；位移表示完整线段，返回 entity/fraction/position/normal 或空值。默认排除传感器，按目标所属层过滤并忽略显式实体，等距命中按实体 UUID 决定。起点在实体内部时 fraction=0、法线取射线反方向。每脚本阶段共享 128 次查询、每次最多 8192 个碰撞体；坏参数或超限使回调整批失败。Physics 缓存不可变 Pose/SharedShape 快照，在模拟、蹲伏与传送后重建；不把借用世界或原始指针放入 VM。`transform_point` 使用同一回调的 Scene 快照，按需缓存世界矩阵，最多 16384 实体；排队写入对本次查询不可见，后续回调读取新状态。
+
+`set_character_motion_enabled` 只冻结玩家/导航控制与姿态输入，重力和碰撞继续运行；`face_character` 接收非零世界水平向量，静止时显式转向，正常移动时由实际位移更新。二者与字段、物理、声音及动画命令一起验证后发布，方向归 CharacterState，视觉变换仍只由 CharacterAnimation 写入。攻击和结局借此锁定控制，不直接改写物理或视觉姿态。Application 将 J 与鼠标左键合为 Primary 的逻辑边沿，任一仍按住时释放另一输入不产生重按。
+
 ## 游戏 HUD
 
 Core 的 HudFrame 只包含 WorldId 与不可变 labels，每条 HudLabel 为拥有者 EntityId 和共享纯文字。它不保存布局、egui 类型或持久进度，不增加 Scene/资产格式。Runtime 的 hud.rs 维护按拥有者 UUID 排序的文字列表，`PlaySession::hud_frame()` 返回共享快照，无条目或 Stop 后返回 None。
