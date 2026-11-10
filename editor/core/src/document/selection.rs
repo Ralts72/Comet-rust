@@ -340,6 +340,18 @@ impl Document {
     ) -> Result<()> {
         self.remove_selection(&[ObjectTarget::Prefab(id)], resolver)
     }
+
+    /// Keep nested declarations linked while making this instance's direct entities authored.
+    pub fn detach_instance(
+        &mut self,
+        id: InstanceId,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        ensure!(self.preview.is_none(), "transaction active");
+        let mut next = self.source();
+        next.detach_instance(id, self.prefab_asset, resolver)?;
+        self.publish_change(next, resolver)
+    }
 }
 
 pub(super) fn write_fields(source: &mut ContentSource, edits: &[FieldEdit]) -> Result<()> {

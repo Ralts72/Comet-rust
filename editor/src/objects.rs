@@ -3,13 +3,14 @@ use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_core::{AssetId, EntityId, InstanceId};
 use comet_editor_core::ObjectTarget;
-use comet_scene::{EntityData, PrefabResolver, PrefabRoot};
+use comet_scene::{ContentSource, EntityData, PrefabResolver, PrefabRoot};
 use std::collections::{BTreeMap, btree_map::Entry};
 
 enum Owner {
     Authored,
     Instance {
         id: InstanceId,
+        prefab: AssetId,
         roots: Vec<PrefabRoot>,
     },
 }
@@ -53,31 +54,9 @@ impl Editor {
         if source.base.entities.iter().any(|e| e.id == id) {
             return Ok(Owner::Authored);
         }
-        self.instance_owners(assets)?
+        instance_owners(&self.document.shared_source(), assets)?
             .remove(&id)
             .context("Prefab 内部实体的结构需要在源 Prefab 中编辑")
-    }
-
-    fn instance_owners(&self, assets: &mut AssetStore) -> Result<BTreeMap<EntityId, Owner>> {
-        // This command-local index shares source metadata between instances and selected roots.
-        let mut sources = BTreeMap::new();
-        let mut owners = BTreeMap::new();
-        for instance in &self.document.shared_source().instances {
-            if let Entry::Vacant(entry) = sources.entry(instance.prefab) {
-                let prefab = assets.prefab(instance.prefab)?;
-                entry.insert(prefab.prefab_roots(assets)?);
-            }
-            for root in &sources[&instance.prefab] {
-                owners.insert(
-                    root.in_instance(instance.id),
-                    Owner::Instance {
-                        id: instance.id,
-                        roots: vec![root.clone()],
-                    },
-                );
-            }
-        }
-        Ok(owners)
     }
 
     pub(crate) fn create_object(
@@ -154,7 +133,7 @@ impl Editor {
         for (entity, owner) in owners {
             match owner {
                 Owner::Authored => selected.push(map.entities[&entity]),
-                Owner::Instance { id, roots } => selected.extend(
+                Owner::Instance { id, roots, .. } => selected.extend(
                     roots
                         .iter()
                         .map(|root| root.in_instance(map.instances[&id])),
@@ -163,6 +142,25 @@ impl Editor {
         }
         self.selection.replace(selected);
         self.status = "已复制实体".into();
+        Ok(())
+    }
+
+    pub(crate) fn detach_resource(
+        &mut self,
+        entity: EntityId,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.ensure_structural_editable()?;
+        let owners = self.operation_roots(entity, assets)?;
+        let [(_, Owner::Instance { id, .. })] = owners.as_slice() else {
+            anyhow::bail!("请选择同一个资源实例的根实体，分别解除不同实例的关联");
+        };
+        self.structural_edit()?;
+        self.document.detach_instance(*id, assets)?;
+        if !self.selection.contains(entity) {
+            self.selection.replace([entity]);
+        }
+        self.status = "已解除资源关联".into();
         Ok(())
     }
 
@@ -256,7 +254,7 @@ impl Editor {
                     Owner::Authored
                 } else {
                     if instances.is_none() {
-                        instances = Some(self.instance_owners(assets)?);
+                        instances = Some(instance_owners(&self.document.shared_source(), assets)?);
                     }
                     instances
                         .as_mut()
@@ -267,6 +265,7 @@ impl Editor {
                 if let Owner::Instance {
                     id: instance,
                     roots: selected,
+                    ..
                 } = &mut owner
                     && let Some(index) = roots.iter().position(|(_, previous)| matches!(previous, Owner::Instance { id, .. } if *id == *instance))
                 {
@@ -280,6 +279,43 @@ impl Editor {
         }
         Ok(roots)
     }
+}
+
+fn instance_owners(
+    source: &ContentSource,
+    assets: &mut AssetStore,
+) -> Result<BTreeMap<EntityId, Owner>> {
+    // Share source metadata between instances and roots within one lookup.
+    let mut sources = BTreeMap::new();
+    let mut owners = BTreeMap::new();
+    for instance in &source.instances {
+        if let Entry::Vacant(entry) = sources.entry(instance.prefab) {
+            let prefab = assets.prefab(instance.prefab)?;
+            entry.insert(prefab.prefab_roots(assets)?);
+        }
+        for root in &sources[&instance.prefab] {
+            owners.insert(
+                root.in_instance(instance.id),
+                Owner::Instance {
+                    id: instance.id,
+                    prefab: instance.prefab,
+                    roots: vec![root.clone()],
+                },
+            );
+        }
+    }
+    Ok(owners)
+}
+
+pub(crate) fn resource_at_root(
+    source: &ContentSource,
+    entity: EntityId,
+    assets: &mut AssetStore,
+) -> Result<Option<AssetId>> {
+    Ok(match instance_owners(source, assets)?.remove(&entity) {
+        Some(Owner::Instance { prefab, .. }) => Some(prefab),
+        _ => None,
+    })
 }
 
 impl Owner {

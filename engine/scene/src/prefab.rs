@@ -23,6 +23,34 @@ pub struct PrefabInstance {
     pub parent: Option<EntityId>,
     pub overrides: Vec<FieldOverride>,
 }
+impl PrefabInstance {
+    fn apply_overrides(&self, source: &mut ContentSource) -> Result<()> {
+        if self.overrides.is_empty() {
+            return Ok(());
+        }
+        source.base.version = self
+            .overrides
+            .iter()
+            .fold(source.base.version, |version, value| {
+                version
+                    .max(schema::required_scene_version(value.field))
+                    .max(schema::required_value_scene_version(&value.value))
+            });
+        let updates: Vec<_> = self
+            .overrides
+            .iter()
+            .map(|value| FieldUpdate {
+                entity: value.entity,
+                field: value.field,
+                value: value.value.clone(),
+            })
+            .collect();
+        source
+            .base
+            .set_fields(&updates)
+            .with_context(|| format!("overrides in instance {}", self.id))
+    }
+}
 /// Authoring form shared by scene and prefab assets. Products retain instance declarations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,6 +101,74 @@ struct Expansion<'a> {
 }
 
 impl ContentSource {
+    /// Detach one declaration, preserving expanded UUIDs and the nested instances' source scopes.
+    /// `root` is the owning Prefab asset, when present, as in `expand_prefab`.
+    pub fn detach_instance(
+        &mut self,
+        id: InstanceId,
+        root: Option<AssetId>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        let instance = self
+            .instances
+            .iter()
+            .find(|instance| instance.id == id)
+            .context("prefab instance is missing")?
+            .clone();
+        // Reject invalid references and self-use before lifting declarations out of their scope.
+        self.expand_content(root, resolver, None)?;
+        let mut content = resolver.prefab(instance.prefab)?;
+        content.validate()?;
+        instance.apply_overrides(&mut content)?;
+        let entities: BTreeMap<_, _> = content
+            .base
+            .entities
+            .iter()
+            .map(|entity| (entity.id, entity.id.in_instance(id)))
+            .collect();
+        let instances: BTreeMap<_, _> = content
+            .instances
+            .iter()
+            .map(|instance| (instance.id, instance.id.in_instance(id)))
+            .collect();
+        for entity in &mut content.base.entities {
+            entity.id = entities[&entity.id];
+            entity.parent = entity
+                .parent
+                .map(|parent| entities[&parent])
+                .or(instance.parent);
+            schema::remap(entity, &entities)?;
+            schema::remap_instance_references(entity, &instances)?;
+        }
+        for nested in &mut content.instances {
+            nested.id = instances[&nested.id];
+            nested.parent = nested
+                .parent
+                .map(|parent| entities[&parent])
+                .or(instance.parent);
+            // Overrides still address the nested source; neither keys nor values are in our scope.
+        }
+        let mut candidate = self.clone();
+        for entity in &mut candidate.base.entities {
+            schema::map_entity_references(entity, |reference| {
+                if let crate::EntityRef::InInstance { instance, entity } = reference
+                    && *instance == id
+                {
+                    *reference = crate::EntityRef::local(entity.in_instance(id));
+                }
+                Ok(())
+            })?;
+        }
+        candidate.base.version = candidate.base.version.max(content.base.version);
+        candidate.base.entities.extend(content.base.entities);
+        candidate.instances.retain(|instance| instance.id != id);
+        candidate.instances.extend(content.instances);
+        candidate.expand_content(root, resolver, None)?;
+        candidate.canonicalize();
+        *self = candidate;
+        Ok(())
+    }
+
     pub fn canonicalize(&mut self) {
         self.base.canonicalize();
         self.instances.sort_by_key(|i| i.id);
@@ -292,26 +388,7 @@ fn expand(
                 );
             }
         }
-        if !instance.overrides.is_empty() {
-            // Upgrade and validate the whole candidate; no intermediate override is published.
-            child.base.version = instance.overrides.iter().fold(child.base.version, |v, o| {
-                v.max(schema::required_scene_version(o.field))
-                    .max(schema::required_value_scene_version(&o.value))
-            });
-            let updates: Vec<_> = instance
-                .overrides
-                .iter()
-                .map(|o| FieldUpdate {
-                    entity: o.entity,
-                    field: o.field,
-                    value: o.value.clone(),
-                })
-                .collect();
-            child
-                .base
-                .set_fields(&updates)
-                .with_context(|| format!("overrides in instance {}", instance.id))?;
-        }
+        instance.apply_overrides(&mut child)?;
         let id = scope.map_or(instance.id, |s| instance.id.in_instance(s));
         let parent = instance.parent.map(|p| map[&p]).or(mount);
         stack.push(instance.prefab);

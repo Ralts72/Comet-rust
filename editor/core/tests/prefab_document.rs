@@ -207,9 +207,15 @@ fn every_resolved_preview_keeps_its_accepted_candidate_when_the_root_would_recur
         assert_eq!(document.history_len(), 1);
         assert!(document.is_dirty() && document.is_editing());
     }
-    library.0.get_mut(&branch).unwrap().instances.clear();
+    let child = committed.instances[0].id;
+    assert!(document.detach_instance(child, &mut library).is_err());
+    assert!(Arc::ptr_eq(&accepted, &document.shared_source()));
     document.cancel()?;
+    let error = document.detach_instance(child, &mut library).unwrap_err();
+    assert!(format!("{error:#}").contains("cycle"));
     assert_eq!(document.shared_source(), committed);
+    assert_eq!(document.history_len(), 1);
+    library.0.get_mut(&branch).unwrap().instances.clear();
     document.undo()?;
     assert!(!document.is_dirty());
     document.redo()?;
@@ -290,6 +296,179 @@ fn multiple_root_prefab_documents_save_and_reopen_without_remapping_source_ident
     assert!(
         Document::load(&path)?.prefab_asset().is_none(),
         "generic load retains its Scene contract"
+    );
+    Ok(())
+}
+
+#[test]
+fn detaching_preserves_expanded_identity_overrides_and_nested_source_scopes_in_one_history_change()
+-> Result<()> {
+    use comet_scene::{Animator, EntityRef, ScriptValue, SkinBinding};
+    let outer_asset = AssetId::new();
+    let inner_asset = AssetId::new();
+    let empty_asset = AssetId::new();
+    let outer = InstanceId::new();
+    let mut first = EntityData::new("direct root");
+    let mut second = EntityData::new("direct sibling");
+    let first_id = first.id;
+    let second_id = second.id;
+    let bone = EntityId::new();
+    let mut leaf = EntityData::new("nested root");
+    // Equal UUIDs in different source namespaces must not become the same authored reference.
+    leaf.id = second_id;
+    leaf.links.target = Some(EntityRef::local(second_id));
+    let mut nested = instance(inner_asset);
+    nested.id = outer;
+    nested.parent = Some(first_id);
+    nested.overrides.push(FieldOverride {
+        entity: second_id,
+        field: schema::TARGET,
+        value: FieldValue::Entity(Some(EntityRef::local(second_id))),
+    });
+    let nested_reference = EntityRef::in_instance(nested.id, second_id);
+    first.links.target = Some(EntityRef::local(second_id));
+    first.script = Some(Script::new(AssetId::new()));
+    first.script.as_mut().unwrap().parameters.insert(
+        "target".into(),
+        ScriptValue::Entity(Some(nested_reference.clone())),
+    );
+    let mut animator = Animator::new(AssetId::new());
+    animator.bindings.insert(bone, Some(nested_reference));
+    first.animator = Some(animator);
+    second.model = Some(Model {
+        mesh: AssetId::new(),
+        surface: Surface {
+            material: AssetId::new(),
+            roughness: 0.5,
+        },
+    });
+    second.skin = Some(SkinBinding {
+        skin: AssetId::new(),
+        animator: Some(EntityRef::local(first_id)),
+    });
+    let mut parent = EntityData::new("author mount");
+    parent.transform.translation = [10., 20., 30.];
+    parent.transform.scale = [2., 3., 4.];
+    let mut selected = instance(outer_asset);
+    selected.id = outer;
+    selected.parent = Some(parent.id);
+    selected.overrides.push(FieldOverride {
+        entity: first_id,
+        field: schema::TRANSLATION,
+        value: FieldValue::Vec3([3., 4., 5.]),
+    });
+    let mut observer = EntityData::new("author observer");
+    observer.links.target = Some(EntityRef::in_instance(outer, first_id));
+    let external = EntityRef::External {
+        scene: AssetId::new(),
+        entity: first_id,
+    };
+    observer.links.connections = vec![EntityRef::in_instance(outer, second_id), external.clone()];
+    let observer_id = observer.id;
+    let mut library = Library(BTreeMap::from([
+        (inner_asset, source(leaf)),
+        (
+            outer_asset,
+            ContentSource {
+                base: SceneSnapshot {
+                    version: 10,
+                    entities: vec![first, second],
+                },
+                instances: vec![nested.clone()],
+                ..Default::default()
+            },
+        ),
+        (empty_asset, ContentSource::default()),
+    ]));
+    let library_before = library.0.clone();
+    let authoring = ContentSource {
+        base: SceneSnapshot {
+            version: 10,
+            entities: vec![parent, observer],
+        },
+        instances: vec![selected, instance(outer_asset)],
+        ..Default::default()
+    };
+    let promoted = nested.id.in_instance(outer);
+    let mut collision = authoring.clone();
+    collision.instances.push(PrefabInstance {
+        id: promoted,
+        prefab: empty_asset,
+        parent: None,
+        overrides: vec![],
+    });
+    let mut rejected = Document::open_source(collision)?;
+    rejected.expand(&mut library)?;
+    let rejected_before = rejected.shared_source();
+    assert!(rejected.detach_instance(outer, &mut library).is_err());
+    assert!(Arc::ptr_eq(&rejected_before, &rejected.shared_source()));
+    assert_eq!(rejected.history_len(), 0);
+
+    let mut document = Document::open_source(authoring)?;
+    let before = document.shared_source();
+    let expanded = document.expand(&mut library)?;
+    let world = document.world_id();
+    document.detach_instance(outer, &mut library)?;
+    let after = document.shared_source();
+    assert_eq!(document.expand(&mut library)?, expanded);
+    assert_eq!(document.world_id(), world);
+    assert_eq!(document.history_len(), 1);
+    let retained = after
+        .instances
+        .iter()
+        .find(|entry| entry.id == promoted)
+        .unwrap();
+    assert_eq!(retained.prefab, inner_asset);
+    assert_eq!(retained.parent, Some(first_id.in_instance(outer)));
+    assert_eq!(retained.overrides, nested.overrides);
+    assert_eq!(after.instances.len(), 2);
+    let observer = after
+        .base
+        .entities
+        .iter()
+        .find(|entity| entity.id == observer_id)
+        .unwrap();
+    assert_eq!(
+        observer.links.target,
+        Some(EntityRef::local(first_id.in_instance(outer)))
+    );
+    assert_eq!(
+        observer.links.connections,
+        [EntityRef::local(second_id.in_instance(outer)), external]
+    );
+    let detached = after
+        .base
+        .entities
+        .iter()
+        .find(|entity| entity.id == first_id.in_instance(outer))
+        .unwrap();
+    assert_eq!(detached.transform.translation, [3., 4., 5.]);
+    assert_eq!(
+        detached.animator.as_ref().unwrap().bindings[&bone],
+        Some(EntityRef::in_instance(promoted, second_id))
+    );
+    assert_eq!(library.0, library_before);
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("detached.scene");
+    document.save(&path)?;
+    assert_eq!(Document::load(&path)?.expand(&mut library)?, expanded);
+    document.undo()?;
+    assert_eq!(document.shared_source(), before);
+    assert!(document.is_dirty());
+    document.redo()?;
+    assert_eq!(document.shared_source(), after);
+    assert!(!document.is_dirty());
+    // Only the lifted level is detached. Updating the nested source still reaches its instance.
+    library.0.get_mut(&inner_asset).unwrap().base.entities[0].name = "updated nested root".into();
+    assert_eq!(
+        document
+            .expand(&mut library)?
+            .entities
+            .iter()
+            .find(|entity| entity.id == second_id.in_instance(promoted))
+            .unwrap()
+            .name,
+        "updated nested root"
     );
     Ok(())
 }

@@ -143,6 +143,23 @@ impl Case {
         self.frame(vec![button(false)])
     }
 
+    fn context_menu(&mut self, label: &str) -> egui::FullOutput {
+        let output = self.frame(vec![]);
+        let pos = position(&output, label, hierarchy());
+        for pressed in [true, false] {
+            self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        self.frame(vec![])
+    }
+
     fn press(&mut self, label: &str, region: Rect) -> egui::FullOutput {
         let output = self.frame(vec![]);
         self.click(position(&output, label, region), egui::Modifiers::NONE)
@@ -348,6 +365,14 @@ fn exercise_physics_resource(nested: bool) -> Result<()> {
     assert_eq!(c.editor.document.history_len(), history + 1);
     assert_eq!(c.editor.snapshot(&mut c.assets)?.entities.len(), 4);
 
+    let selected_copy = c.editor.selection.ids();
+    c.editor
+        .selection
+        .replace([roots[0], c.roots(duplicate)[0]]);
+    assert!(c.editor.detach_resource(roots[0], &mut c.assets).is_err());
+    assert_eq!(c.editor.document.shared_source(), copied);
+    assert_eq!(c.editor.document.history_len(), history + 1);
+    c.editor.selection.replace(selected_copy);
     c.key(egui::Key::Delete, egui::Modifiers::NONE);
     assert_eq!(c.editor.document.shared_source(), authored);
     assert!(c.editor.selection.is_empty());
@@ -380,6 +405,47 @@ fn exercise_physics_resource(nested: bool) -> Result<()> {
                 && entity.parent.is_none()
                 && entity.physics.is_some())
     );
+    // Both physical roots belong to one declaration. Detach one level per click,
+    // including a wrapper containing only nested instances.
+    c.editor.selection.replace(roots);
+    let before_detach = c.editor.snapshot(&mut c.assets)?;
+    let depth = if nested { 2 } else { 1 };
+    for level in 0..depth {
+        let before = c.editor.document.shared_source();
+        let history = c.editor.document.history_len();
+        let output = c.context_menu("落体乙");
+        let detach = position(&output, "解除 Prefab 关联", Rect::EVERYTHING);
+        c.click(detach, egui::Modifiers::NONE);
+        assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
+        assert_eq!(c.editor.snapshot(&mut c.assets)?, before_detach);
+        assert_eq!(c.editor.document.history_len(), history + 1);
+        assert_eq!(c.editor.selection.len(), 2);
+        assert_eq!(c.editor.selection.active(), Some(roots[1]));
+        let after = c.editor.document.shared_source();
+        if nested && level == 0 {
+            assert!(after.base.entities.is_empty());
+            assert_eq!(after.instances.len(), 1);
+            assert_eq!(
+                after.instances[0].id,
+                c.nested.unwrap().in_instance(instance)
+            );
+        } else {
+            assert!(after.instances.is_empty());
+            assert_eq!(after.base.entities.len(), 2);
+        }
+        c.key(egui::Key::Z, egui::Modifiers::COMMAND);
+        assert_eq!(c.editor.document.shared_source(), before);
+        c.key(
+            egui::Key::Z,
+            egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+        );
+        assert_eq!(c.editor.document.shared_source(), after);
+    }
+    c.key(egui::Key::S, egui::Modifiers::COMMAND);
+    c.editor
+        .switch_document(c.editor.source.clone(), &mut c.assets)?;
+    assert_eq!(c.editor.snapshot(&mut c.assets)?, before_detach);
+    assert!(c.editor.document.shared_source().instances.is_empty());
     for (path, bytes) in &c.sources {
         assert_eq!(
             &fs::read(path)?,
@@ -401,4 +467,49 @@ fn multi_root_physics_resource_uses_real_roots_for_properties_play_and_atomic_st
 fn pure_nested_physics_resource_places_and_copies_the_outer_instance_with_its_primary_root()
 -> Result<()> {
     exercise_physics_resource(true)
+}
+
+#[test]
+fn model_detach_rejects_author_containers_before_committing_and_preserves_expanded_content()
+-> Result<()> {
+    let mut c = Case::new(false)?;
+    let choice = c
+        .editor
+        .sources
+        .of_kind(comet_asset_data::product::AssetKind::Prefab)
+        .find(|source| source.source == std::path::Path::new("showcase.gltf"))
+        .unwrap()
+        .clone();
+    c.editor
+        .place_resource(choice.id, "模型容器", &mut c.assets)?;
+    let container = c.editor.selection.active().unwrap();
+    c.editor.rename_object(container, "名称预览".into())?;
+    let accepted = c.editor.document.shared_source();
+    let history = c.editor.document.history_len();
+    assert!(c.editor.detach_resource(container, &mut c.assets).is_err());
+    assert!(Arc::ptr_eq(&accepted, &c.editor.document.shared_source()));
+    assert!(c.editor.document.is_editing());
+    assert_eq!(c.editor.document.history_len(), history);
+    c.editor.cancel()?;
+    let snapshot = c.editor.snapshot(&mut c.assets)?;
+    let root = snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.parent == Some(container))
+        .unwrap();
+    let root_id = root.id;
+    let name = root.name.clone();
+    c.frame(vec![]);
+    let output = c.context_menu(&name);
+    let detach = position(&output, "解除模型关联", Rect::EVERYTHING);
+    c.click(detach, egui::Modifiers::NONE);
+    assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
+    assert_eq!(c.editor.snapshot(&mut c.assets)?, snapshot);
+    assert!(c.editor.document.shared_source().instances.is_empty());
+    assert_eq!(c.editor.selection.active(), Some(root_id));
+    c.editor.document.undo()?;
+    assert_eq!(c.editor.document.shared_source().instances.len(), 1);
+    c.editor.start(&mut c.assets)?;
+    assert!(c.editor.detach_resource(root_id, &mut c.assets).is_err());
+    Ok(())
 }

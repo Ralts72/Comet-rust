@@ -406,9 +406,17 @@ impl Document {
         edit: impl FnOnce(&mut ContentSource) -> Result<T>,
     ) -> Result<T> {
         ensure!(self.preview.is_none(), "transaction active");
-        let before = self.current.clone();
         let mut next = self.source();
         let result = edit(&mut next)?;
+        self.publish_change(next, resolver)?;
+        Ok(result)
+    }
+    fn publish_change(
+        &mut self,
+        mut next: ContentSource,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        let before = self.current.clone();
         next.base.version = next
             .base
             .entities
@@ -420,7 +428,7 @@ impl Document {
         if before.source != self.current.source {
             self.record(before);
         }
-        Ok(result)
+        Ok(())
     }
     pub fn insert_entity(
         &mut self,

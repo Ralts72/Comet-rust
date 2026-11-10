@@ -3,8 +3,10 @@ use crate::{
     session::Editor,
 };
 use comet_asset::AssetStore;
+use comet_asset_data::product::AssetKind;
+use comet_asset_pipeline::SourceCatalog;
 use comet_core::{EntityId, WorldId};
-use comet_scene::EntityData;
+use comet_scene::{ContentSource, EntityData};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy)]
@@ -12,6 +14,7 @@ enum Action {
     CreateChild(EntityId),
     Duplicate(EntityId),
     Delete(EntityId),
+    Detach(EntityId),
     Reparent(EntityId, Option<EntityId>),
 }
 
@@ -135,7 +138,10 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
             }
             flatten(&children, None, &mut visible);
             ui.small("Ctrl/Cmd 多选 · Shift 范围选择");
+            let source = editor.document.shared_source();
             let tree = Tree {
+                source: &source,
+                sources: &editor.sources,
                 children: &children,
                 authored: &authored,
                 world,
@@ -143,7 +149,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                 visible: &visible,
             };
             egui::ScrollArea::vertical().show(ui, |ui| {
-                tree.show(ui, None, &mut editor.selection, &mut action);
+                tree.show(ui, None, &mut editor.selection, &mut action, assets);
             });
             if before != editor.selection.generation() {
                 editor.picking.clear();
@@ -156,6 +162,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                     Action::CreateChild(id) => editor.create_object(Some(id), assets),
                     Action::Duplicate(id) => editor.duplicate_object(id, assets),
                     Action::Delete(id) => editor.delete_object(id, assets),
+                    Action::Detach(id) => editor.detach_resource(id, assets),
                     Action::Reparent(id, parent) => editor.reparent_object(id, parent, assets),
                 };
                 editor.notice(result);
@@ -164,6 +171,8 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
 }
 
 struct Tree<'a> {
+    source: &'a ContentSource,
+    sources: &'a SourceCatalog,
     children: &'a BTreeMap<Option<EntityId>, Vec<&'a EntityData>>,
     authored: &'a BTreeSet<EntityId>,
     world: WorldId,
@@ -177,6 +186,7 @@ impl Tree<'_> {
         parent: Option<EntityId>,
         selected: &mut Selection,
         action: &mut Option<Action>,
+        assets: &mut AssetStore,
     ) {
         for entity in self.children.get(&parent).into_iter().flatten() {
             ui.push_id(entity.id, |ui| {
@@ -243,6 +253,39 @@ impl Tree<'_> {
                                 ui.close();
                             }
                         }
+                        if !self.authored.contains(&entity.id) {
+                            match crate::objects::resource_at_root(self.source, entity.id, assets) {
+                                Ok(Some(prefab)) => {
+                                    let model = self
+                                        .sources
+                                        .of_kind(AssetKind::Prefab)
+                                        .find(|source| source.id == prefab)
+                                        .and_then(|source| source.source.extension())
+                                        .and_then(|extension| extension.to_str())
+                                        .is_some_and(|extension| {
+                                            extension.eq_ignore_ascii_case("gltf")
+                                                || extension.eq_ignore_ascii_case("glb")
+                                        });
+                                    let label = if model {
+                                        "解除模型关联"
+                                    } else {
+                                        "解除 Prefab 关联"
+                                    };
+                                    if ui
+                                        .button(label)
+                                        .on_hover_text("解除当前这一层关联，嵌套实例继续保留关联。")
+                                        .clicked()
+                                    {
+                                        *action = Some(Action::Detach(entity.id));
+                                        ui.close();
+                                    }
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    ui.weak("无法读取资源关联").on_hover_text(error.to_string());
+                                }
+                            }
+                        }
                         if authored
                             && entity.parent.is_some()
                             && ui.button("移到场景根节点").clicked()
@@ -253,7 +296,7 @@ impl Tree<'_> {
                     });
                 });
                 ui.indent("children", |ui| {
-                    self.show(ui, Some(entity.id), selected, action);
+                    self.show(ui, Some(entity.id), selected, action, assets);
                 });
             });
         }
