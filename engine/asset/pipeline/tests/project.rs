@@ -523,3 +523,148 @@ fn source_catalog_uses_built_identities_and_rejects_inconsistent_metadata() -> R
     }
     Ok(())
 }
+
+#[test]
+fn populated_prefab_creation_validates_final_identity_and_dependency_kinds_before_reserving_or_publishing()
+-> Result<()> {
+    use comet_asset_pipeline::create_prefab_with_content;
+    use comet_scene::{
+        ContentSource, EntityData, PrefabInstance, PrefabResolver, SceneSnapshot, Script,
+    };
+    let temp = tempfile::tempdir()?;
+    let paths = create_project(&temp.path().join("project"))?;
+    let base = create_prefab(&paths, Path::new("base.prefab"))?;
+    let original_bytes = fs::read(&base)?;
+    let original_meta = fs::read(SourceMeta::path(&base))?;
+    let script_id = AssetId::new();
+    let script_path = paths.assets().join("effect.rhai");
+    let script_bytes = b"fn on_start(ctx) {}";
+    fs::write(&script_path, script_bytes)?;
+    fs::write(
+        SourceMeta::path(&script_path),
+        serde_json::to_vec(&SourceMeta {
+            version: 1,
+            id: script_id,
+        })?,
+    )?;
+    let wrapper = create_prefab(&paths, Path::new("wrapper.prefab"))?;
+    let mut owner = EntityData::new("script owner");
+    let mut script = Script::new(script_id);
+    script.enabled = false;
+    owner.script = Some(script);
+    fs::write(
+        &wrapper,
+        ContentSource {
+            base: SceneSnapshot {
+                entities: vec![owner],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .to_json()?,
+    )?;
+    let wrapper_id = SourceMeta::load(&wrapper)?.id;
+    let products = temp.path().join("products");
+    prepare(paths.root(), &products)?;
+    let mut assets = comet_asset::AssetStore::open(&products)?;
+    let index = fs::read(products.join("index.json"))?;
+    let asset = SourceMeta::load(&base)?.id;
+    let entity = EntityData::new("authored root");
+    let content = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![entity.clone()],
+            ..Default::default()
+        },
+        instances: vec![PrefabInstance {
+            id: comet_core::InstanceId::new(),
+            prefab: asset,
+            parent: Some(entity.id),
+            overrides: vec![],
+        }],
+        ..Default::default()
+    };
+    assert!(
+        create_prefab_with_content(&paths, Path::new("base.prefab"), &content, &mut assets)
+            .is_err()
+    );
+    assert_eq!(fs::read(&base)?, original_bytes);
+    assert_eq!(fs::read(SourceMeta::path(&base))?, original_meta);
+
+    // The accepted old product must not hide self-use when a reserved identity is reused.
+    fs::remove_file(&base)?;
+    let error = create_prefab_with_content(&paths, Path::new("base.prefab"), &content, &mut assets)
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("cycle"));
+    assert!(!base.exists());
+    assert_eq!(fs::read(SourceMeta::path(&base))?, original_meta);
+    assert_eq!(fs::read(products.join("index.json"))?, index);
+    let mut invalid = content.clone();
+    let mut script = Script::new(asset);
+    script.enabled = false;
+    invalid.base.entities[0].script = Some(script);
+    assert!(
+        create_prefab_with_content(&paths, Path::new("invalid.prefab"), &invalid, &mut assets)
+            .is_err()
+    );
+    let invalid_path = paths.assets().join("invalid.prefab");
+    assert!(!invalid_path.exists() && !SourceMeta::path(&invalid_path).exists());
+    assert_eq!(fs::read(products.join("index.json"))?, index);
+
+    // An old Script identity can recur through an accepted Prefab's resource dependencies.
+    fs::remove_file(&script_path)?;
+    let reserved = paths.assets().join("reserved.prefab");
+    fs::copy(SourceMeta::path(&script_path), SourceMeta::path(&reserved))?;
+    let reserved_meta = fs::read(SourceMeta::path(&reserved))?;
+    let transitive = ContentSource {
+        instances: vec![PrefabInstance {
+            id: comet_core::InstanceId::new(),
+            prefab: wrapper_id,
+            parent: None,
+            overrides: vec![],
+        }],
+        ..Default::default()
+    };
+    let error = create_prefab_with_content(
+        &paths,
+        Path::new("reserved.prefab"),
+        &transitive,
+        &mut assets,
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("cycle"));
+    assert!(!reserved.exists());
+    assert_eq!(fs::read(SourceMeta::path(&reserved))?, reserved_meta);
+    assert_eq!(fs::read(products.join("index.json"))?, index);
+    fs::write(&script_path, script_bytes)?;
+    fs::write(&base, &original_bytes)?;
+    let saved =
+        create_prefab_with_content(&paths, Path::new("saved.prefab"), &content, &mut assets)?;
+    let id = SourceMeta::load(&saved)?.id;
+    assert_ne!(id, asset);
+    let saved_bytes = fs::read(&saved)?;
+    let saved_meta = fs::read(SourceMeta::path(&saved))?;
+    let mut expected = content.clone();
+    expected.canonicalize();
+    assert_eq!(ContentSource::from_json(&saved_bytes)?, expected);
+    assert!(
+        create_prefab_with_content(
+            &paths,
+            Path::new("saved.prefab"),
+            &ContentSource::default(),
+            &mut assets
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(&saved)?, saved_bytes);
+    assert_eq!(fs::read(SourceMeta::path(&saved))?, saved_meta);
+    prepare(paths.root(), &products)?;
+    let mut built = comet_asset::AssetStore::open(&products)?;
+    let restored = built.prefab(id)?;
+    assert_eq!(restored, expected);
+    assert_eq!(
+        restored.expand_prefab(id, &mut built)?,
+        expected.expand(&mut assets)?
+    );
+    assert_eq!(fs::read(SourceMeta::path(&base))?, original_meta);
+    Ok(())
+}

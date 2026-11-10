@@ -14,6 +14,7 @@ enum Action {
     CreateChild(EntityId),
     Duplicate(EntityId),
     PlaceCopies(EntityId),
+    SavePrefab(EntityId),
     Delete(EntityId),
     Detach(EntityId),
     Reparent(EntityId, Option<EntityId>),
@@ -183,6 +184,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                     }
                     Action::Delete(id) => editor.delete_object(id, assets),
                     Action::Detach(id) => editor.detach_resource(id, assets),
+                    Action::SavePrefab(id) => editor.begin_save_prefab(id, assets),
                     Action::Reparent(id, parent) => editor.reparent_object(id, parent, assets),
                 };
                 editor.notice(result);
@@ -285,6 +287,20 @@ impl Tree<'_> {
                             .clicked()
                         {
                             *action = Some(Action::PlaceCopies(entity.id));
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(
+                                self.authored.contains(&entity.id),
+                                egui::Button::new("保存为 Prefab..."),
+                            )
+                            .on_hover_text("保存作者子树为独立 Prefab，保留子实例关联。")
+                            .on_disabled_hover_text(
+                                "请选择作者实体或资源的作者容器；直接实例根请先解除关联。",
+                            )
+                            .clicked()
+                        {
+                            *action = Some(Action::SavePrefab(entity.id));
                             ui.close();
                         }
                         if !self.authored.contains(&entity.id) {

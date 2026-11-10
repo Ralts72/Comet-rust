@@ -1,10 +1,69 @@
 use super::Document;
 use anyhow::{Context, Result, ensure};
 use comet_core::{EntityId, math::Mat4};
-use comet_scene::{PrefabResolver, Transform, checked_transform_inverse, world_transforms};
+use comet_scene::{
+    ContentSource, EntityRef, PrefabResolver, SceneSnapshot, Transform, checked_transform_inverse,
+    world_transforms,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 impl Document {
+    /// Capture an independent prefab definition without changing the document or its history.
+    /// The root retains its local transform; attached instances retain their source namespaces.
+    pub fn capture_prefab(
+        &self,
+        root: EntityId,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<ContentSource> {
+        self.expand(resolver)?;
+        let source = &self.current.source;
+        let selected = source.base.subtree_ids(&[root])?;
+        let mut content = ContentSource {
+            version: source.version,
+            base: SceneSnapshot {
+                version: source.base.version,
+                entities: source
+                    .base
+                    .entities
+                    .iter()
+                    .filter(|entity| selected.contains(&entity.id))
+                    .cloned()
+                    .collect(),
+            },
+            instances: source
+                .instances
+                .iter()
+                .filter(|instance| {
+                    instance
+                        .parent
+                        .is_some_and(|parent| selected.contains(&parent))
+                })
+                .cloned()
+                .collect(),
+        };
+        content
+            .base
+            .entities
+            .iter_mut()
+            .find(|entity| entity.id == root)
+            .expect("captured root")
+            .parent = None;
+        let snapshot = content
+            .expand(resolver)
+            .context("Prefab 引用了所选子树以外的实体")?;
+        ensure!(
+            snapshot
+                .entities
+                .iter()
+                .all(|entity| comet_scene::schema::entity_references(entity)
+                    .iter()
+                    .all(|reference| !matches!(reference, EntityRef::External { .. }))),
+            "Prefab 不能引用所选子树以外的场景实体"
+        );
+        content.canonicalize();
+        Ok(content)
+    }
+
     /// Move an authored subtree without changing its world pose or its attached prefab identities.
     /// Prefab interiors stay owned by their source; a non-TRS result is rejected instead of distorted.
     pub fn reparent_entity(

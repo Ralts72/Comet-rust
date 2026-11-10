@@ -214,8 +214,13 @@ impl Editor {
     pub(crate) fn create_scene_source(&self, path: &std::path::Path) -> Result<PathBuf> {
         comet_asset_pipeline::create_scene(&self.paths, path)
     }
-    pub(crate) fn create_prefab_source(&self, path: &std::path::Path) -> Result<PathBuf> {
-        comet_asset_pipeline::create_prefab(&self.paths, path)
+    pub(crate) fn create_prefab_source(
+        &self,
+        path: &std::path::Path,
+        content: &comet_scene::ContentSource,
+        assets: &mut AssetStore,
+    ) -> Result<PathBuf> {
+        comet_asset_pipeline::create_prefab_with_content(&self.paths, path, content, assets)
     }
     pub(crate) fn switch_document(&mut self, path: PathBuf, assets: &mut AssetStore) -> Result<()> {
         ensure!(!self.is_busy(), "请等待后台任务完成，再切换文档");
@@ -398,13 +403,8 @@ impl Application for Editor {
             self.project
                 .show(ui.ctx(), &self.paths, assets, &self.sources);
         }
-        if !self.documents.pending
-            && !self.is_busy()
-            && let Some(action) =
-                self.documents
-                    .show_browser(ui.ctx(), &self.sources, &mut self.directory_reader)
-        {
-            self.request_document_action(action);
+        if !self.documents.pending && !self.is_busy() {
+            self.show_document_browser(ui.ctx(), assets);
         }
         if !self.documents.is_blocking()
             && let Some(action) = self.export.show(

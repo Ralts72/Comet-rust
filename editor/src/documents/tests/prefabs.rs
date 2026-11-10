@@ -86,7 +86,11 @@ fn failed_save_and_creation_preserve_the_old_preview_world_and_existing_files() 
         assert_eq!(assets.revision(), revision);
     }
 
-    editor.create_prefab_source(std::path::Path::new("new.prefab"))?;
+    editor.create_prefab_source(
+        std::path::Path::new("new.prefab"),
+        &Default::default(),
+        &mut assets,
+    )?;
     let bytes = fs::read(&destination)?;
     let metadata = fs::read(SourceMeta::path(&destination))?;
     editor.request_document_action(DocumentAction::NewPrefab("new.prefab".into()));

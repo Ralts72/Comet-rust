@@ -232,7 +232,8 @@ impl SceneSnapshot {
         *self = candidate;
         Ok(removed)
     }
-    fn subtree_ids(&self, roots: &[EntityId]) -> Result<BTreeSet<EntityId>> {
+    /// Validate the source and collect the requested authored roots and all their descendants.
+    pub fn subtree_ids(&self, roots: &[EntityId]) -> Result<BTreeSet<EntityId>> {
         self.validate()?;
         let mut selected: BTreeSet<_> = roots.iter().copied().collect();
         ensure!(selected.len() == roots.len(), "duplicate object root");

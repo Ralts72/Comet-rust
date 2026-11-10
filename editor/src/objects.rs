@@ -36,7 +36,7 @@ impl Editor {
         self.document.preview_name(id, name)
     }
 
-    fn ensure_structural_editable(&self) -> Result<()> {
+    pub(crate) fn ensure_structural_editable(&self) -> Result<()> {
         ensure!(self.play.is_none(), "请先停止运行，再编辑场景结构");
         ensure!(!self.is_busy(), "请等待后台任务完成，再编辑场景结构");
         ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");

@@ -15,5 +15,8 @@ pub use navigation::{
 mod project;
 mod source;
 pub use build::{BuildReport, prepare};
-pub use project::{DEFAULT_SCENE, ProjectSettings, create_prefab, create_project, create_scene};
+pub use project::{
+    DEFAULT_SCENE, ProjectSettings, create_prefab, create_prefab_with_content, create_project,
+    create_scene,
+};
 pub use source::{SourceAsset, SourceCatalog, SourceMeta};

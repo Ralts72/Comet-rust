@@ -48,12 +48,26 @@ pub(crate) enum BrowserMode {
     Open,
     NewScene,
     NewPrefab,
+    SavePrefab,
 }
 #[derive(Default)]
 struct DocumentBrowser {
     mode: Option<BrowserMode>,
     path: String,
     selected: Option<std::path::PathBuf>,
+    prefab: Option<PrefabSaveDraft>,
+    error: Option<String>,
+}
+struct PrefabSaveDraft {
+    world: comet_core::WorldId,
+    revision: u64,
+    selection: u64,
+    products: String,
+    content: std::sync::Arc<comet_scene::ContentSource>,
+}
+pub(crate) enum BrowserAction {
+    Transition(DocumentAction),
+    SavePrefab(std::path::PathBuf),
 }
 impl DocumentWorkflow {
     pub fn is_blocking(&self) -> bool {
@@ -61,12 +75,14 @@ impl DocumentWorkflow {
     }
     pub fn open_browser(&mut self, mode: BrowserMode) {
         self.project_browser = Default::default();
-        self.browser.mode = Some(mode);
-        self.browser.selected = None;
+        self.browser = DocumentBrowser {
+            mode: Some(mode),
+            ..Default::default()
+        };
         self.browser.path = match mode {
             BrowserMode::Open => String::new(),
             BrowserMode::NewScene => "new.scene".into(),
-            BrowserMode::NewPrefab => "new.prefab".into(),
+            BrowserMode::NewPrefab | BrowserMode::SavePrefab => "new.prefab".into(),
         };
     }
     pub fn open_project_browser(&mut self, create: bool, current: &std::path::Path) {
@@ -84,9 +100,12 @@ impl DocumentWorkflow {
         ctx: &egui::Context,
         sources: &comet_asset_pipeline::SourceCatalog,
         reader: &mut crate::project::DirectoryReader,
-    ) -> Option<DocumentAction> {
+    ) -> Option<BrowserAction> {
         if self.project_browser.is_open() {
-            return self.project_browser.show(ctx, reader);
+            return self
+                .project_browser
+                .show(ctx, reader)
+                .map(BrowserAction::Transition);
         }
         let mode = self.browser.mode?;
         let create = mode != BrowserMode::Open;
@@ -98,15 +117,22 @@ impl DocumentWorkflow {
                 BrowserMode::Open => "打开场景 / Prefab",
                 BrowserMode::NewScene => "新建场景",
                 BrowserMode::NewPrefab => "新建 Prefab",
+                BrowserMode::SavePrefab => "保存为 Prefab",
             });
             if create {
-                ui.label(if mode == BrowserMode::NewPrefab {
+                ui.label(if mode != BrowserMode::NewScene {
                     "Prefab 位置（相对项目 assets，使用 .prefab 后缀）"
                 } else {
                     "场景位置（相对项目 assets，使用 .scene 后缀）"
                 });
-                ui.text_edit_singleline(&mut self.browser.path);
-                ui.weak("创建后立即保存，不覆盖已有文件。");
+                if ui.text_edit_singleline(&mut self.browser.path).changed() {
+                    self.browser.error = None;
+                }
+                ui.weak(if mode == BrowserMode::SavePrefab {
+                    "保存独立子树，不覆盖已有文件；当前文档与历史保持不变。"
+                } else {
+                    "创建后立即保存，不覆盖已有文件。"
+                });
             } else {
                 ui.label("选择项目中的场景或 Prefab 文件");
                 egui::ScrollArea::vertical()
@@ -137,6 +163,9 @@ impl DocumentWorkflow {
                         }
                     });
             }
+            if let Some(error) = &self.browser.error {
+                ui.colored_label(egui::Color32::LIGHT_RED, error);
+            }
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
@@ -145,19 +174,31 @@ impl DocumentWorkflow {
                         } else {
                             self.browser.selected.is_some()
                         },
-                        egui::Button::new(if create { "创建" } else { "打开" }),
+                        egui::Button::new(if mode == BrowserMode::SavePrefab {
+                            "保存"
+                        } else if create {
+                            "创建"
+                        } else {
+                            "打开"
+                        }),
                     )
                     .clicked()
                 {
                     action = match mode {
-                        BrowserMode::Open => {
-                            self.browser.selected.clone().map(DocumentAction::Open)
-                        }
-                        BrowserMode::NewScene => {
-                            Some(DocumentAction::NewScene(self.browser.path.trim().into()))
-                        }
-                        BrowserMode::NewPrefab => {
-                            Some(DocumentAction::NewPrefab(self.browser.path.trim().into()))
+                        BrowserMode::Open => self
+                            .browser
+                            .selected
+                            .clone()
+                            .map(DocumentAction::Open)
+                            .map(BrowserAction::Transition),
+                        BrowserMode::NewScene => Some(BrowserAction::Transition(
+                            DocumentAction::NewScene(self.browser.path.trim().into()),
+                        )),
+                        BrowserMode::NewPrefab => Some(BrowserAction::Transition(
+                            DocumentAction::NewPrefab(self.browser.path.trim().into()),
+                        )),
+                        BrowserMode::SavePrefab => {
+                            Some(BrowserAction::SavePrefab(self.browser.path.trim().into()))
                         }
                     };
                 }
@@ -169,13 +210,81 @@ impl DocumentWorkflow {
                 cancel = true;
             }
         });
-        if action.is_some() || cancel {
-            self.browser.mode = None;
+        if cancel {
+            self.browser = DocumentBrowser::default();
+            return None;
+        }
+        if matches!(action, Some(BrowserAction::Transition(_))) {
+            self.browser = DocumentBrowser::default();
         }
         action
     }
 }
 impl Editor {
+    pub(crate) fn begin_save_prefab(
+        &mut self,
+        root: comet_core::EntityId,
+        assets: &mut comet_asset::AssetStore,
+    ) -> anyhow::Result<()> {
+        self.ensure_structural_editable()?;
+        let content = self
+            .document
+            .capture_prefab(root, assets)
+            .map_err(|error| anyhow::anyhow!("无法保存作者子树为 Prefab：{error:#}"))?;
+        self.documents.open_browser(BrowserMode::SavePrefab);
+        self.documents.browser.prefab = Some(PrefabSaveDraft {
+            world: self.document.world_id(),
+            revision: self.document.revision(),
+            selection: self.selection.generation(),
+            products: assets.revision().into(),
+            content: std::sync::Arc::new(content),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn show_document_browser(
+        &mut self,
+        ctx: &egui::Context,
+        assets: &mut comet_asset::AssetStore,
+    ) {
+        if self.documents.browser.prefab.as_ref().is_some_and(|draft| {
+            self.play.is_some()
+                || draft.world != self.document.world_id()
+                || draft.revision != self.document.revision()
+                || draft.selection != self.selection.generation()
+                || draft.products != assets.revision()
+        }) {
+            self.documents.browser = DocumentBrowser::default();
+            return;
+        }
+        let Some(action) =
+            self.documents
+                .show_browser(ctx, &self.sources, &mut self.directory_reader)
+        else {
+            return;
+        };
+        match action {
+            BrowserAction::Transition(action) => self.request_document_action(action),
+            BrowserAction::SavePrefab(path) => {
+                let Some(draft) = self.documents.browser.prefab.as_ref() else {
+                    return;
+                };
+                match self.create_prefab_source(&path, &draft.content, assets) {
+                    Ok(path) => {
+                        self.documents.browser = DocumentBrowser::default();
+                        self.status = format!(
+                            "已保存为 Prefab：{}；刷新资源后可放置",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        );
+                    }
+                    Err(error) => {
+                        self.documents.browser.error = Some(format!("保存未完成：{error:#}"))
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn document_kind_label(&self) -> &'static str {
         if self.document.prefab_asset().is_some() {
             "Prefab"
@@ -198,7 +307,7 @@ impl Editor {
         }
         self.documents.action = Some(DocumentAction::Exit);
         self.documents.pending = true;
-        self.documents.browser.mode = None;
+        self.documents.browser = DocumentBrowser::default();
         self.documents.project_browser = Default::default();
         false
     }
@@ -216,7 +325,9 @@ impl Editor {
             }
             DocumentAction::Open(path) => path,
             DocumentAction::NewScene(path) => self.create_scene_source(&path)?,
-            DocumentAction::NewPrefab(path) => self.create_prefab_source(&path)?,
+            DocumentAction::NewPrefab(path) => {
+                self.create_prefab_source(&path, &comet_scene::ContentSource::default(), assets)?
+            }
             action @ (DocumentAction::NewProject(_) | DocumentAction::OpenProject { .. }) => {
                 self.begin_project_transition(action)?;
                 return Ok(());

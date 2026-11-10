@@ -43,15 +43,47 @@ fn prepared_project(destination: &Path) -> Result<DirectoryCandidate> {
 }
 
 pub fn create_scene(paths: &ProjectPaths, relative: &Path) -> Result<PathBuf> {
-    create_content(paths, relative, "scene")
+    create_content(paths, relative, "scene", |_| {
+        comet_scene::ContentSource::default().to_json()
+    })
 }
 
 pub fn create_prefab(paths: &ProjectPaths, relative: &Path) -> Result<PathBuf> {
-    create_content(paths, relative, "prefab")
+    create_content(paths, relative, "prefab", |_| {
+        comet_scene::ContentSource::default().to_json()
+    })
+}
+
+/// Create a new prefab from validated author content; the existing destination is never replaced.
+pub fn create_prefab_with_content(
+    paths: &ProjectPaths,
+    relative: &Path,
+    content: &comet_scene::ContentSource,
+    assets: &mut comet_asset::AssetStore,
+) -> Result<PathBuf> {
+    create_content(paths, relative, "prefab", |root| {
+        let snapshot = content.expand_prefab(root, assets)?;
+        comet_asset_data::product::validate_scene_dependency_kinds(&snapshot, |id| {
+            assets.index().products.get(&id).map(|entry| entry.kind)
+        })?;
+        // The new root replaces any old product at this identity, including a different kind.
+        for dependency in content.dependencies() {
+            ensure!(
+                dependency != root && !assets.dependency_closure(dependency)?.contains(&root),
+                "prefab resource dependency cycle at {root}"
+            );
+        }
+        content.to_json()
+    })
 }
 
 /// Publish metadata first, then the author file; interrupted creation can reuse its reserved identity.
-fn create_content(paths: &ProjectPaths, relative: &Path, extension: &str) -> Result<PathBuf> {
+fn create_content(
+    paths: &ProjectPaths,
+    relative: &Path,
+    extension: &str,
+    content: impl FnOnce(AssetId) -> Result<Vec<u8>>,
+) -> Result<PathBuf> {
     let _lock = crate::build::lock(&paths.root().join(".assetc.lock"), "project")?;
     let path = paths.resolve_asset_path(relative)?;
     ensure!(
@@ -63,21 +95,29 @@ fn create_content(paths: &ProjectPaths, relative: &Path, extension: &str) -> Res
         "作者文件位置已存在"
     );
     let metadata = paths.resolve_asset_path(crate::SourceMeta::path(&path))?;
-    match std::fs::read(&metadata) {
-        Ok(bytes) => {
-            crate::SourceMeta::from_bytes(&bytes).context("读取保留的作者文件身份失败")?;
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let meta = crate::SourceMeta {
+    let (meta, reserve) = match std::fs::read(&metadata) {
+        Ok(bytes) => (
+            crate::SourceMeta::from_bytes(&bytes).context("读取保留的作者文件身份失败")?,
+            false,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            crate::SourceMeta {
                 version: 1,
                 id: AssetId::new(),
-            };
-            meta.reserve(&path)?;
-        }
-        Err(e) => return Err(e).context("读取作者文件身份失败"),
+            },
+            true,
+        ),
+        Err(error) => return Err(error).context("读取作者文件身份失败"),
+    };
+    // Validate with the final root identity before reserving metadata or publishing any author bytes.
+    let bytes = content(meta.id)?;
+    if reserve {
+        meta.reserve(&path)?;
     }
+    let current = crate::SourceMeta::load(&path)?;
+    ensure!(current.id == meta.id, "作者文件身份在创建期间发生变化");
     let path = paths.resolve_asset_path(relative)?;
-    comet_core::atomic_create(&path, &comet_scene::ContentSource::default().to_json()?)?;
+    atomic_create(&path, &bytes)?;
     Ok(path)
 }
 

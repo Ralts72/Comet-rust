@@ -23,7 +23,11 @@ fn unbound_native_rigs_can_save_reopen_refresh_and_repair_but_never_start_incomp
         .unwrap();
     let owner = controller.id;
     let original_animator = controller.animator.clone().unwrap();
-    let native = editor.create_prefab_source(Path::new("animated.prefab"))?;
+    let native = editor.create_prefab_source(
+        Path::new("animated.prefab"),
+        &Default::default(),
+        &mut assets,
+    )?;
     let metadata = fs::read(SourceMeta::path(&native))?;
     let native_id = SourceMeta::load(&native)?.id;
     editor.document = Document::open_prefab(native_id, source, &mut assets)?;

@@ -655,3 +655,138 @@ fn placement_window_cancels_without_editing_and_places_model_groups_in_one_undo_
     assert_eq!(c.editor.document.shared_source(), after);
     Ok(())
 }
+
+#[test]
+fn save_prefab_browser_retries_without_touching_the_document_and_rebuilt_products_place_independently()
+-> Result<()> {
+    let mut c = Case::new(false)?;
+    let choice = c
+        .editor
+        .sources
+        .of_kind(comet_asset_data::product::AssetKind::Prefab)
+        .find(|source| source.source == std::path::Path::new("showcase.gltf"))
+        .unwrap()
+        .clone();
+    c.editor
+        .place_resource(choice.id, "保存模型", &mut c.assets)?;
+    let root = c.editor.selection.active().unwrap();
+    let before = c.editor.document.shared_source();
+    let state = (
+        c.editor.document.world_id(),
+        c.editor.document.revision(),
+        c.editor.document.state_id(),
+        c.editor.document.history_len(),
+        c.editor.document.is_dirty(),
+    );
+    let scene_path = c.editor.source.clone();
+    let scene_bytes = fs::read(&scene_path)?;
+    let model_meta = comet_asset_pipeline::SourceMeta::path(
+        &c.editor.project_root().join("assets/showcase.gltf"),
+    );
+    let model_meta_bytes = fs::read(&model_meta)?;
+    let set_path = |c: &mut Case, value: &str| {
+        let output = c.frame(vec![]);
+        let field = position(&output, "new.prefab", Rect::EVERYTHING);
+        c.click(field, egui::Modifiers::NONE);
+        c.key(egui::Key::A, egui::Modifiers::COMMAND);
+        c.frame(vec![egui::Event::Text(value.into())]);
+    };
+    c.frame(vec![]);
+    c.context_menu("保存模型");
+    c.press("保存为 Prefab...", Rect::EVERYTHING);
+    assert!(c.editor.documents.is_blocking() && !c.editor.documents.pending);
+    c.key(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!c.editor.documents.is_blocking());
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+    assert!(!c.editor.project_root().join("assets/new.prefab").exists());
+
+    c.context_menu("保存模型");
+    c.press("保存为 Prefab...", Rect::EVERYTHING);
+    set_path(&mut c, "../escape.prefab");
+    c.press("保存", Rect::EVERYTHING);
+    assert!(c.editor.documents.is_blocking());
+    assert!(!c.editor.project_root().join("escape.prefab").exists());
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+    // Keep the entered path and retry in the same browser.
+    let output = c.frame(vec![]);
+    c.click(
+        position(&output, "../escape.prefab", Rect::EVERYTHING),
+        egui::Modifiers::NONE,
+    );
+    c.key(egui::Key::A, egui::Modifiers::COMMAND);
+    c.frame(vec![egui::Event::Text("saved.prefab".into())]);
+    c.press("保存", Rect::EVERYTHING);
+    assert!(!c.editor.documents.is_blocking());
+    assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+    assert_eq!(
+        (
+            c.editor.document.world_id(),
+            c.editor.document.revision(),
+            c.editor.document.state_id(),
+            c.editor.document.history_len(),
+            c.editor.document.is_dirty()
+        ),
+        state
+    );
+    assert_eq!(c.editor.selection.active(), Some(root));
+    assert_eq!(c.editor.source, scene_path);
+    assert_eq!(fs::read(&scene_path)?, scene_bytes);
+    assert_eq!(fs::read(&model_meta)?, model_meta_bytes);
+    let saved = c.editor.project_root().join("assets/saved.prefab");
+    let content = ContentSource::from_json(&fs::read(&saved)?)?;
+    assert_eq!(
+        content,
+        c.editor.document.capture_prefab(root, &mut c.assets)?
+    );
+    let id = comet_asset_pipeline::SourceMeta::load(&saved)?.id;
+    let metadata = fs::read(comet_asset_pipeline::SourceMeta::path(&saved))?;
+
+    c.context_menu("保存模型");
+    c.press("保存为 Prefab...", Rect::EVERYTHING);
+    set_path(&mut c, "stale.prefab");
+    c.editor
+        .document
+        .insert_entity(EntityData::new("external edit"), &mut c.assets)?;
+    let changed = c.editor.document.shared_source();
+    c.frame(vec![]);
+    assert!(!c.editor.documents.is_blocking());
+    assert!(Arc::ptr_eq(&changed, &c.editor.document.shared_source()));
+    assert!(!c.editor.project_root().join("assets/stale.prefab").exists());
+
+    comet_asset_pipeline::prepare(c.editor.project_root(), &c.editor.products)?;
+    c.assets = AssetStore::open(&c.editor.products)?;
+    c.frame(vec![]);
+    assert!(
+        c.editor
+            .sources
+            .of_kind(comet_asset_data::product::AssetKind::Prefab)
+            .any(|source| source.id == id)
+    );
+    let snapshot = c.editor.snapshot(&mut c.assets)?;
+    let draws = comet_application::extract(&snapshot, &mut c.assets, &[])?.len();
+    c.press("saved.prefab", resources());
+    c.press("添加到场景", resources());
+    assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
+    let placed = c.editor.snapshot(&mut c.assets)?;
+    assert_eq!(
+        comet_application::extract(&placed, &mut c.assets, &[])?.len(),
+        draws * 2
+    );
+    assert!(
+        c.editor
+            .document
+            .shared_source()
+            .instances
+            .iter()
+            .any(|instance| instance.prefab == id)
+    );
+    assert_eq!(
+        fs::read(comet_asset_pipeline::SourceMeta::path(&saved))?,
+        metadata
+    );
+    assert_eq!(fs::read(&scene_path)?, scene_bytes);
+    c.editor.start(&mut c.assets)?;
+    assert!(c.editor.begin_save_prefab(root, &mut c.assets).is_err());
+    Ok(())
+}
