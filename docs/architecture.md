@@ -306,7 +306,7 @@ Editor/App 从 Store 加载区域明确引用的导航产品，经 `RuntimeResou
 
 编辑器烘焙分两阶段：先从当前快照纯计算；确认文档世界、revision、索引、Prefab 身份与输入摘要仍匹配后，才发布 `.nav` 并构建候选 Store。主线程用临时文档绑定新资源，在候选 Store 展开并通过 Runtime 导航、绘制和目录校验，再按一个文档事务提交绑定并接纳 Store；绑定无变化时不新增历史。输入和状态按文档/产品 revision 缓存，空闲面板不重复捕获全部几何。`.nav`、metadata、产品索引及文档接纳有各自发布边界，不是跨文件事务；文件已完整发布而后续准备或接纳失败时保留文件并明确诊断，当前文档及已接纳资源保持。
 
-资产 CLI 的 `bake-navigation` 接受已保存的原生 `.scene`/`.prefab`，复核源、metadata 与几何后发布导航资产并打印 AssetId，不自动修改区域绑定。`demo/assets/navigation.scene` 复用已有模型、材质和同一导航资产；`scripts/npc_patrol.rhai` 用实体巡逻点、玩家、距离和等待参数编排巡逻、追逐与返回。玩法和巡逻标记变化不参与静态烘焙摘要，改墙体或区域才需要重烘焙；它不代表动态导航等旧关卡完整能力已经迁移。
+资产 CLI 的 `bake-navigation` 接受已保存的原生 `.scene`/`.prefab`，产品目的地复用 ProjectPaths 的目录边界；复核源、metadata 与几何后发布导航资产并打印 AssetId，不自动修改区域绑定。`demo/assets/navigation.scene` 复用已有模型、材质和同一导航资产；`scripts/npc_patrol.rhai` 用实体巡逻点、玩家、距离和等待参数编排巡逻、追逐与返回。玩法和巡逻标记变化不参与静态烘焙摘要，改墙体或区域才需要重烘焙；它不代表动态导航等旧关卡完整能力已经迁移。
 
 ## 声音
 
@@ -392,7 +392,7 @@ Settings 只包含实际生效的 master_volume 和 shadows，默认 1 和 true�
 
 ## 资产生产与消费
 
-Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常规文件，在分配前检查该句柄的大小，并限制实际读取量以拒绝读取中超出预算的文件。源导入、Asset Runtime、项目配置、最近项目和 App 数据槽复用这一原语；文件打开、路径与符号链接策略、缺失文件处理、格式预算及候选接纳仍归各自模块。Pipeline 在读取 Rhai、导航、WAV 和 glTF/GLB 源时执行各格式已有的上限，内存导入入口继续自行校验；WAV 模块只负责解码与内容规则。
+Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常规文件，在分配前检查该句柄的大小，并限制实际读取量以拒绝读取中超出预算的文件。源导入、导航目标的源/metadata 快照、Asset Runtime、项目配置、最近项目和 App 数据槽复用这一原语；文件打开、路径与符号链接策略、缺失文件处理、格式预算及候选接纳仍归各自模块。Pipeline 在读取 Rhai、导航、WAV 和 glTF/GLB 源时执行各格式已有的上限，内存导入入口继续自行校验；WAV 模块只负责解码与内容规则。
 
 完整 `ProductFile` 编码后的字节上限归 Asset Data 的 `AssetKind::encoded_byte_limit`，Pipeline 在写入产品前检查编码结果，Asset Runtime 在摘要校验与解析前按同一规则限制读取。每种产品类型显式选择已有编码上限或尚未定义上限；源格式、解码后数据和运行世界的预算仍在各自边界维护。
 

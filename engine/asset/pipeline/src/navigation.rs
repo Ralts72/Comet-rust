@@ -148,10 +148,6 @@ impl NavigationTarget {
         );
         let source = read_optional(&path)?;
         if let Some(bytes) = &source {
-            ensure!(
-                bytes.len() <= MAX_NAVIGATION_BYTES,
-                "navigation source exceeds its size budget"
-            );
             let data: NavigationData =
                 serde_json::from_slice(bytes).context("read existing navigation author file")?;
             data.validate()?;
@@ -232,11 +228,10 @@ fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
                 "navigation destination is not a regular file: {}",
                 path.display()
             );
-            ensure!(
-                metadata.len() <= MAX_NAVIGATION_BYTES as u64,
-                "navigation destination exceeds its size budget"
-            );
-            Ok(Some(fs::read(path)?))
+            Ok(Some(crate::import::read_bounded(
+                path,
+                MAX_NAVIGATION_BYTES,
+            )?))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).with_context(|| format!("inspect {}", path.display())),
@@ -270,11 +265,7 @@ pub fn bake_navigation_source(
         prefab || source.extension().is_some_and(|ext| ext == "scene"),
         "navigation baking requires a native .scene or .prefab author file"
     );
-    let products = comet_core::resolve_destination(products)?;
-    ensure!(
-        !products.starts_with(paths.assets()) && !paths.assets().starts_with(&products),
-        "navigation products must not overlap project assets"
-    );
+    let products = paths.products_destination(products)?;
     let target = NavigationTarget::open(&paths, output)?;
     let bytes = std::fs::read(&source)?;
     crate::prepare(paths.root(), &products)?;
