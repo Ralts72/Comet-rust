@@ -1290,3 +1290,216 @@ fn baseline_field_preview_restores_omitted_authored_values_and_prefab_override_d
     assert!(!f.doc.is_dirty());
     Ok(())
 }
+
+#[test]
+fn placement_keeps_world_intervals_and_per_copy_local_and_instance_references_in_one_history()
+-> Result<()> {
+    use comet_core::math::{Mat4, Quat, Vec3};
+    let mut f = fixture()?;
+    let mut source = f.doc.source();
+    let mut parent = EntityData::new("rotated mirrored parent");
+    parent.transform.translation = [8., 4., -3.];
+    parent.transform.rotation = Quat::from_rotation_y(0.7).to_array();
+    parent.transform.scale = [-2., 3., 0.5];
+    let parent_id = parent.id;
+    source.base.entities.push(parent);
+    let root = source
+        .base
+        .entities
+        .iter_mut()
+        .find(|entity| entity.id == f.root)
+        .unwrap();
+    root.parent = Some(parent_id);
+    root.transform.translation = [1., 2., 3.];
+    root.links.target = Some(EntityRef::in_instance(f.attached, f.prefab_entity));
+    f.doc = Document::open_source(source)?;
+    let before = f.doc.shared_source();
+    let world_id = f.doc.world_id();
+    let old_world = comet_scene::world_transforms(&f.doc.expand(&mut f.library)?)?;
+    let maps = f.doc.place_copies(
+        &[f.root, f.child, f.observer, f.root],
+        3,
+        [2., -1., 3.],
+        &mut f.library,
+    )?;
+    let after = f.doc.shared_source();
+    let new_world = comet_scene::world_transforms(&f.doc.expand(&mut f.library)?)?;
+    assert_eq!(f.doc.world_id(), world_id);
+    assert_eq!(f.doc.history_len(), 1);
+    assert_eq!(maps.len(), 3);
+    assert_eq!(after.base.entities.len(), before.base.entities.len() + 9);
+    assert_eq!(after.instances.len(), before.instances.len() + 3);
+    let original_entities: std::collections::BTreeSet<_> = before
+        .base
+        .entities
+        .iter()
+        .map(|entity| entity.id)
+        .collect();
+    let mut copy_ids = std::collections::BTreeSet::new();
+    for (index, map) in maps.iter().enumerate() {
+        assert_eq!(map.entities.len(), 3);
+        assert_eq!(map.instances.len(), 1);
+        for (&old, &new) in &map.entities {
+            assert!(!original_entities.contains(&new) && copy_ids.insert(new));
+            let expected = Mat4::from_translation(Vec3::new(2., -1., 3.) * (index + 1) as f32)
+                * old_world[&old];
+            assert!(new_world[&new].abs_diff_eq(expected, 2e-5));
+        }
+        let root = after
+            .base
+            .entities
+            .iter()
+            .find(|entity| entity.id == map.entities[&f.root])
+            .unwrap();
+        assert_eq!(root.parent, Some(parent_id));
+        assert_eq!(
+            root.links.target,
+            Some(EntityRef::in_instance(
+                map.instances[&f.attached],
+                f.prefab_entity
+            ))
+        );
+        let child = after
+            .base
+            .entities
+            .iter()
+            .find(|entity| entity.id == map.entities[&f.child])
+            .unwrap();
+        assert_eq!(child.parent, Some(root.id));
+        assert_eq!(child.links.target, Some(EntityRef::local(root.id)));
+        let observer = after
+            .base
+            .entities
+            .iter()
+            .find(|entity| entity.id == map.entities[&f.observer])
+            .unwrap();
+        assert_eq!(observer.links.target, Some(EntityRef::local(root.id)));
+        assert_eq!(observer.links.connections[0], EntityRef::local(child.id));
+        assert_eq!(
+            observer.links.connections[1],
+            before
+                .base
+                .entities
+                .iter()
+                .find(|entity| entity.id == f.observer)
+                .unwrap()
+                .links
+                .connections[1]
+        );
+        let instance = after
+            .instances
+            .iter()
+            .find(|instance| instance.id == map.instances[&f.attached])
+            .unwrap();
+        assert_eq!(instance.parent, Some(child.id));
+        assert_eq!(instance.prefab, f.library.asset);
+        assert!(
+            new_world[&f.prefab_entity.in_instance(instance.id)].abs_diff_eq(
+                Mat4::from_translation(Vec3::new(2., -1., 3.) * (index + 1) as f32)
+                    * old_world[&f.prefab_entity.in_instance(f.attached)],
+                2e-5
+            )
+        );
+    }
+    for entity in &before.base.entities {
+        assert_eq!(
+            after
+                .base
+                .entities
+                .iter()
+                .find(|current| current.id == entity.id),
+            Some(entity)
+        );
+    }
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("placed.scene");
+    f.doc.save(&path)?;
+    assert_eq!(
+        Document::load(&path)?.expand(&mut f.library)?,
+        f.doc.expand(&mut f.library)?
+    );
+    f.doc.undo()?;
+    assert_eq!(f.doc.shared_source(), before);
+    assert!(f.doc.is_dirty());
+    f.doc.redo()?;
+    assert_eq!(f.doc.shared_source(), after);
+    assert!(!f.doc.is_dirty());
+    Ok(())
+}
+
+#[test]
+fn invalid_placement_keeps_preview_savepoint_and_redo_and_zero_spacing_needs_no_parent_inverse()
+-> Result<()> {
+    use std::sync::Arc;
+    let mut f = fixture()?;
+    f.doc.clone_subtrees(&[f.root], &mut f.library)?;
+    let redo = f.doc.shared_source();
+    f.doc.undo()?;
+    let before = f.doc.shared_source();
+    let revision = f.doc.revision();
+    for (copies, step) in [
+        (0, [0.; 3]),
+        (1001, [0.; 3]),
+        (1, [f32::NAN; 3]),
+        (1, [f32::INFINITY; 3]),
+        (3, [f32::MAX; 3]),
+    ] {
+        assert!(
+            f.doc
+                .place_copies(&[f.root], copies, step, &mut f.library)
+                .is_err()
+        );
+        assert!(Arc::ptr_eq(&before, &f.doc.shared_source()));
+        assert_eq!(f.doc.revision(), revision);
+        assert_eq!(f.doc.history_len(), 0);
+        assert!(!f.doc.is_dirty());
+    }
+    f.library.fail = true;
+    assert!(
+        f.doc
+            .place_copies(&[f.root], 3, [2., 0., 0.], &mut f.library)
+            .is_err()
+    );
+    f.library.fail = false;
+    assert!(Arc::ptr_eq(&before, &f.doc.shared_source()));
+    f.doc.begin()?;
+    f.doc.preview_name(f.root, "accepted preview".into())?;
+    let preview = f.doc.shared_source();
+    assert!(
+        f.doc
+            .place_copies(&[f.root], 3, [2., 0., 0.], &mut f.library)
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(&preview, &f.doc.shared_source()));
+    assert!(f.doc.is_editing());
+    f.doc.cancel()?;
+    f.doc.redo()?;
+    assert_eq!(f.doc.shared_source(), redo);
+
+    for scale in [0., 1e30] {
+        let mut source = before.as_ref().clone();
+        let parent = source
+            .base
+            .entities
+            .iter_mut()
+            .find(|entity| entity.id == f.root)
+            .unwrap();
+        parent.transform.scale = [scale; 3];
+        let mut doc = Document::open_source(source)?;
+        let accepted = doc.shared_source();
+        let step = if scale == 0. {
+            [1., 0., 0.]
+        } else {
+            [1e-30, 0., 0.]
+        };
+        assert!(
+            doc.place_copies(&[f.child], 2, step, &mut f.library)
+                .is_err()
+        );
+        assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
+        let maps = doc.place_copies(&[f.child], 1000, [0.; 3], &mut f.library)?;
+        assert_eq!(maps.len(), 1000);
+        assert_eq!(doc.history_len(), 1);
+    }
+    Ok(())
+}

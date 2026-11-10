@@ -4,6 +4,7 @@ mod inspector;
 mod project;
 mod resources;
 mod viewport;
+pub(crate) use hierarchy::cancel_placement;
 pub(crate) use viewport::cancel_gesture as cancel_viewport_gesture;
 use viewport::click_modifiers;
 #[cfg(test)]
@@ -192,6 +193,9 @@ pub(crate) fn show(
     resources::show(editor, root, assets);
     let view = viewport::show(editor, root, assets, active);
     let ctx = root.ctx();
+    if hierarchy::placement_dialog(editor, ctx, assets, active) {
+        return view.finish(editor, assets, ctx, active);
+    }
     if !root.is_enabled() || editor.is_busy() {
         return view.finish(editor, assets, ctx, active);
     }

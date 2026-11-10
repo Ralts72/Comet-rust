@@ -184,25 +184,39 @@ impl SceneSnapshot {
     }
     /// Copy roots and descendants in the same scene, preserving references outside the selection.
     pub fn clone_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeMap<EntityId, EntityId>> {
+        Ok(self
+            .clone_subtrees_many(roots, 1)?
+            .pop()
+            .expect("one copy requested"))
+    }
+    /// Collect the original subtrees once; each copy gets its own reference namespace.
+    pub fn clone_subtrees_many(
+        &mut self,
+        roots: &[EntityId],
+        copies: usize,
+    ) -> Result<Vec<BTreeMap<EntityId, EntityId>>> {
         let selected = self.subtree_ids(roots)?;
-        let map: BTreeMap<_, _> = selected
-            .into_iter()
-            .map(|id| (id, EntityId::new()))
-            .collect();
         let mut candidate = self.clone();
-        for source in &self.entities {
-            if let Some(id) = map.get(&source.id) {
-                let mut e = source.clone();
-                e.id = *id;
-                e.parent = e.parent.map(|p| map.get(&p).copied().unwrap_or(p));
-                schema::remap(&mut e, &map)?;
-                candidate.entities.push(e);
+        let mut maps = Vec::new();
+        for _ in 0..copies {
+            let map: BTreeMap<_, _> = selected.iter().map(|id| (*id, EntityId::new())).collect();
+            for source in &self.entities {
+                if let Some(id) = map.get(&source.id) {
+                    let mut entity = source.clone();
+                    entity.id = *id;
+                    entity.parent = entity
+                        .parent
+                        .map(|parent| map.get(&parent).copied().unwrap_or(parent));
+                    schema::remap(&mut entity, &map)?;
+                    candidate.entities.push(entity);
+                }
             }
+            maps.push(map);
         }
         candidate.validate()?;
         candidate.canonicalize();
         *self = candidate;
-        Ok(map)
+        Ok(maps)
     }
     pub fn remove_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeSet<EntityId>> {
         let removed = self.subtree_ids(roots)?;

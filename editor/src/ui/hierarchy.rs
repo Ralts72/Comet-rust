@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 enum Action {
     CreateChild(EntityId),
     Duplicate(EntityId),
+    PlaceCopies(EntityId),
     Delete(EntityId),
     Detach(EntityId),
     Reparent(EntityId, Option<EntityId>),
@@ -161,6 +162,25 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                 let result = match action {
                     Action::CreateChild(id) => editor.create_object(Some(id), assets),
                     Action::Duplicate(id) => editor.duplicate_object(id, assets),
+                    Action::PlaceCopies(entity) => {
+                        ui.ctx().data_mut(|data| {
+                            data.insert_temp(
+                                placement_id(),
+                                Placement {
+                                    entity,
+                                    world: editor.document.world_id(),
+                                    revision: editor.document.revision(),
+                                    selection: editor.selection.generation(),
+                                    products: assets.revision().into(),
+                                    copies: 3,
+                                    step: [2., 0., 0.],
+                                    focus: true,
+                                    error: None,
+                                },
+                            )
+                        });
+                        Ok(())
+                    }
                     Action::Delete(id) => editor.delete_object(id, assets),
                     Action::Detach(id) => editor.detach_resource(id, assets),
                     Action::Reparent(id, parent) => editor.reparent_object(id, parent, assets),
@@ -253,6 +273,20 @@ impl Tree<'_> {
                                 ui.close();
                             }
                         }
+                        if ui
+                            .add_enabled(
+                                self.authored.contains(&entity.id),
+                                egui::Button::new("批量放置..."),
+                            )
+                            .on_hover_text("按世界坐标间距复制作者子树及挂接实例。")
+                            .on_disabled_hover_text(
+                                "请选择作者实体或资源的作者容器；直接 Prefab 根请先解除关联。",
+                            )
+                            .clicked()
+                        {
+                            *action = Some(Action::PlaceCopies(entity.id));
+                            ui.close();
+                        }
                         if !self.authored.contains(&entity.id) {
                             match crate::objects::resource_at_root(self.source, entity.id, assets) {
                                 Ok(Some(prefab)) => {
@@ -301,4 +335,113 @@ impl Tree<'_> {
             });
         }
     }
+}
+
+fn placement_id() -> egui::Id {
+    egui::Id::unique("hierarchy-placement")
+}
+
+pub(crate) fn cancel_placement(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.remove::<Placement>(placement_id()));
+}
+
+#[derive(Clone)]
+struct Placement {
+    entity: EntityId,
+    world: WorldId,
+    revision: u64,
+    selection: u64,
+    products: String,
+    copies: u32,
+    step: [f32; 3],
+    focus: bool,
+    error: Option<String>,
+}
+
+/// The draft belongs to this UI context, never to the author document or its history.
+pub(super) fn placement_dialog(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    assets: &mut AssetStore,
+    active: bool,
+) -> bool {
+    let Some(mut draft) = ctx.data_mut(|data| {
+        let draft = data.get_temp::<Placement>(placement_id());
+        data.remove::<Placement>(placement_id());
+        draft
+    }) else {
+        return false;
+    };
+    if !active
+        || editor.play.is_some()
+        || editor.is_busy()
+        || editor.documents.is_blocking()
+        || draft.world != editor.document.world_id()
+        || draft.revision != editor.document.revision()
+        || draft.selection != editor.selection.generation()
+        || draft.products != assets.revision()
+    {
+        return true;
+    }
+    let mut open = !ctx.input(|input| input.key_pressed(egui::Key::Escape));
+    let mut close = false;
+    if open {
+        egui::Window::new("批量放置")
+            .id(placement_id())
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("按世界坐标间距复制选中组，保留组内相对位置与引用。");
+                ui.weak("切换选择或编辑内容会取消本次放置。");
+                ui.horizontal(|ui| {
+                    ui.label("新增份数");
+                    let response = ui.add(
+                        egui::DragValue::new(&mut draft.copies)
+                            .range(1..=comet_editor_core::MAX_PLACEMENT_COPIES),
+                    );
+                    if draft.focus {
+                        response.request_focus();
+                        draft.focus = false;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("每份间距 XYZ");
+                    for (axis, value) in ["X", "Y", "Z"].into_iter().zip(&mut draft.step) {
+                        ui.add(
+                            egui::DragValue::new(value)
+                                .speed(0.1)
+                                .prefix(format!("{axis} ")),
+                        );
+                    }
+                });
+                let valid = (1..=comet_editor_core::MAX_PLACEMENT_COPIES).contains(&draft.copies)
+                    && draft.step.iter().all(|value| value.is_finite());
+                if !valid {
+                    ui.weak(format!(
+                        "份数须在 1 到 {} 之间，间距须是有限数值。",
+                        comet_editor_core::MAX_PLACEMENT_COPIES
+                    ));
+                }
+                if let Some(error) = &draft.error {
+                    ui.colored_label(egui::Color32::from_rgb(244, 141, 131), error);
+                }
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(valid, egui::Button::new("放置")).clicked() {
+                        match editor.place_copies(draft.entity, draft.copies, draft.step, assets) {
+                            Ok(()) => close = true,
+                            Err(error) => draft.error = Some(format!("{error:#}")),
+                        }
+                    }
+                    if ui.button("取消").clicked() {
+                        close = true;
+                    }
+                });
+            });
+    }
+    if open && !close {
+        ctx.data_mut(|data| data.insert_temp(placement_id(), draft));
+    }
+    true
 }

@@ -1,6 +1,9 @@
 use super::Document;
 use anyhow::{Context, Result, ensure};
-use comet_core::{EntityId, InstanceId};
+use comet_core::{
+    EntityId, InstanceId,
+    math::{Mat4, Vec3},
+};
 use comet_scene::{
     ContentSource, FieldOverride, PrefabResolver,
     schema::{self, FieldKey, FieldValue},
@@ -12,6 +15,8 @@ pub enum ObjectTarget {
     Authored(EntityId),
     Prefab(InstanceId),
 }
+
+pub const MAX_PLACEMENT_COPIES: u32 = 1000;
 
 #[derive(Default, Debug)]
 pub struct CloneMap {
@@ -230,35 +235,74 @@ impl Document {
         resolver: &mut impl PrefabResolver,
     ) -> Result<CloneMap> {
         self.change(resolver, |next| {
-            let (roots, instances) = selection_targets(next, selection)?;
-            let entities = next.base.clone_subtrees(&roots)?;
-            let mut result = CloneMap {
-                entities,
-                instances: BTreeMap::new(),
-            };
-            let mut copies = Vec::new();
-            for instance in &next.instances {
-                let parent = instance
-                    .parent
-                    .and_then(|id| result.entities.get(&id).copied());
-                if parent.is_some() || instances.contains(&instance.id) {
-                    let mut copy = instance.clone();
-                    copy.id = InstanceId::new();
-                    copy.parent = parent.or(instance.parent);
-                    result.instances.insert(instance.id, copy.id);
-                    copies.push(copy);
+            Ok(clone_objects(next, selection, 1)?
+                .pop()
+                .expect("one copy requested"))
+        })
+    }
+
+    /// Place copies of authored subtrees by a world-space step, publishing one history state.
+    pub fn place_copies(
+        &mut self,
+        roots: &[EntityId],
+        copies: u32,
+        world_step: [f32; 3],
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<Vec<CloneMap>> {
+        ensure!(
+            (1..=MAX_PLACEMENT_COPIES).contains(&copies),
+            "copies must be in 1..={MAX_PLACEMENT_COPIES}"
+        );
+        let step = Vec3::from(world_step);
+        ensure!(step.is_finite(), "placement step must be finite");
+        self.change(resolver, |next| {
+            let original: BTreeMap<_, _> = next
+                .base
+                .entities
+                .iter()
+                .map(|entity| (entity.id, (entity.parent, entity.transform.translation)))
+                .collect();
+            let world = comet_scene::world_transforms(&next.base)?;
+            let targets: Vec<_> = roots.iter().copied().map(ObjectTarget::Authored).collect();
+            let maps = clone_objects(next, &targets, copies as usize)?;
+            let first = &maps[0].entities;
+            let mut translations = BTreeMap::new();
+            for (&id, &(parent, translation)) in &original {
+                if !first.contains_key(&id)
+                    || parent.is_some_and(|parent| first.contains_key(&parent))
+                {
+                    continue;
                 }
-            }
-            next.instances.extend(copies);
-            if !result.instances.is_empty() {
-                let copied: BTreeSet<_> = result.entities.values().copied().collect();
-                for entity in &mut next.base.entities {
-                    if copied.contains(&entity.id) {
-                        schema::remap_instance_references(entity, &result.instances)?;
+                let parent_world = parent.map_or(Mat4::IDENTITY, |parent| world[&parent]);
+                let local_step = if step == Vec3::ZERO {
+                    step
+                } else {
+                    comet_scene::checked_transform_inverse(parent_world)?.transform_vector3(step)
+                };
+                for (index, map) in maps.iter().enumerate() {
+                    let position =
+                        Vec3::from(translation) + local_step * (index + 1) as f32;
+                    ensure!(
+                        position.is_finite(),
+                        "placement translation is out of range"
+                    );
+                    if step != Vec3::ZERO {
+                        // Finite local sums can still round away the requested world displacement.
+                        let expected = step.as_dvec3() * (index + 1) as f64;
+                        let actual = parent_world.transform_point3(position).as_dvec3()
+                            - world[&id].w_axis.truncate().as_dvec3();
+                        ensure!(actual.is_finite() && actual.distance(expected) <= expected.length() * 2e-5,
+                            "cannot preserve world placement interval for {id}; transform precision is insufficient");
                     }
+                    translations.insert(map.entities[&id], position.to_array());
                 }
             }
-            Ok(result)
+            for entity in &mut next.base.entities {
+                if let Some(translation) = translations.get(&entity.id) {
+                    entity.transform.translation = *translation;
+                }
+            }
+            Ok(maps)
         })
     }
 
@@ -432,6 +476,48 @@ fn initial_field_value(
                 .and_then(|entity| field.read(entity)))
         }
     }
+}
+
+fn clone_objects(
+    source: &mut ContentSource,
+    selection: &[ObjectTarget],
+    copies: usize,
+) -> Result<Vec<CloneMap>> {
+    let (roots, instances) = selection_targets(source, selection)?;
+    let maps = source.base.clone_subtrees_many(&roots, copies)?;
+    let original_instances = source.instances.clone();
+    let mut results = Vec::new();
+    let mut copied = BTreeMap::new();
+    for entities in maps {
+        let mut result = CloneMap {
+            entities,
+            instances: BTreeMap::new(),
+        };
+        for instance in &original_instances {
+            let parent = instance
+                .parent
+                .and_then(|id| result.entities.get(&id).copied());
+            if parent.is_some() || instances.contains(&instance.id) {
+                let mut copy = instance.clone();
+                copy.id = InstanceId::new();
+                copy.parent = parent.or(instance.parent);
+                result.instances.insert(instance.id, copy.id);
+                source.instances.push(copy);
+            }
+        }
+        if !result.instances.is_empty() {
+            for id in result.entities.values() {
+                copied.insert(*id, results.len());
+            }
+        }
+        results.push(result);
+    }
+    for entity in &mut source.base.entities {
+        if let Some(&index) = copied.get(&entity.id) {
+            schema::remap_instance_references(entity, &results[index].instances)?;
+        }
+    }
+    Ok(results)
 }
 
 fn selection_targets(

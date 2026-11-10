@@ -71,7 +71,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 | 文件读取预算 | 超限元数据在读取前拒绝、精确上限、读取中增长、I/O 失败和预算溢出 | [Core 公共接口测试](../engine/core/tests/storage.rs)、[Core 读取单元测试](../engine/core/src/storage.rs) |
 | 文件摘要与模板 | 文件摘要与字节协议一致、短读/中断/I/O 失败；模板输入变化与复制结果不符时拒绝发布 | [Core 摘要测试](../engine/core/tests/storage.rs)、[Core 流式测试](../engine/core/src/storage.rs)、[模板测试](../engine/asset/pipeline/src/template/tests.rs)、[打包测试](../engine/asset/pipeline/tests/package.rs) |
 | 场景与引用协议 | 旧格式读取、新组件最低版本、实例词法作用域、复制重映射、删除清理、候选失败保持 | [Scene 测试](../engine/scene/tests/)、[文档协议回归](../editor/core/tests/protocols.rs) |
-| 作者文档与历史 | 组件及字段共用候选校验；多选、层级、Prefab 逐层解除关联及引用作用域、保存点与 undo/redo；失败保留当前预览 | [Editor Core 测试](../editor/core/tests/) |
+| 作者文档与历史 | 组件及字段共用候选校验；多选、层级、批量放置的世界间距/份间引用隔离及原子失败、Prefab 逐层解除关联及引用作用域、保存点与 undo/redo；失败保留当前预览 | [Editor Core 测试](../editor/core/tests/) |
 | 运行世界 | 固定步与输入、物理/角色、脚本意图事务、暂停/重开/换关、显式进度与作者隔离 | [Runtime 测试](../engine/runtime/tests/)、[App 会话测试](../app/src/session/) |
 | 资源身份与产品 | 写入前拒绝路径重叠及资源根越界、合法目录别名保持身份和标签、metadata 稳定、身份预留碰撞与失败重试、源根与衍生产品区分、完整产品编码预算、导入失败与索引原子发布、依赖类型（含禁用绑定/隐藏模型/外部引用）、闭包及标签剥离 | [Pipeline 测试](../engine/asset/pipeline/tests/)、[构建发布回归](../engine/asset/pipeline/src/build.rs)、[Store 测试](../engine/asset/runtime/tests/) |
 | 后台接纳与项目切换 | 进度先于结果、一次性交付与所有者回收；世界/revision 守卫、取消及旧候选拒绝、错误和退出 | [Job 测试](../editor/src/jobs.rs)、[会话测试](../editor/src/session/tests/)、[项目加载测试](../editor/src/project/loading/tests.rs) |

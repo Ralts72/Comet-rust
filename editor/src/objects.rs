@@ -145,6 +145,40 @@ impl Editor {
         Ok(())
     }
 
+    pub(crate) fn place_copies(
+        &mut self,
+        entity: EntityId,
+        copies: u32,
+        world_step: [f32; 3],
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.ensure_structural_editable()?;
+        ensure!(
+            !self.document.is_editing(),
+            "请先结束当前字段编辑，再批量放置"
+        );
+        let owners = self.operation_roots(entity, assets)?;
+        ensure!(
+            owners
+                .iter()
+                .all(|(_, owner)| matches!(owner, Owner::Authored)),
+            "请选择作者实体或资源的作者容器；Prefab 实际根请先解除关联"
+        );
+        let roots: Vec<_> = owners.iter().map(|(id, _)| *id).collect();
+        let maps = self
+            .document
+            .place_copies(&roots, copies, world_step, assets)
+            .context("无法批量放置；请检查份数、间距、父级变换和角色/导航区域的唯一性")?;
+        self.picking.clear();
+        self.drag_origin = None;
+        self.selection.replace(
+            maps.iter()
+                .flat_map(|map| roots.iter().map(|id| map.entities[id])),
+        );
+        self.status = format!("已放置 {copies} 份副本");
+        Ok(())
+    }
+
     pub(crate) fn detach_resource(
         &mut self,
         entity: EntityId,

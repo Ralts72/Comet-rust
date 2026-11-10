@@ -367,6 +367,7 @@ impl Application for Editor {
         }
         if input.activity_changed {
             crate::ui::cancel_viewport_gesture(ui.ctx());
+            crate::ui::cancel_placement(ui.ctx());
         }
         self.target_generation = input.target_generation;
         let previous_world = self.world();

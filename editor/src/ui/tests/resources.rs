@@ -212,26 +212,32 @@ fn inspector() -> Rect {
     Rect::from_min_max(Pos2::new(1000., 45.), Pos2::new(1280., 650.))
 }
 fn position(output: &egui::FullOutput, label: &str, region: Rect) -> Pos2 {
-    fn find(shape: &egui::epaint::Shape, label: &str, region: Rect) -> Option<Pos2> {
+    fn find(shape: &egui::epaint::Shape, label: &str, region: Rect, exact: bool) -> Option<Pos2> {
         match shape {
             egui::epaint::Shape::Text(text)
                 if text.galley.job.text == label
-                    || text.galley.job.text.ends_with(label)
-                    || text.galley.job.text.starts_with(&format!("{label} ")) =>
+                    || (!exact
+                        && (text.galley.job.text.ends_with(label)
+                            || text.galley.job.text.starts_with(&format!("{label} ")))) =>
             {
                 let point = text.pos + text.galley.rect.center().to_vec2();
                 region.contains(point).then_some(point)
             }
-            egui::epaint::Shape::Vec(shapes) => {
-                shapes.iter().find_map(|shape| find(shape, label, region))
-            }
+            egui::epaint::Shape::Vec(shapes) => shapes
+                .iter()
+                .find_map(|shape| find(shape, label, region, exact)),
             _ => None,
         }
     }
-    output
-        .shapes
-        .iter()
-        .find_map(|shape| find(&shape.shape, label, region))
+    // A window title can share a suffix with its action button.
+    [true, false]
+        .into_iter()
+        .find_map(|exact| {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| find(&shape.shape, label, region, exact))
+        })
         .unwrap_or_else(|| panic!("missing {label} in {region:?}"))
 }
 
@@ -511,5 +517,141 @@ fn model_detach_rejects_author_containers_before_committing_and_preserves_expand
     assert_eq!(c.editor.document.shared_source().instances.len(), 1);
     c.editor.start(&mut c.assets)?;
     assert!(c.editor.detach_resource(root_id, &mut c.assets).is_err());
+    Ok(())
+}
+
+#[test]
+fn placement_window_cancels_without_editing_and_places_model_groups_in_one_undo_step() -> Result<()>
+{
+    let mut c = Case::new(false)?;
+    let choice = c
+        .editor
+        .sources
+        .of_kind(comet_asset_data::product::AssetKind::Prefab)
+        .find(|source| source.source == std::path::Path::new("showcase.gltf"))
+        .unwrap()
+        .clone();
+    c.editor
+        .place_resource(choice.id, "放置模型", &mut c.assets)?;
+    let root = c.editor.selection.active().unwrap();
+    c.editor.rename_object(root, "字段预览".into())?;
+    let preview = c.editor.document.shared_source();
+    assert!(
+        c.editor
+            .place_copies(root, 3, [2., 0., 0.], &mut c.assets)
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(&preview, &c.editor.document.shared_source()));
+    assert!(c.editor.document.is_editing());
+    c.editor.cancel()?;
+    let before = c.editor.document.shared_source();
+    let history = c.editor.document.history_len();
+    c.frame(vec![]);
+    c.context_menu("放置模型");
+    c.press("批量放置...", Rect::EVERYTHING);
+    let output = c.frame(vec![]);
+    position(&output, "新增份数", Rect::EVERYTHING);
+    position(&output, "每份间距 XYZ", Rect::EVERYTHING);
+    c.press("取消", Rect::EVERYTHING);
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+    assert_eq!(c.editor.document.history_len(), history);
+
+    c.context_menu("放置模型");
+    c.press("批量放置...", Rect::EVERYTHING);
+    c.key(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+    c.context_menu("放置模型");
+    c.press("批量放置...", Rect::EVERYTHING);
+    c.editor.selection.replace([root]);
+    let output = c.frame(vec![]);
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::epaint::Shape::Text(text) if text.galley.job.text == "每份间距 XYZ")));
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+
+    c.context_menu("放置模型");
+    c.press("批量放置...", Rect::EVERYTHING);
+    let (_, output) = frame_with_output(
+        &c.ctx,
+        &mut c.editor,
+        &mut c.assets,
+        FrameContext {
+            number: c.number,
+            dt: 1. / 60.,
+            active: true,
+            activity_changed: true,
+            target_generation: 1,
+            size: [1280, 800],
+            smoke: false,
+        },
+        vec![],
+    );
+    c.number += 1;
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::epaint::Shape::Text(text) if text.galley.job.text == "每份间距 XYZ")));
+    assert!(Arc::ptr_eq(&before, &c.editor.document.shared_source()));
+
+    c.context_menu("放置模型");
+    c.press("批量放置...", Rect::EVERYTHING);
+    c.press("放置", Rect::EVERYTHING);
+    assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
+    let after = c.editor.document.shared_source();
+    assert_eq!(after.instances.len(), 4);
+    assert_eq!(after.base.entities.len(), 4);
+    assert_eq!(c.editor.document.history_len(), history + 1);
+    assert_eq!(c.editor.selection.len(), 3);
+    assert!(!c.editor.selection.contains(root));
+    let active = c.editor.selection.active().unwrap();
+    assert_eq!(
+        after
+            .base
+            .entities
+            .iter()
+            .find(|entity| entity.id == active)
+            .unwrap()
+            .transform
+            .translation,
+        [6., 0., 0.]
+    );
+    let mut positions: Vec<_> = after
+        .base
+        .entities
+        .iter()
+        .filter(|entity| entity.id != root)
+        .map(|entity| entity.transform.translation[0])
+        .collect();
+    positions.sort_by(f32::total_cmp);
+    assert_eq!(positions, [2., 4., 6.]);
+    for instance in &after.instances {
+        assert_eq!(instance.prefab, choice.id);
+        assert!(
+            after
+                .base
+                .entities
+                .iter()
+                .any(|entity| Some(entity.id) == instance.parent)
+        );
+    }
+    c.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert_eq!(c.editor.document.shared_source(), before);
+    c.key(
+        egui::Key::Z,
+        egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+    );
+    assert_eq!(c.editor.document.shared_source(), after);
+    c.key(egui::Key::S, egui::Modifiers::COMMAND);
+    comet_asset_pipeline::prepare(c.editor.project_root(), &c.editor.products)?;
+    let mut products = AssetStore::open(&c.editor.products)?;
+    let meta = comet_asset_pipeline::SourceMeta::load(&c.editor.source)?;
+    assert_eq!(
+        products.expand_scene(meta.id)?,
+        c.editor.snapshot(&mut c.assets)?
+    );
+    c.editor.start(&mut c.assets)?;
+    assert!(
+        c.editor
+            .place_copies(root, 3, [2., 0., 0.], &mut c.assets)
+            .is_err()
+    );
+    assert_eq!(c.editor.document.shared_source(), after);
     Ok(())
 }
