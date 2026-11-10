@@ -259,4 +259,44 @@ impl Joints {
     pub(super) fn status(&self, entity: EntityId, kind: JointKind) -> Option<JointStatus> {
         self.entries.get(&(entity, kind)).copied()
     }
+    pub(super) fn remove_entities(
+        &mut self,
+        removed: &std::collections::BTreeSet<EntityId>,
+        snapshot: &SceneSnapshot,
+        world: &mut PhysicsWorld,
+    ) {
+        self.entries
+            .retain(|(owner, _), _| !removed.contains(owner));
+        for entity in &snapshot.entities {
+            for (kind, settings) in entity
+                .point_joint
+                .iter()
+                .map(|j| (JointKind::Point, &j.settings))
+                .chain(
+                    entity
+                        .hinge_joint
+                        .iter()
+                        .map(|j| (JointKind::Hinge, &j.settings)),
+                )
+                .chain(
+                    entity
+                        .slider_joint
+                        .iter()
+                        .map(|j| (JointKind::Slider, &j.settings)),
+                )
+            {
+                if settings.enabled && settings.connection == JointConnection::Unbound {
+                    self.entries.insert((entity.id, kind), JointStatus::Unbound);
+                }
+            }
+        }
+        if !self
+            .entries
+            .values()
+            .any(|status| *status == JointStatus::Active)
+            && let Some(anchor) = self.world_anchor.take()
+        {
+            world.remove_body(anchor);
+        }
+    }
 }

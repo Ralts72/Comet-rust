@@ -254,6 +254,24 @@ impl Navigation {
     pub fn statuses(&self) -> Arc<NavigationStatuses> {
         self.statuses.clone()
     }
+    pub(crate) fn remove_entities(&mut self, removed: &std::collections::BTreeSet<EntityId>) {
+        for id in removed {
+            if let Some(agent) = self.agents.remove(id) {
+                self.archipelago.remove_agent(agent);
+            }
+            if let Some(character) = self.characters.remove(id) {
+                self.archipelago.remove_character(character);
+            }
+            self.goals.remove(id);
+            self.velocities.remove(id);
+        }
+        for goal in self.goals.values_mut() {
+            if matches!(goal, Goal::Entity(id) if removed.contains(id)) {
+                *goal = Goal::Stopped;
+            }
+        }
+        Arc::make_mut(&mut self.statuses).retain(|id, _| !removed.contains(id));
+    }
 
     pub fn status(&self, entity: EntityId) -> Option<NavigationStatus> {
         self.statuses.get(&entity).copied()

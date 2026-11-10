@@ -211,7 +211,9 @@ def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect
             run_capture(name, command, cwd=case)
             value, png = inspect_capture(name, native, 1)
             runtime = value["application"]
-            assert 0 < runtime["steps"] <= 7 and runtime["script_diagnostics"] == []
+            # Native windows may remain host-suspended; headless proves advancing samples.
+            assert type(runtime["steps"]) is int and 0 <= runtime["steps"] <= 7
+            assert runtime["script_diagnostics"] == []
             if not native:
                 assert runtime["steps"] == 7
             time = runtime["animations"][0]["time"]

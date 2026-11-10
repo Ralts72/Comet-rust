@@ -67,6 +67,16 @@ fn remove_subtree_clears_local_references_and_preserves_external_references() ->
     scene.entities[2].links.target = Some(EntityRef::local(child));
     scene.entities[2].links.connections = vec![EntityRef::local(root), external.clone()];
     let before = scene.clone();
+    let mut live = Scene::open(before.clone())?;
+    let survivor_handle = live.handle(outside)?;
+    let removed_handle = live.handle(child)?;
+    let frozen = live.shared_snapshot();
+    assert!(live.remove_subtrees(&[root, EntityId::new()]).is_err());
+    assert!(std::sync::Arc::ptr_eq(&frozen, &live.shared_snapshot()));
+    assert_eq!(live.remove_subtrees(&[root, child])?.len(), 2);
+    assert_eq!(live.resolve(survivor_handle)?.links.target, None);
+    assert!(live.resolve(removed_handle).is_err());
+    assert_eq!(frozen.entities.len(), 3);
     assert!(scene.remove_subtrees(&[EntityId::new()]).is_err());
     assert_eq!(scene, before);
     let removed = scene.remove_subtrees(&[root])?;
@@ -75,6 +85,7 @@ fn remove_subtree_clears_local_references_and_preserves_external_references() ->
     let survivor = scene.entities.iter().find(|e| e.id == outside).unwrap();
     assert_eq!(survivor.links.target, None);
     assert_eq!(survivor.links.connections, vec![external]);
+    assert_eq!(live.snapshot(), scene);
     Ok(())
 }
 #[test]

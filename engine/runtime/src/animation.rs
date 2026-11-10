@@ -312,6 +312,20 @@ impl Animation {
     pub fn states(&self) -> Arc<AnimationStates> {
         self.states.clone()
     }
+    pub(crate) fn remove_entities(&mut self, removed: &BTreeSet<EntityId>) {
+        let count = self.playbacks.len();
+        self.playbacks.retain(|owner, _| !removed.contains(owner));
+        self.drivers
+            .retain(|driver| !removed.contains(&driver.owner));
+        if self.playbacks.len() != count {
+            self.claims = self
+                .playbacks
+                .values()
+                .flat_map(|p| p.rig.rest.keys().copied())
+                .collect();
+            Arc::make_mut(&mut self.states).retain(|owner, _| !removed.contains(owner));
+        }
+    }
     pub fn prepare_commands(
         &self,
         commands: &[AnimationCommand],

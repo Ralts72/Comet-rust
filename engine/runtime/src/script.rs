@@ -1,6 +1,7 @@
 //! Rhai stays private to the runtime; callbacks see owned snapshots and publish validated commands.
 mod api;
 mod commands;
+mod despawn;
 use crate::{
     FIXED_DELTA,
     animation::Animation,
@@ -17,7 +18,7 @@ use comet_scene::{Scene, SceneSnapshot, ScriptParameters};
 use rhai::{AST, CallFnOptions, Dynamic, Engine, FLOAT, INT, Map, Scope};
 use std::{
     cell::{Cell, RefCell},
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     rc::Rc,
     sync::Arc,
 };
@@ -187,6 +188,7 @@ pub(crate) struct Scripts {
     navigation_statuses: Option<Arc<NavigationStatuses>>,
     hud: Hud,
     progress: Progress,
+    pending_destruction: BTreeSet<EntityId>,
 }
 impl Scripts {
     pub fn new(
@@ -227,6 +229,7 @@ impl Scripts {
             navigation_statuses: None,
             hud: Hud::new(world),
             progress: Progress::new(scope, progress)?,
+            pending_destruction: BTreeSet::new(),
         })
     }
     pub fn progress_snapshot(&self) -> Arc<ProgressValues> {
@@ -584,7 +587,7 @@ impl Scripts {
                 validate_state(value, 0, &mut budget)?;
             }
             if name != "on_stop" {
-                commands::apply(
+                let destroyed = commands::apply(
                     &call.borrow().commands,
                     scene,
                     physics,
@@ -594,6 +597,7 @@ impl Scripts {
                     animation,
                     &mut self.progress,
                 )?;
+                self.pending_destruction.extend(destroyed);
                 // Publication cannot fail after world commands commit on this owner thread.
                 if self.scene_request.is_none()
                     && let Some(target) = call.borrow().scene_request

@@ -62,4 +62,20 @@ impl Hud {
     pub fn publish(&mut self, labels: Arc<[HudLabel]>) {
         self.frame.labels = labels;
     }
+    pub(crate) fn remove_entities(&mut self, removed: &std::collections::BTreeSet<EntityId>) {
+        if self
+            .frame
+            .labels
+            .iter()
+            .any(|label| removed.contains(&label.owner))
+        {
+            self.frame.labels = self
+                .frame
+                .labels
+                .iter()
+                .filter(|label| !removed.contains(&label.owner))
+                .cloned()
+                .collect();
+        }
+    }
 }

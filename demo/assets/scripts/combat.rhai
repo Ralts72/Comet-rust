@@ -4,7 +4,7 @@ fn actor(ctx, key, label, player) {
        label: label, player: player, health: if player {120} else {90},
        maximum: if player {120} else {90}, damage: if player {35} else {12},
        range: if player {1.9} else {1.7}, interval: if player {0.8} else {1.15},
-       cooldown: 0.0, attacking: false, hit_done: false, pulse: 0.0 }
+       cooldown: 0.0, attacking: false, hit_done: false, pulse: 0.0, defeat_time: 0.0, removed: false }
 }
 fn begin_attack(ctx, a) {
     a.attacking = true; a.hit_done = false; a.cooldown = a.interval;
@@ -72,7 +72,21 @@ fn on_fixed_update(ctx, dt) {
     let active = actors[0].health > 0 && defeated(actors) < 2;
     let target = ctx.position(actors[0].entity);
     for i in 0..actors.len() {
-        let a = actors[i]; a.cooldown = max(0.0, a.cooldown - dt); a.pulse = max(0.0, a.pulse - dt);
+        let a = actors[i];
+        if a.removed { continue; }
+        if !a.player && a.health <= 0 {
+            a.defeat_time += dt;
+            let size = 0.9 * max(0.001, 1.0 - a.defeat_time / 0.4);
+            ctx.set_scale(a.model, size, size, size);
+            if a.defeat_time >= 1.2 {
+                ctx.destroy_entity(a.entity);
+                a.removed = true;
+                ctx.log("战斗移除：" + a.label);
+            }
+            actors[i] = a;
+            continue;
+        }
+        a.cooldown = max(0.0, a.cooldown - dt); a.pulse = max(0.0, a.pulse - dt);
         let size = 0.9 * (1.0 + a.pulse * 0.35);
         ctx.set_scale(a.model, size, size, size);
         if a.player {

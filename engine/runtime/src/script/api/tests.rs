@@ -134,6 +134,8 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
         "ctx.set_character_motion_enabled(foreign,false)",
         "ctx.transform_point(foreign,0,0,0)",
         "ctx.raycast([0,0,0],[1,0,0],1,foreign)",
+        "ctx.destroy_entity(foreign)",
+        "ctx.exists(foreign)",
     ] {
         let error = engine
             .eval_with_scope::<Dynamic>(&mut scope, expression)
@@ -161,6 +163,7 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
         "ctx.set_animation_speed(owner, 2);",
         "ctx.face_character(owner,1,0);",
         "ctx.set_character_motion_enabled(owner,false);",
+        "ctx.destroy_entity(owner);",
     ] {
         let error = engine
             .eval_with_scope::<()>(&mut scope, expression)

@@ -235,6 +235,16 @@ mod tests;
 
 pub(super) fn register(engine: &mut Engine) {
     spatial::register(engine);
+    engine.register_fn("destroy_entity", |context: &mut Context, entity: Entity| {
+        context.enqueue(entity, Command::Destroy)
+    });
+    engine.register_fn("exists", |context: &mut Context, entity: Entity| -> ScriptResult<bool> {
+        let call = context.0.borrow();
+        if entity.world != call.world {
+            return Err("entity belongs to a different runtime world".into());
+        }
+        Ok(matches!(entity.reference, EntityRef::Local { entity } if call.entity(entity).is_ok()))
+    });
     engine.register_fn(
         "set_character_motion_enabled",
         |context: &mut Context, entity: Entity, enabled: bool| -> ScriptResult<()> {

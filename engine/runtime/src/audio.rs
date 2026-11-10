@@ -95,6 +95,34 @@ impl Audio {
     pub fn needs_positions(&self, revision: u64) -> bool {
         !self.spatial.is_empty() && self.positions_revision != Some(revision)
     }
+    pub(crate) fn remove_entities(&mut self, removed: &std::collections::BTreeSet<EntityId>) {
+        if !self.indices.keys().any(|id| removed.contains(id)) {
+            return;
+        }
+        let voices: Arc<[AudioVoice]> = self
+            .voices
+            .iter()
+            .filter(|voice| !removed.contains(&voice.entity))
+            .cloned()
+            .collect();
+        let indices: BTreeMap<_, _> = voices
+            .iter()
+            .enumerate()
+            .map(|(index, voice)| (voice.entity, index))
+            .collect();
+        self.spatial.retain_mut(|source| {
+            let owner = self.voices[source.index].entity;
+            if let Some(index) = indices.get(&owner) {
+                source.index = *index;
+                true
+            } else {
+                false
+            }
+        });
+        self.voices = voices;
+        self.indices = indices;
+        self.positions_revision = None;
+    }
     pub fn sync_positions(&mut self, snapshot: &SceneSnapshot, revision: u64) -> Result<()> {
         if !self.needs_positions(revision) {
             return Ok(());

@@ -120,6 +120,54 @@ fn advance(play: &mut PlaySession, ticks: usize) -> Result<()> {
 }
 
 #[test]
+fn destruction_rejects_a_partial_live_rig_and_releases_a_whole_actor_at_start_or_tick_end()
+-> Result<()> {
+    let f = fixture(
+        r#"
+        fn on_fixed_update(ctx, dt) {
+            ctx.destroy_entity(ctx.param("bone"));
+            ctx.set_hud("must not publish");
+            ctx.play_sound(ctx.entity());
+        }
+    "#,
+    );
+    let mut play = PlaySession::start_with_resources(f.scene, f.resources)?;
+    advance(&mut play, 1)?;
+    assert!(play.animation_state(f.owner).is_some());
+    assert_eq!(play.shared_snapshot().entities.len(), 2);
+    assert!(play.hud_frame().is_none());
+    assert_eq!(play.audio_frame()?.unwrap().voices[0].generation, 0);
+    assert!(play.script_diagnostics()[0].failed);
+    assert!(
+        play.script_diagnostics()[0]
+            .message
+            .contains("part of a live animation rig")
+    );
+    for phase in ["on_start(ctx)", "on_fixed_update(ctx, dt)"] {
+        let f = fixture(&format!(
+            r#"
+            fn {phase} {{ ctx.destroy_entity(ctx.entity()); }}
+            fn on_stop(ctx) {{
+                if ctx.animation_state(ctx.entity()) == () {{ throw "lost animation snapshot"; }}
+                ctx.log("stopped");
+            }}
+        "#
+        ));
+        let mut play = PlaySession::start_with_resources(f.scene, f.resources)?;
+        advance(&mut play, 3)?;
+        assert!(play.shared_snapshot().entities.is_empty());
+        assert!(play.animation_state(f.owner).is_none());
+        assert!(!play.is_animation_controlled(f.bone, schema::TRANSLATION));
+        assert!(play.audio_frame()?.is_none());
+        play.stop();
+        assert_eq!(play.script_diagnostics().len(), 1);
+        assert_eq!(play.script_diagnostics()[0].message, "stopped");
+        assert!(!play.script_diagnostics()[0].failed);
+    }
+    Ok(())
+}
+
+#[test]
 fn animation_markers_cross_whole_loops_once_and_follow_pause_step_replay_and_world_identity()
 -> Result<()> {
     let mut f = fixture(

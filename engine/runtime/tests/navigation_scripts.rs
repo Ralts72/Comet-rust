@@ -183,6 +183,97 @@ fn ticks(play: &mut PlaySession, count: usize) -> Result<()> {
 }
 
 #[test]
+fn destruction_releases_agents_and_obstacles_stops_followers_and_protects_baked_geometry()
+-> Result<()> {
+    for runtime_goal in [false, true] {
+        let mut f = Fixture::new();
+        let setup = if runtime_goal {
+            "ctx.navigate_to(ctx.param(\"npc\"), ctx.param(\"goal\"));"
+        } else {
+            ""
+        };
+        f.bind(
+            f.marker,
+            &format!(
+                r#"
+            fn on_start(ctx) {{ this.n = 0; {setup} }}
+            fn on_fixed_update(ctx, dt) {{
+                this.n += 1;
+                if this.n == 2 {{
+                    ctx.destroy_entity(ctx.param("goal"));
+                    ctx.destroy_entity(ctx.param("player"));
+                }}
+                if this.n == 10 {{ ctx.destroy_entity(ctx.param("npc")); }}
+            }}
+        "#
+            ),
+        );
+        let mut play = f.start()?;
+        ticks(&mut play, 3)?;
+        assert!(play.player_character().is_none());
+        assert_eq!(play.navigation_status(f.npc), Some(NavigationStatus::Idle));
+        let p = position(&mut play, f.npc);
+        ticks(&mut play, 4)?;
+        let q = position(&mut play, f.npc);
+        assert!((p[0] - q[0]).abs() < 0.001 && (p[2] - q[2]).abs() < 0.001);
+        ticks(&mut play, 5)?;
+        assert!(play.navigation_status(f.npc).is_none() && play.character(f.npc).is_none());
+        assert!(
+            play.script_diagnostics().iter().all(|d| !d.failed),
+            "{:?}",
+            play.script_diagnostics()
+        );
+    }
+    for region in [false, true] {
+        let mut f = Fixture::new();
+        let protected = f
+            .snapshot
+            .entities
+            .iter()
+            .find(|e| {
+                if region {
+                    e.navigation_region.is_some()
+                } else {
+                    e.name == "floor"
+                }
+            })
+            .unwrap()
+            .id;
+        f.bind(
+            f.marker,
+            r#"
+            fn on_start(ctx) {
+                ctx.destroy_entity(ctx.param("goal"));
+                ctx.set_hud("must not publish");
+            }
+        "#,
+        );
+        let binding = f
+            .snapshot
+            .entities
+            .iter_mut()
+            .find(|e| e.id == f.marker)
+            .unwrap()
+            .script
+            .as_mut()
+            .unwrap();
+        binding.parameters.insert(
+            "goal".into(),
+            ScriptValue::Entity(Some(EntityRef::local(protected))),
+        );
+        let mut play = f.start()?;
+        assert_eq!(
+            play.shared_snapshot().entities.len(),
+            f.snapshot.entities.len()
+        );
+        assert!(play.hud_frame().is_none());
+        assert!(play.script_diagnostics()[0].failed);
+        ticks(&mut play, 2)?;
+    }
+    Ok(())
+}
+
+#[test]
 fn mixed_failed_callbacks_discard_navigation_scene_physics_logs_and_scene_requests() -> Result<()> {
     for failure in [
         "ctx.stop_navigation(ctx.param(\"marker\"));",

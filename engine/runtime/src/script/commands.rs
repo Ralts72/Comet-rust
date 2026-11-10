@@ -16,12 +16,13 @@ use comet_scene::{
     schema::{self, FieldValue},
 };
 use std::{
-    collections::{BTreeMap, btree_map::Entry},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     sync::Arc,
 };
 
 #[derive(Clone, Debug)]
 pub(super) enum Command {
+    Destroy(EntityId),
     Position(EntityId, [f32; 3]),
     Translate(EntityId, [f32; 3]),
     Rotation(EntityId, [f32; 4]),
@@ -61,9 +62,9 @@ pub(super) fn apply(
     hud: &mut Hud,
     animation: &mut Animation,
     progress: &mut Progress,
-) -> Result<()> {
+) -> Result<BTreeSet<EntityId>> {
     if commands.is_empty() {
-        return Ok(());
+        return Ok(BTreeSet::new());
     }
     let snapshot = scene.shared_snapshot();
     let mut candidates = BTreeMap::new();
@@ -74,8 +75,13 @@ pub(super) fn apply(
     let mut labels = Vec::new();
     let mut animations = Vec::new();
     let mut values = Vec::new();
+    let mut destroyed = BTreeSet::new();
     for command in commands {
         let id = match *command {
+            Command::Destroy(id) => {
+                destroyed.insert(id);
+                continue;
+            }
             Command::CharacterMotion(id, value) => {
                 physical.push(PhysicsCommand::CharacterMotion(id, value));
                 continue;
@@ -234,7 +240,8 @@ pub(super) fn apply(
                 }));
                 (schema::TRANSLATION, FieldValue::Vec3(translation))
             }
-            Command::Velocity(..)
+            Command::Destroy(..)
+            | Command::Velocity(..)
             | Command::CharacterMotion(..)
             | Command::CharacterFacing(..)
             | Command::Impulse(..)
@@ -269,6 +276,7 @@ pub(super) fn apply(
     let labels = hud.prepare(&labels)?;
     let animations = animation.prepare_commands(&animations)?;
     let values = progress.prepare(&values)?;
+    super::despawn::validate(&snapshot, &destroyed, physics)?;
     if !navigational.is_empty() {
         navigation
             .as_ref()
@@ -295,5 +303,5 @@ pub(super) fn apply(
     hud.publish(labels);
     animation.publish_commands(animations);
     progress.publish(values);
-    Ok(())
+    Ok(destroyed)
 }

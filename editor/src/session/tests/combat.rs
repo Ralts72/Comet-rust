@@ -189,6 +189,36 @@ fn real_combat_events_lock_input_filter_facing_and_walls_then_win_restart_and_re
         (a.position(0)[0] - p[0]).abs() < 0.001,
         "victory stops control"
     );
+    a.step(90, input())?;
+    let play = a.editor.play.as_mut().unwrap();
+    let remaining = play.shared_snapshot();
+    for id in &a.actors[1..] {
+        assert!(remaining.entities.iter().all(|e| e.id != *id));
+        assert!(play.character(*id).is_none());
+        assert!(play.navigation_status(*id).is_none());
+    }
+    assert_eq!(
+        remaining
+            .entities
+            .iter()
+            .filter(|e| e.animator.is_some())
+            .count(),
+        1
+    );
+    assert!(
+        play.audio_frame()?
+            .unwrap()
+            .voices
+            .iter()
+            .all(|v| remaining.entities.iter().any(|e| e.id == v.entity))
+    );
+    assert_eq!(
+        play.script_diagnostics()
+            .iter()
+            .filter(|d| d.message.starts_with("战斗移除："))
+            .count(),
+        2
+    );
     let world = a.editor.play.as_ref().unwrap().world_id();
     let mut restart = input();
     restart.events.push(ActionEvent {

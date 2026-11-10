@@ -24,7 +24,7 @@ def inspect_package(products, protocols, read_product, author_assets):
         {"phase": 0.43, "name": "combat.strike"}, {"phase": 0.95, "name": "combat.recover"}]
     assert read_product(products, entries, SCRIPT, protocols)["data"]["source"] == (author_assets / "scripts/combat.rhai").read_text()
     return {"status": "passed", "scene": SCENE, "actors": 3, "navigation_agents": 2,
-            "attack_events": attack["events"], "scope": "partial combat migration; no particles or entity removal"}
+            "attack_events": attack["events"], "scope": "partial combat migration; no particles or defeat animation"}
 
 
 def inspect_runtime(report, native=False):
@@ -41,4 +41,4 @@ def inspect_runtime(report, native=False):
     assert "战斗样例" in text and "练习者：120" in text and "击败：0 / 2" in text
     assert report["audio"]["generations_started"] == 0 and report["audio_shutdown"] is True
     return {"status": "passed", "scene": SCENE, "native": native, "steps": runtime["steps"], "hud": text,
-            "scope": "packaged startup; combat hit/miss, navigation, victory/defeat and restart use the real-scene CPU regression"}
+            "scope": "packaged startup; combat hit/miss, navigation, victory/defeat, fade/despawn and restart use the real-scene CPU regression"}

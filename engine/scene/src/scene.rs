@@ -374,16 +374,47 @@ impl Scene {
         if candidate == *before {
             return Ok(());
         }
+        let ids: BTreeSet<_> = updates.iter().map(|update| update.entity).collect();
+        self.publish_entities(candidate, &ids, &BTreeSet::new())
+    }
+    /// Remove complete subtrees and clear local references without invalidating surviving handles.
+    pub fn remove_subtrees(&mut self, roots: &[EntityId]) -> Result<BTreeSet<EntityId>> {
+        if roots.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let before = self.shared_snapshot();
+        let mut candidate = before.as_ref().clone();
+        let removed = candidate.remove_subtrees(roots)?;
+        let ids = candidate
+            .entities
+            .iter()
+            .filter(|entity| {
+                let index = before
+                    .entities
+                    .binary_search_by_key(&entity.id, |e| e.id)
+                    .expect("surviving entity");
+                **entity != before.entities[index]
+            })
+            .map(|entity| entity.id)
+            .collect();
+        self.publish_entities(candidate, &ids, &removed)?;
+        Ok(removed)
+    }
+    fn publish_entities(
+        &mut self,
+        candidate: SceneSnapshot,
+        ids: &BTreeSet<EntityId>,
+        removed: &BTreeSet<EntityId>,
+    ) -> Result<()> {
         let revision = self
             .revision
             .checked_add(1)
             .context("scene revision exhausted")?;
-        let ids: BTreeSet<_> = updates.iter().map(|update| update.entity).collect();
         let entities: BTreeMap<_, _> = self
             .world
             .query::<(bevy_ecs::entity::Entity, &Identity)>()
             .iter(&self.world)
-            .filter(|(_, identity)| ids.contains(&identity.id))
+            .filter(|(_, identity)| ids.contains(&identity.id) || removed.contains(&identity.id))
             .map(|(entity, identity)| (identity.id, entity))
             .collect();
         for data in candidate
@@ -432,6 +463,9 @@ impl Scene {
             if let Some(driver) = &data.character_animation {
                 entity.insert(driver.clone());
             }
+        }
+        for id in removed {
+            self.world.despawn(entities[id]);
         }
         self.revision = revision;
         self.cached = Some(Arc::new(candidate));

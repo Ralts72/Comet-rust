@@ -10,11 +10,11 @@ fn on_start(ctx) {
     ctx.pause_animation(ctx.param("animator"));
     if !standalone(ctx) {
         ctx.set_progress("ready", this.collected);
-        if this.collected { ctx.set_scale(ctx.param("visual"), 0, 0, 0); }
+        if this.collected { ctx.destroy_entity(ctx.param("visual")); }
         return;
     }
     if this.collected {
-        ctx.set_scale(ctx.param("visual"), 0, 0, 0);
+        ctx.destroy_entity(ctx.param("visual"));
         ctx.set_hud("收集目标：1 / 1\n动作完成！重新按 E 前往第二关。");
         ctx.log("收集示例继续：目标已收集，重新按 E 前往第二关。");
     } else {
@@ -27,7 +27,7 @@ fn on_trigger(ctx, other, entered) {
     if !entered || this.collected || other.id() != ctx.param("player").id() {
         return;
     }
-    ctx.set_scale(ctx.param("visual"), 0, 0, 0);
+    ctx.destroy_entity(ctx.param("visual"));
     ctx.set_progress("collected", true);
     ctx.play_animation(ctx.param("animator"));
     ctx.play_sound(ctx.entity());

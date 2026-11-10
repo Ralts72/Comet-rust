@@ -210,6 +210,48 @@ impl Physics {
     pub fn begin_frame(&mut self) {
         self.events.clear();
     }
+    pub(crate) fn validate_removal(
+        &self,
+        snapshot: &SceneSnapshot,
+        removed: &BTreeSet<EntityId>,
+    ) -> Result<()> {
+        for entity in snapshot.entities.iter().filter(|e| removed.contains(&e.id)) {
+            ensure!(
+                entity.navigation_region.is_none(),
+                "navigation regions are immutable during Play"
+            );
+            ensure!(
+                !self.navigation_static
+                    || entity
+                        .physics
+                        .as_ref()
+                        .is_none_or(|body| { body.sensor || body.motion != BodyMotion::Fixed }),
+                "cannot destroy baked navigation geometry during Play"
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn remove_entities(
+        &mut self,
+        removed: &BTreeSet<EntityId>,
+        snapshot: &SceneSnapshot,
+    ) {
+        for id in removed {
+            if let Some(body) = self.bodies.remove(id) {
+                self.collider_ids.remove(&body.collider);
+                self.world.remove_body(body.handle);
+            }
+        }
+        // Deletion is structural, not a physical separation: no synthetic exit callbacks.
+        self.overlaps
+            .retain(|(a, b)| !removed.contains(a) && !removed.contains(b));
+        self.events
+            .retain(|e| !removed.contains(&e.trigger) && !removed.contains(&e.other));
+        self.joints
+            .remove_entities(removed, snapshot, &mut self.world);
+        self.query_snapshot = None;
+        refresh_queries(&mut self.world);
+    }
     pub fn events(&self) -> &[TriggerEvent] {
         &self.events
     }

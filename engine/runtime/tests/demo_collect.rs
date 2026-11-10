@@ -228,14 +228,12 @@ fn sound(play: &mut PlaySession) -> Result<(u64, bool)> {
     Ok((voice.generation, voice.playing))
 }
 
-fn scale(play: &mut PlaySession) -> [f32; 3] {
+fn visual_scale(play: &mut PlaySession) -> Option<[f32; 3]> {
     play.shared_snapshot()
         .entities
         .iter()
         .find(|entity| entity.id.to_string() == VISUAL)
-        .unwrap()
-        .transform
-        .scale
+        .map(|entity| entity.transform.scale)
 }
 
 fn collected(play: &PlaySession) -> usize {
@@ -288,7 +286,7 @@ fn actual_collect_demo_moves_into_the_sensor_once_then_requires_a_fresh_interact
     assert!(play.player_character().unwrap().position[2] < 0.);
     hud(&play, PLAYING);
     assert!(animation(&play).time > 0. && animation(&play).playing);
-    assert_eq!(scale(&mut play), [0.; 3]);
+    assert_eq!(visual_scale(&mut play), None);
     assert_eq!(sound(&mut play)?, (1, true));
     assert_eq!(collected(&play), 1);
     assert!(
@@ -439,7 +437,7 @@ fn a_non_player_body_cannot_collect_the_target() -> Result<()> {
     assert!(!animation(&play).playing);
     assert_eq!(sound(&mut play)?, (0, false));
     assert_eq!(collected(&play), 0);
-    assert_ne!(scale(&mut play), [0.; 3]);
+    assert!(visual_scale(&mut play).is_some());
     assert!(play.script_diagnostics().iter().all(|entry| !entry.failed));
     Ok(())
 }
@@ -462,7 +460,7 @@ fn collection_hud_survives_pause_but_restart_and_stop_clear_the_old_world() -> R
         .transform
         .translation = center;
     let bytes = author.to_json()?;
-    let visual_scale = author
+    let author_scale = author
         .entities
         .iter()
         .find(|entity| entity.id.to_string() == VISUAL)
@@ -497,7 +495,7 @@ fn collection_hud_survives_pause_but_restart_and_stop_clear_the_old_world() -> R
     hud(&play, INITIAL);
     assert_eq!(animation(&play).time, 0.);
     assert!(!animation(&play).playing);
-    assert_eq!(scale(&mut play), visual_scale);
+    assert_eq!(visual_scale(&mut play), Some(author_scale));
     assert_eq!(sound(&mut play)?, (0, false));
     assert!(
         play.progress_snapshot().entries.is_empty(),
@@ -561,7 +559,7 @@ fn continuing_collected_progress_reenters_at_the_author_start_without_replaying_
             .translation
     );
     hud(&resumed, COMPLETE);
-    assert_eq!(scale(&mut resumed), [0.; 3]);
+    assert_eq!(visual_scale(&mut resumed), None);
     assert_eq!(sound(&mut resumed)?, (0, false));
     assert_eq!(animation(&resumed).time, 0.);
     assert!(!animation(&resumed).playing);
@@ -587,14 +585,14 @@ fn continuing_collected_progress_reenters_at_the_author_start_without_replaying_
     assert_ne!(resumed.world_id(), world);
     assert!(resumed.is_paused());
     hud(&resumed, COMPLETE);
-    assert_eq!(scale(&mut resumed), [0.; 3]);
+    assert_eq!(visual_scale(&mut resumed), None);
     assert_eq!(sound(&mut resumed)?, (0, false));
     assert_eq!(resumed.progress_snapshot(), progress);
     assert_eq!(animation(&resumed).time, 0.);
     assert!(!animation(&resumed).playing);
     let mut fresh = start(&author)?;
     hud(&fresh, INITIAL);
-    assert_ne!(scale(&mut fresh), [0.; 3]);
+    assert!(visual_scale(&mut fresh).is_some());
     assert!(fresh.progress_snapshot().entries.is_empty());
     assert_eq!(sound(&mut fresh)?, (0, false));
     assert_eq!(author.to_json()?, bytes);

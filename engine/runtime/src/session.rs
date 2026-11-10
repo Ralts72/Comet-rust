@@ -152,6 +152,14 @@ impl PlaySession {
             &mut audio,
             &mut animation,
         )?;
+        scripts.flush_destruction(
+            0,
+            &mut scene,
+            &mut physics,
+            navigation.as_mut(),
+            &mut audio,
+            &mut animation,
+        )?;
         // on_start may change playback intents; publish their real t0 state before host acceptance.
         animation.sample(&mut scene, 0.)?;
         if let Some(data) = &resources.navigation {
@@ -381,6 +389,14 @@ impl PlaySession {
             &mut self.audio,
             &mut self.animation,
         );
+        self.scripts.flush_destruction(
+            self.clock.steps(),
+            &mut self.scene,
+            &mut self.physics,
+            self.navigation.as_mut(),
+            &mut self.audio,
+            &mut self.animation,
+        )?;
         self.frame_steps += 1;
         Ok(())
     }
