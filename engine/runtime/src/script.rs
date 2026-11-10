@@ -26,10 +26,11 @@ pub type ScriptLibrary = BTreeMap<AssetId, String>;
 const MAX_BINDINGS: usize = 128;
 const MAX_PHASE_OPERATIONS: u64 = 200_000;
 const MAX_DIAGNOSTIC_BYTES: usize = 4096;
-const CALLBACKS: [(&str, usize); 4] = [
+const CALLBACKS: [(&str, usize); 5] = [
     ("on_start", 1),
     ("on_fixed_update", 2),
     ("on_trigger", 3),
+    ("on_animation_event", 3),
     ("on_stop", 1),
 ];
 
@@ -168,6 +169,10 @@ struct Binding {
     scope: Scope<'static>,
     state: Dynamic,
     disabled: bool,
+}
+enum CallbackEvent<'a> {
+    Trigger(EntityId, bool),
+    Animation(&'a crate::animation::AnimationEventOccurrence),
 }
 pub(crate) struct Scripts {
     world: WorldId,
@@ -392,7 +397,39 @@ impl Scripts {
                     navigation.as_deref_mut(),
                     audio,
                     animation,
-                    Some((event.other, event.entered)),
+                    Some(CallbackEvent::Trigger(event.other, event.entered)),
+                    false,
+                );
+            }
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn animation_events(
+        &mut self,
+        events: &[crate::animation::AnimationEventOccurrence],
+        tick: u64,
+        input: &ActionInput,
+        scene: &mut Scene,
+        physics: &mut Physics,
+        mut navigation: Option<&mut Navigation>,
+        audio: &mut Audio,
+        animation: &mut Animation,
+    ) {
+        self.phase();
+        // A frozen post-sample batch: callbacks cannot recursively create events in this tick.
+        for event in events {
+            for index in 0..self.bindings.len() {
+                self.call(
+                    index,
+                    "on_animation_event",
+                    tick,
+                    input,
+                    scene,
+                    physics,
+                    navigation.as_deref_mut(),
+                    audio,
+                    animation,
+                    Some(CallbackEvent::Animation(event)),
                     false,
                 );
             }
@@ -443,7 +480,7 @@ impl Scripts {
         navigation: Option<&mut Navigation>,
         audio: &mut Audio,
         animation: &mut Animation,
-        trigger: Option<(EntityId, bool)>,
+        event: Option<CallbackEvent<'_>>,
         initialize: bool,
     ) {
         if self.bindings[index].disabled || self.fuel.exhausted.get() {
@@ -486,18 +523,33 @@ impl Scripts {
                     .eval_ast(false)
                     .bind_this_ptr(&mut binding.state);
                 let context = api::Context(call.clone());
-                let result = match trigger {
-                    Some((other, entered)) => self.engine.call_fn_with_options::<Dynamic>(
-                        options,
-                        &mut binding.scope,
-                        &binding.ast,
-                        name,
-                        (
-                            context,
-                            api::Entity::local(other, scene.world_id()),
-                            entered,
-                        ),
-                    ),
+                let result = match event {
+                    Some(CallbackEvent::Trigger(other, entered)) => {
+                        self.engine.call_fn_with_options::<Dynamic>(
+                            options,
+                            &mut binding.scope,
+                            &binding.ast,
+                            name,
+                            (
+                                context,
+                                api::Entity::local(other, scene.world_id()),
+                                entered,
+                            ),
+                        )
+                    }
+                    Some(CallbackEvent::Animation(event)) => {
+                        self.engine.call_fn_with_options::<Dynamic>(
+                            options,
+                            &mut binding.scope,
+                            &binding.ast,
+                            name,
+                            (
+                                context,
+                                api::Entity::local(event.animator, scene.world_id()),
+                                event.name.clone(),
+                            ),
+                        )
+                    }
                     None if name == "on_fixed_update" => {
                         self.engine.call_fn_with_options::<Dynamic>(
                             options,

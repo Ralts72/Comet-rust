@@ -71,7 +71,8 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert len(scene["instances"]) == 1 and scene["instances"][0]["id"] == INSTANCE
     assert scene["instances"][0]["prefab"] == SOURCE and scene["instances"][0]["overrides"] == []
     skeleton, skin, clip, mesh = (read(asset) for asset in (SKELETON, SKIN, CLIP, MESH))
-    assert skeleton["version"] == skin["version"] == clip["version"] == 1 and mesh["version"] == 2
+    assert skeleton["version"] == skin["version"] == 1 and clip["version"] == 3 and mesh["version"] == 2
+    assert clip["events"] == [{"phase": 1.0, "name": "动作完成"}]
     nodes = {node["id"]: node for node in skeleton["nodes"]}
     assert set(nodes) == set(NODES) and skin["skeleton"] == clip["skeleton"] == SKELETON
     assert nodes[NODES[0]]["parent"] is None and nodes[NODES[1]]["parent"] is None
@@ -171,6 +172,7 @@ def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect
     for bound in ("min", "max"):
         source["accessors"][6].pop(bound, None)
     source["animations"][0]["samplers"][0]["interpolation"] = "CUBICSPLINE"
+    source["animations"][0].pop("extras", None)  # Retain event-free v2 compatibility coverage.
     path.write_text(json.dumps(source))
     scene_path = project / "assets/main.scene"
     scene = json.loads(scene_path.read_text())

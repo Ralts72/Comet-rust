@@ -31,6 +31,7 @@
   } ],
 
   "animations" : [ {
+    "extras" : { "comet_events" : [ { "phase" : 1.0, "name" : "动作完成" } ] },
     "channels" : [ {
       "sampler" : 0,
       "target" : {

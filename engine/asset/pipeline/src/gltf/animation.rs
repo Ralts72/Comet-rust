@@ -304,18 +304,38 @@ pub(super) fn import(
                 values,
             });
         }
+        let events = animation
+            .extras()
+            .as_ref()
+            .map(|extras| -> Result<_> {
+                let value: serde_json::Value = serde_json::from_str(extras.get())?;
+                value.get("comet_events").map_or_else(
+                    || Ok(Vec::new()),
+                    |events| {
+                        serde_json::from_value::<Vec<comet_asset_data::AnimationEvent>>(
+                            events.clone(),
+                        )
+                        .context("invalid glTF animation extras.comet_events")
+                    },
+                )
+            })
+            .transpose()?
+            .unwrap_or_default();
         let data = AnimationClipData {
-            version: if channels
+            version: if !events.is_empty() {
+                comet_asset_data::ANIMATION_CLIP_VERSION
+            } else if channels
                 .iter()
                 .any(|channel| channel.interpolation == AnimationInterpolation::CubicSpline)
             {
-                comet_asset_data::ANIMATION_CLIP_VERSION
+                2
             } else {
                 1
             },
             skeleton: skeleton_id,
             duration,
             channels,
+            events,
         };
         data.validate_for(&skeleton)?;
         let clip = id.child(&named_key(

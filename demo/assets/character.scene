@@ -1,0 +1,1342 @@
+{
+  "version": 1,
+  "base": {
+    "version": 10,
+    "entities": [
+      {
+        "id": "3e440691-94cc-5f97-a5d2-05dbac9e6130",
+        "name": "角色（WASD 移动，空格跳跃）",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            1.0,
+            5.5
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "kinematic",
+          "shape": {
+            "kind": "capsule",
+            "half_height": 0.5,
+            "radius": 0.3
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "character": {
+          "player_controlled": true,
+          "move_speed": 4.0,
+          "run_multiplier": 1.75,
+          "jump_speed": 5.0,
+          "gravity": 9.81,
+          "max_slope_degrees": 45.0,
+          "step_height": 0.3,
+          "snap_distance": 0.15
+        }
+      },
+      {
+        "id": "0d3977cd-46a8-5a7d-8a31-3bdb07eb1a96",
+        "name": "收集场地",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            -0.25,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              6.0,
+              0.25,
+              8.0
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "f5186d70-4509-58e9-bdc9-4e5203a88da8",
+        "name": "角色 / 外观 1",
+        "parent": "3e440691-94cc-5f97-a5d2-05dbac9e6130",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "156888fe-98dd-505e-bb98-d627288338f9",
+        "name": "角色 / 外观 2",
+        "parent": "3e440691-94cc-5f97-a5d2-05dbac9e6130",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.4285714285714286,
+            1.142857142857143,
+            0.4285714285714286
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "0b9e094b-6f6b-5c7e-9f30-05eb3d52985a",
+        "name": "场地 / 外观 1",
+        "parent": "0d3977cd-46a8-5a7d-8a31-3bdb07eb1a96",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            8.571428571428571,
+            0.35714285714285715,
+            11.428571428571429
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "d2b8001d-d66a-58e1-9dd2-976680ce761a",
+        "name": "场地 / 外观 2",
+        "parent": "0d3977cd-46a8-5a7d-8a31-3bdb07eb1a96",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            8.571428571428571,
+            0.35714285714285715,
+            11.428571428571429
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b1f77095-5bb1-5f40-8fe0-65f3ef6d26da",
+        "name": "收集目标 1",
+        "parent": null,
+        "transform": {
+          "translation": [
+            -3.0,
+            1.0,
+            2.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.65,
+              1.0,
+              0.65
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": true,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "audio_source": {
+          "clip": "a0000000-0000-4000-8000-00000000000a",
+          "gain": 0.65,
+          "looping": false,
+          "autoplay": false
+        },
+        "script": {
+          "asset": "a0000000-0000-4000-8000-00000000000f",
+          "enabled": true,
+          "parameters": {
+            "player": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "3e440691-94cc-5f97-a5d2-05dbac9e6130"
+              }
+            },
+            "visual": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "6e4a75f5-9305-55c3-b00a-676770f9cea3"
+              }
+            },
+            "animator": {
+              "type": "entity",
+              "value": {
+                "scope": "in_instance",
+                "instance": "401e14a9-646c-5213-bd87-d82b5cdca22c",
+                "entity": "de19ea42-bb91-5e0e-8d9d-f67ce687863d"
+              }
+            },
+            "standalone": {
+              "type": "bool",
+              "value": false
+            }
+          }
+        }
+      },
+      {
+        "id": "6e4a75f5-9305-55c3-b00a-676770f9cea3",
+        "name": "目标外观（收集后隐藏）",
+        "parent": "b1f77095-5bb1-5f40-8fe0-65f3ef6d26da",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.7142857142857143,
+            0.7142857142857143,
+            0.7142857142857143
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "b60a710c-eb62-5fed-ac43-dd72fdedc163",
+        "name": "目标 / 外观 1",
+        "parent": "6e4a75f5-9305-55c3-b00a-676770f9cea3",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "6eb5f548-e4b9-51ac-be65-fab1a8e35f28",
+        "name": "目标 / 外观 2",
+        "parent": "6e4a75f5-9305-55c3-b00a-676770f9cea3",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "921658c2-e9ed-557a-a792-534b57b8300b",
+        "name": "目标 1 动画反馈",
+        "parent": null,
+        "transform": {
+          "translation": [
+            -2.1,
+            0.0,
+            2.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "1a8b6e41-fbd7-5c94-97cd-e26eee7797b8",
+        "name": "收集目标 2",
+        "parent": null,
+        "transform": {
+          "translation": [
+            3.0,
+            1.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.65,
+              1.0,
+              0.65
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": true,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "audio_source": {
+          "clip": "a0000000-0000-4000-8000-00000000000a",
+          "gain": 0.65,
+          "looping": false,
+          "autoplay": false
+        },
+        "script": {
+          "asset": "a0000000-0000-4000-8000-00000000000f",
+          "enabled": true,
+          "parameters": {
+            "player": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "3e440691-94cc-5f97-a5d2-05dbac9e6130"
+              }
+            },
+            "visual": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "4c54f0ea-69a4-5ed8-9822-fda39c50169e"
+              }
+            },
+            "animator": {
+              "type": "entity",
+              "value": {
+                "scope": "in_instance",
+                "instance": "d464e93c-27e8-5c3d-92cc-05a06c49e8ad",
+                "entity": "de19ea42-bb91-5e0e-8d9d-f67ce687863d"
+              }
+            },
+            "standalone": {
+              "type": "bool",
+              "value": false
+            }
+          }
+        }
+      },
+      {
+        "id": "4c54f0ea-69a4-5ed8-9822-fda39c50169e",
+        "name": "目标外观（收集后隐藏）",
+        "parent": "1a8b6e41-fbd7-5c94-97cd-e26eee7797b8",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.7142857142857143,
+            0.7142857142857143,
+            0.7142857142857143
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "0024d96d-69b8-5d51-b471-4a65ca24ad91",
+        "name": "目标 / 外观 1",
+        "parent": "4c54f0ea-69a4-5ed8-9822-fda39c50169e",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "ded7b90f-bb86-59c9-a96e-0f0f36a4d26a",
+        "name": "目标 / 外观 2",
+        "parent": "4c54f0ea-69a4-5ed8-9822-fda39c50169e",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "fdf25d46-db04-5d78-8bd7-379be6435303",
+        "name": "目标 2 动画反馈",
+        "parent": null,
+        "transform": {
+          "translation": [
+            3.9,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "97b5798c-69a3-5399-8198-412d5f002ca3",
+        "name": "收集目标 3",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            1.0,
+            -3.5
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.65,
+              1.0,
+              0.65
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": true,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        },
+        "audio_source": {
+          "clip": "a0000000-0000-4000-8000-00000000000a",
+          "gain": 0.65,
+          "looping": false,
+          "autoplay": false
+        },
+        "script": {
+          "asset": "a0000000-0000-4000-8000-00000000000f",
+          "enabled": true,
+          "parameters": {
+            "player": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "3e440691-94cc-5f97-a5d2-05dbac9e6130"
+              }
+            },
+            "visual": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "cdfe9215-7505-5c96-b6f3-cac0b3914ead"
+              }
+            },
+            "animator": {
+              "type": "entity",
+              "value": {
+                "scope": "in_instance",
+                "instance": "c6caeedd-50aa-5815-8326-101b6f9234e6",
+                "entity": "de19ea42-bb91-5e0e-8d9d-f67ce687863d"
+              }
+            },
+            "standalone": {
+              "type": "bool",
+              "value": false
+            }
+          }
+        }
+      },
+      {
+        "id": "cdfe9215-7505-5c96-b6f3-cac0b3914ead",
+        "name": "目标外观（收集后隐藏）",
+        "parent": "97b5798c-69a3-5399-8198-412d5f002ca3",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.7142857142857143,
+            0.7142857142857143,
+            0.7142857142857143
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "10e7c49c-8fc2-53e5-80f0-a97838ae1807",
+        "name": "目标 / 外观 1",
+        "parent": "cdfe9215-7505-5c96-b6f3-cac0b3914ead",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "08d717db-9175-54d2-a140-09894e61493f",
+        "name": "目标 / 外观 2",
+        "parent": "cdfe9215-7505-5c96-b6f3-cac0b3914ead",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "33162452-e417-5a67-a936-e44fb0654095",
+        "name": "目标 3 动画反馈",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.9,
+            0.0,
+            -3.5
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "8ff31a21-bf53-5eb9-a4e8-956a7fbbcd1d",
+        "name": "出口屏障（全部动作完成后打开）",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            1.12,
+            -6.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "kinematic",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              1.26,
+              1.12,
+              0.2
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "3665ed8e-47eb-55b3-b6d5-57516eefcff7",
+        "name": "目标 / 外观 1",
+        "parent": "8ff31a21-bf53-5eb9-a4e8-956a7fbbcd1d",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.8,
+            1.6,
+            0.25
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "087472e8-9dbb-595e-b23d-e787413d633f",
+        "name": "目标 / 外观 2",
+        "parent": "8ff31a21-bf53-5eb9-a4e8-956a7fbbcd1d",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.8,
+            1.6,
+            0.25
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "4ce60562-18d6-57ba-ad19-f88810ca3220",
+        "name": "双关收集流程",
+        "parent": null,
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "script": {
+          "asset": "3b84299b-156d-5435-9588-7e3d9270aa5d",
+          "enabled": true,
+          "parameters": {
+            "player": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "3e440691-94cc-5f97-a5d2-05dbac9e6130"
+              }
+            },
+            "gate": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "8ff31a21-bf53-5eb9-a4e8-956a7fbbcd1d"
+              }
+            },
+            "exit": {
+              "type": "vec3",
+              "value": [
+                0.0,
+                1.0,
+                -6.0
+              ]
+            },
+            "label": {
+              "type": "text",
+              "value": "第一关·庭院"
+            },
+            "next_scene": {
+              "type": "text",
+              "value": "4e06a93f-1f43-56f9-b72c-48c197ef7271"
+            },
+            "target_1": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "b1f77095-5bb1-5f40-8fe0-65f3ef6d26da"
+              }
+            },
+            "target_2": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "1a8b6e41-fbd7-5c94-97cd-e26eee7797b8"
+              }
+            },
+            "target_3": {
+              "type": "entity",
+              "value": {
+                "scope": "local",
+                "entity": "97b5798c-69a3-5399-8198-412d5f002ca3"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "1bfcf917-6d59-50b8-85b1-c71e65a0ec89",
+        "name": "台阶",
+        "parent": null,
+        "transform": {
+          "translation": [
+            2.0,
+            0.12,
+            3.5
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              0.8,
+              0.12,
+              0.8
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "927392ec-1365-5a6a-aa61-7c08f06f5c6d",
+        "name": "场地 / 外观 1",
+        "parent": "1bfcf917-6d59-50b8-85b1-c71e65a0ec89",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.142857142857143,
+            0.17142857142857143,
+            1.142857142857143
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "d1acae2e-9ef4-5a3d-89f3-c10aeeddf171",
+        "name": "场地 / 外观 2",
+        "parent": "1bfcf917-6d59-50b8-85b1-c71e65a0ec89",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.142857142857143,
+            0.17142857142857143,
+            1.142857142857143
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "f3a14b5d-c721-5197-a8b7-01dc57725e93",
+        "name": "低顶通道",
+        "parent": null,
+        "transform": {
+          "translation": [
+            -3.0,
+            1.25,
+            3.5
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "model": null,
+        "links": {
+          "target": null,
+          "connections": []
+        },
+        "physics": {
+          "motion": "fixed",
+          "shape": {
+            "kind": "box",
+            "half_extents": [
+              1.0,
+              0.15,
+              0.8
+            ]
+          },
+          "layer": 1,
+          "mask": 4294967295,
+          "sensor": false,
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0
+        }
+      },
+      {
+        "id": "29baacc5-a5d1-585e-ba9d-04089b783379",
+        "name": "场地 / 外观 1",
+        "parent": "f3a14b5d-c721-5197-a8b7-01dc57725e93",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.4285714285714286,
+            0.2142857142857143,
+            1.142857142857143
+          ]
+        },
+        "model": {
+          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
+          "surface": {
+            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      },
+      {
+        "id": "2144eab4-2ae7-57f6-b0fa-1390c7edd73c",
+        "name": "场地 / 外观 2",
+        "parent": "f3a14b5d-c721-5197-a8b7-01dc57725e93",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.4285714285714286,
+            0.2142857142857143,
+            1.142857142857143
+          ]
+        },
+        "model": {
+          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
+          "surface": {
+            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
+            "roughness": 0.4
+          }
+        },
+        "links": {
+          "target": null,
+          "connections": []
+        }
+      }
+    ]
+  },
+  "instances": [
+    {
+      "id": "401e14a9-646c-5213-bd87-d82b5cdca22c",
+      "prefab": "a0000000-0000-4000-8000-000000000010",
+      "parent": "921658c2-e9ed-557a-a792-534b57b8300b",
+      "overrides": [
+        {
+          "entity": "de19ea42-bb91-5e0e-8d9d-f67ce687863d",
+          "field": {
+            "component": 13,
+            "field": 4
+          },
+          "value": {
+            "type": "bool",
+            "value": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "d464e93c-27e8-5c3d-92cc-05a06c49e8ad",
+      "prefab": "a0000000-0000-4000-8000-000000000010",
+      "parent": "fdf25d46-db04-5d78-8bd7-379be6435303",
+      "overrides": [
+        {
+          "entity": "de19ea42-bb91-5e0e-8d9d-f67ce687863d",
+          "field": {
+            "component": 13,
+            "field": 4
+          },
+          "value": {
+            "type": "bool",
+            "value": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "c6caeedd-50aa-5815-8326-101b6f9234e6",
+      "prefab": "a0000000-0000-4000-8000-000000000010",
+      "parent": "33162452-e417-5a67-a936-e44fb0654095",
+      "overrides": [
+        {
+          "entity": "de19ea42-bb91-5e0e-8d9d-f67ce687863d",
+          "field": {
+            "component": 13,
+            "field": 4
+          },
+          "value": {
+            "type": "bool",
+            "value": false
+          }
+        }
+      ]
+    }
+  ]
+}

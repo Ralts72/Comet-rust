@@ -1,5 +1,6 @@
 use super::*;
 mod animation;
+mod character;
 mod checkpoint;
 mod hud;
 mod scene_requests;

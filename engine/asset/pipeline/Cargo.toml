@@ -16,7 +16,7 @@ serde_json.workspace = true
 rerecast.workspace = true
 hound.workspace = true
 png.workspace = true
-gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] }
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names", "extras"] }
 base64 = "0.22"
 percent-encoding = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

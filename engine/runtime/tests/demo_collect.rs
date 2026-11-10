@@ -154,7 +154,11 @@ fn resources(author: &SceneSnapshot) -> Result<RuntimeResources> {
         })
         .collect();
     let animation = Arc::new(AnimationClipData {
-        version: 1,
+        events: vec![comet_asset_data::AnimationEvent {
+            phase: 1.,
+            name: "动作完成".into(),
+        }],
+        version: 3,
         skeleton: animator.skeleton,
         duration: values[11],
         channels: vec![AnimationChannel {

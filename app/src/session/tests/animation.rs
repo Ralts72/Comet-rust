@@ -61,6 +61,7 @@ fn scene_handoff_and_shutdown_report_keep_the_current_published_animation_state(
         (
             clip,
             Product::AnimationClip(AnimationClipData {
+                events: vec![],
                 version: ANIMATION_VERSION,
                 skeleton,
                 duration: 1.,

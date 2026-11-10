@@ -78,6 +78,7 @@ fn fixture(source: &str) -> Fixture {
             animations: [(
                 clip,
                 Arc::new(AnimationClipData {
+                    events: vec![],
                     version: 1,
                     skeleton,
                     duration: 1.,
@@ -113,6 +114,166 @@ fn fixture(source: &str) -> Fixture {
 fn advance(play: &mut PlaySession, ticks: usize) -> Result<()> {
     for _ in 0..ticks {
         play.advance(FIXED_DELTA)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn animation_markers_cross_whole_loops_once_and_follow_pause_step_replay_and_world_identity()
+-> Result<()> {
+    let mut f = fixture(
+        r#"
+        fn on_start(ctx) { this.ticks = 0; }
+        fn on_animation_event(ctx, animator, name) {
+            if animator.id() != ctx.entity().id() { throw "wrong animator"; }
+            let sample = ctx.animation_state(animator);
+            if sample.time < 0.0 { throw "unpublished sample"; }
+            ctx.log(name);
+        }
+        fn on_fixed_update(ctx, dt) {
+            this.ticks += 1;
+            if this.ticks == 3 { ctx.play_animation(ctx.entity()); }
+        }
+    "#,
+    );
+    let animator = f
+        .scene
+        .entities
+        .iter_mut()
+        .find_map(|e| e.animator.as_mut())
+        .unwrap();
+    animator.looping = true;
+    animator.speed = 150.;
+    let clip = Arc::make_mut(f.resources.animations.values_mut().next().unwrap());
+    clip.version = 3;
+    clip.events = [(0., "entry"), (0.5, "middle"), (1., "end")]
+        .map(|(phase, name)| comet_asset_data::AnimationEvent {
+            phase,
+            name: name.into(),
+        })
+        .into();
+    let mut play = PlaySession::start_with_resources(f.scene, f.resources)?;
+    assert!(
+        play.script_diagnostics().is_empty(),
+        "initial pose does not emit gameplay events"
+    );
+    advance(&mut play, 1)?;
+    let messages = |p: &PlaySession| {
+        p.script_diagnostics()
+            .iter()
+            .filter(|e| e.world == p.world_id())
+            .map(|e| e.message.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        messages(&play),
+        [
+            "entry", "middle", "end", "entry", "middle", "end", "entry", "middle"
+        ]
+    );
+    assert_time(&mut play, f.owner, f.bone, 0.5);
+    play.set_paused(true);
+    advance(&mut play, 3)?;
+    assert_eq!(messages(&play).len(), 8);
+    play.single_step()?;
+    assert_eq!(messages(&play).len(), 16);
+    assert_time(&mut play, f.owner, f.bone, 0.);
+    play.set_suspended(true);
+    assert!(play.single_step().is_err());
+    advance(&mut play, 3)?;
+    assert_eq!(messages(&play).len(), 16);
+    play.set_suspended(false);
+    play.set_paused(false);
+    play.advance(FIXED_DELTA)?;
+    assert_eq!(
+        messages(&play).len(),
+        16,
+        "replay first publishes a zero pose"
+    );
+    advance(&mut play, 1)?;
+    assert_eq!(
+        &messages(&play)[16..],
+        [
+            "entry", "middle", "end", "entry", "middle", "end", "entry", "middle"
+        ]
+    );
+    let old_world = play.world_id();
+    play.restart()?;
+    assert_ne!(play.world_id(), old_world);
+    assert!(messages(&play).is_empty());
+    advance(&mut play, 2)?;
+    assert_eq!(messages(&play).len(), 8);
+    Ok(())
+}
+
+#[test]
+fn event_overflow_keeps_the_sample_atomic_and_failed_callbacks_do_not_publish_world_commands()
+-> Result<()> {
+    for overflow in [true, false] {
+        let mut f = fixture(
+            r#"
+            fn on_animation_event(ctx, animator, name) {
+                ctx.set_scale(ctx.entity(), 2, 2, 2);
+                ctx.play_sound(ctx.entity());
+                ctx.set_hud("must not publish");
+                ctx.request_scene(ctx.param("next"));
+                ctx.log("must not publish");
+                ctx.play_animation(ctx.param("bone"));
+            }
+        "#,
+        );
+        let clip = Arc::make_mut(f.resources.animations.values_mut().next().unwrap());
+        clip.version = 3;
+        clip.events = vec![comet_asset_data::AnimationEvent {
+            phase: 0.,
+            name: "hit".into(),
+        }];
+        if overflow {
+            let animator = f
+                .scene
+                .entities
+                .iter_mut()
+                .find_map(|e| e.animator.as_mut())
+                .unwrap();
+            animator.looping = true;
+            animator.speed = 1e8;
+        }
+        let mut play = PlaySession::start_with_resources(f.scene, f.resources)?;
+        let before = play.shared_snapshot();
+        let initial = state(&play, f.owner);
+        let result = play.advance(FIXED_DELTA);
+        if overflow {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("event step budget")
+            );
+            assert!(Arc::ptr_eq(&before, &play.shared_snapshot()));
+            assert_eq!(state(&play, f.owner), initial);
+            assert!(play.script_diagnostics().is_empty());
+        } else {
+            result?;
+            assert_time(&mut play, f.owner, f.bone, FIXED_DELTA);
+            assert_eq!(play.script_diagnostics().len(), 1);
+            assert!(play.script_diagnostics()[0].failed);
+            assert_eq!(play.script_diagnostics()[0].phase, "on_animation_event");
+            advance(&mut play, 3)?;
+            assert_eq!(play.script_diagnostics().len(), 1);
+        }
+        assert_eq!(
+            play.shared_snapshot()
+                .entities
+                .iter()
+                .find(|e| e.id == f.owner)
+                .unwrap()
+                .transform
+                .scale,
+            [1.; 3]
+        );
+        assert_eq!(play.audio_frame()?.unwrap().voices[0].generation, 0);
+        assert!(play.hud_frame().is_none());
+        assert!(play.take_scene_request().is_none());
     }
     Ok(())
 }

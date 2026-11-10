@@ -64,6 +64,7 @@ fn rig() -> Rig {
         ],
     };
     let clip_data = AnimationClipData {
+        events: vec![],
         version: 1,
         skeleton,
         duration: 1.25,
@@ -714,6 +715,7 @@ fn duplicated_rigs_cannot_exceed_the_world_budget_with_individually_valid_produc
         .collect();
     let skeleton_data = Arc::new(SkeletonData { version: 1, nodes });
     let clip_data = Arc::new(AnimationClipData {
+        events: vec![],
         version: 1,
         skeleton,
         duration: 0.,

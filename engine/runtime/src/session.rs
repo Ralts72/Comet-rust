@@ -342,7 +342,7 @@ impl PlaySession {
             &mut self.audio,
             &mut self.animation,
         );
-        self.animation.sample(&mut self.scene, crate::FIXED_DELTA)?;
+        let animation_events = self.animation.sample(&mut self.scene, crate::FIXED_DELTA)?;
         let velocities = if let Some(nav) = &mut self.navigation {
             Some(nav.velocities(&self.scene.shared_snapshot(), &self.physics)?)
         } else {
@@ -355,6 +355,16 @@ impl PlaySession {
             velocities,
         )?;
         self.scripts.triggers(
+            self.clock.steps(),
+            &self.last_input,
+            &mut self.scene,
+            &mut self.physics,
+            self.navigation.as_mut(),
+            &mut self.audio,
+            &mut self.animation,
+        );
+        self.scripts.animation_events(
+            &animation_events,
             self.clock.steps(),
             &self.last_input,
             &mut self.scene,

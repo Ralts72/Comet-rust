@@ -63,6 +63,59 @@ fn model() -> AssetId {
 }
 
 #[test]
+fn animation_event_import_rejects_bad_tracks_before_replacing_the_accepted_product_index()
+-> Result<()> {
+    let f = Fixture::new()?;
+    let original = fs::read(&f.source)?;
+    let metadata = fs::read(SourceMeta::path(&f.source))?;
+    let index = fs::read(f.products.join("index.json"))?;
+    let mut store = AssetStore::open(&f.products)?;
+    let old = store.load(model().child("animation:index:0"))?;
+    let Product::AnimationClip(clip) = &old.payload else {
+        panic!("animation clip")
+    };
+    assert_eq!(clip.version, 3);
+    assert_eq!(clip.events.len(), 1);
+    for events in [
+        serde_json::json!([{"phase":-0.1,"name":"bad"}]),
+        serde_json::json!([{"phase":1.1,"name":"bad"}]),
+        serde_json::json!([{"phase":0.8,"name":"later"},{"phase":0.2,"name":"earlier"}]),
+        serde_json::json!([{"phase":0.5,"name":"hit","unknown":true}]),
+        serde_json::json!(null),
+    ] {
+        let mut source: serde_json::Value = serde_json::from_slice(&original)?;
+        source["animations"][0]["extras"]["comet_events"] = events;
+        fs::write(&f.source, serde_json::to_vec(&source)?)?;
+        assert!(f.prepare().is_err());
+        assert_eq!(fs::read(f.products.join("index.json"))?, index);
+        assert_eq!(fs::read(SourceMeta::path(&f.source))?, metadata);
+        assert!(std::sync::Arc::ptr_eq(
+            &old,
+            &store.load(model().child("animation:index:0"))?
+        ));
+    }
+    let mut source: serde_json::Value = serde_json::from_slice(&original)?;
+    source["animations"][0]["extras"]["comet_events"] =
+        serde_json::json!([{"phase":0.25,"name":"脚步"},{"phase":1.0,"name":"动作完成"}]);
+    fs::write(&f.source, serde_json::to_vec(&source)?)?;
+    f.prepare()?;
+    store.refresh()?;
+    let new = store.load(model().child("animation:index:0"))?;
+    let Product::AnimationClip(new) = &new.payload else {
+        panic!("animation clip")
+    };
+    assert_eq!(new.events.len(), 2);
+    assert_eq!(new.events[0].name, "脚步");
+    assert_eq!(
+        clip.events.len(),
+        1,
+        "old product stays immutable across acceptance"
+    );
+    assert_eq!(fs::read(SourceMeta::path(&f.source))?, metadata);
+    Ok(())
+}
+
+#[test]
 fn official_skin_builds_typed_products_and_scoped_bindings_then_loads_without_author_sources()
 -> Result<()> {
     let f = Fixture::new()?;
@@ -195,6 +248,11 @@ fn cubic_rotation_import_preserves_derivatives_and_rejects_malformed_updates_ato
         .unwrap()
         .remove("max");
     source["animations"][0]["samplers"][0]["interpolation"] = "CUBICSPLINE".into();
+    // Keep this regression on the event-free v2 format, independently of the demo's v3 markers.
+    source["animations"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("extras");
     fs::write(&f.source, serde_json::to_vec(&source)?)?;
     f.prepare()?;
     let mut store = AssetStore::open(&f.products)?;

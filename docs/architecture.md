@@ -352,7 +352,11 @@ Inspector 的“动画”面板显示只读骨架，允许选择同骨架片段�
 
 Application 复用展开 Scene 的 jointWorld × inverseBind 生成不可变世界空间调色板；蒙皮 Draw 的 model 为单位阵，忽略 glTF mesh 节点自身变换，Actor 与 Prefab 祖先只应用一次。Render 保留静态顶点流，蒙皮增加独立影响流和有界常规骨骼缓冲；场景/阴影与 CPU 点击/框选使用同一变形规则，提交数据保活至 GPU 完成。法线使用加权线性矩阵的缩放余子式并处理镜像符号，奇异结果为零法线/环境光，不把合法混合退化升级为整世界失败。
 
-glTF 读取预算为累计输入 64 MiB，每个 primitive 最多 262144 顶点与 1572864 索引，静态与蒙皮共用这些导入上限。动画上限为 128 joints、每 rig 2048 源节点、每世界 8192 驱动节点、每 Clip 262144 keys、每动画/网格产品 64 MiB；Skin/Clip 与引用骨架联合校验。animation.scene 复用唯一官方 CC0 SimpleSkin 源，提供真实蒙皮消费；状态机、动画事件、根运动、重定向、IK 与动态蒙皮碰撞尚未接入。
+glTF 读取预算为累计输入 64 MiB，每个 primitive 最多 262144 顶点与 1572864 索引，静态与蒙皮共用这些导入上限。动画上限为 128 joints、每 rig 2048 源节点、每世界 8192 驱动节点、每 Clip 262144 keys、每动画/网格产品 64 MiB；Skin/Clip 与引用骨架联合校验。animation.scene 复用唯一官方 CC0 SimpleSkin 源，提供真实蒙皮消费；状态机、根运动、重定向、IK 与动态蒙皮碰撞尚未接入。
+
+AnimationClipData v3 增加可选 events；无事件的线性/阶梯片段继续输出 v1，三次样条输出 v2，Runtime 保持读取 v1–3。glTF 导入器只读取 animation.extras.comet_events 的 `{phase, name}` 列表：phase 为有序的 0～1 阶段值，可包含同阶段的不同事件，每片段最多 128 项，名称非空、无控制字符且最多 256 UTF-8 字节；带事件的片段必须有正时长。原 metadata、节点、骨架、网格和片段 UUID 保持；产品缓存可由原作者源重建，不自动修改作者格式。当前仅迁移具名阶段事件，不提供旧状态机事件参数或编辑器时间线。
+
+Runtime 从取模前的推进区间收集事件，跨多圈按圈及轨道顺序触发；进入阶段 0、结束阶段 1 分别处理，暂停/零速/初始化姿态不发事件，重播从新入口重新消费。每固定步全世界最多 1024 项，超限在动画姿态、播放时钟和事件候选发布前拒绝。动画成功采样、物理及触发回调完成后，向启用脚本按稳定实体顺序派发 `on_animation_event(ctx, animator, name)`；animator 是当前世界句柄，观察者自行匹配参数中的目标。整批事件固定，回调中的重播不会递归产生本步事件；回调沿用命令候选、状态/执行预算及失败隔离，不创建第二套世界写入入口。
 
 ## 游戏 HUD
 
@@ -362,7 +366,9 @@ Rhai 的 `ctx.set_hud(text)` 替换当前脚本拥有者的一条文字，`ctx.c
 
 App 与 Editor 把当前 HUD 放入最终 ViewRequest，Application 验证其世界与内容后，在同一 egui pass 使用当前字体图集绘制，按游戏视口裁剪并自动换行。HUD 绘制不创建交互控件，不捕获角色输入；Editor 的 Edit 与错误恢复视图不携带运行 HUD。Application 只消费 Core DTO，不依赖 Runtime。HUD 本身仍仅有纯文字叠加；App 的可点击菜单由宿主独立绘制，不扩展 HudFrame，也不导入旧 RmlUi 文档。
 
-`collect.scene` 通过真实 Sensor entered 和指定玩家身份过滤完成单目标收集：同一回调隐藏无物理的外观子树、重播旁边蒙皮模型的动作，写入 collected=true，并发布 HUD 与 Cue 播放意图，后续进入不重复。目标 Sensor 本身保留，由脚本状态屏蔽；零缩放外观沿已有绘制规则跳过，不新增删除组件或可见性协议。动作开始前由 on_start 暂停在初始姿态；非循环动作结束后先发布完成提示，该完成边沿的 E 不换关，之后须再次按 E。这样不会在收集回调中立即销毁旧世界，也不会把提前按下或持续按住当作完成确认。继续已收集的进度时，on_start 直接隐藏目标并显示完成提示，不重播声音或动画；运行变换、物理及动画时间仍从关卡入口重建。示例以 Scene10 InInstance 参数直接引用 SimpleSkin Prefab 内的动画控制器，容器承接实例位置，只覆盖循环字段；骨架节点与蒙皮直接复用同一源 Prefab 及其 Skeleton/Skin/Clip/Mesh 产品，作者场景不再复制五个骨架/控制器/网格节点，也不通过运行时名称查找实体。第二关继续复用既有场景；多目标玩法、粒子及实体销毁仍未迁移。
+`collect.scene` 通过真实 Sensor entered 和指定玩家身份过滤完成单目标收集：同一回调隐藏无物理的外观子树、重播旁边蒙皮模型的动作，写入 collected=true，并发布 HUD 与 Cue 播放意图，后续进入不重复。目标 Sensor 本身保留，由脚本状态屏蔽；零缩放外观沿已有绘制规则跳过，不新增删除组件或可见性协议。动作开始前由 on_start 暂停在初始姿态；非循环动作结束后先发布完成提示，该完成边沿的 E 不换关，之后须再次按 E。这样不会在收集回调中立即销毁旧世界，也不会把提前按下或持续按住当作完成确认。继续已收集的进度时，on_start 直接隐藏目标并显示完成提示，不重播声音或动画；运行变换、物理及动画时间仍从关卡入口重建。示例以 Scene10 InInstance 参数直接引用 SimpleSkin Prefab 内的动画控制器，容器承接实例位置，只覆盖循环字段；骨架节点与蒙皮直接复用同一源 Prefab 及其 Skeleton/Skin/Clip/Mesh 产品，作者场景不再复制五个骨架/控制器/网格节点，也不通过运行时名称查找实体。单目标示例继续复用既有第二关；粒子及实体销毁仍未迁移。
+
+`character.scene` / `character_second.scene` 共用收集脚本和关卡协调脚本：每关三个独立作者目标和三个引用同源的动画实例。目标仅写自己的 collected/ready 进度，协调者通过只读 `progress_of(entity, key, default)` 聚合当前场景内的目标；达到三个动作事件才以已有物理命令升起运动学闸门，同时解除碰撞阻挡。换关还要求出口距离与新的 E 按下。继续时已收集目标直接恢复 ready，跳过反馈；两关以 Scene/Entity/key 隔离，重开和 Stop 仍使用既有运行生命周期。完整链路回归在临时项目使用真实源导入、物理传感器、事件、Editor 换关和检查点，不写示例目录。
 
 ## 脚本生命周期
 
@@ -370,7 +376,7 @@ Scene 的 Script 只保存资源 UUID、启用状态和带类型参数，不保�
 
 Pipeline 将 UTF-8 `.rhai` 构建为 ScriptData（版本 1，源码上限 64 KiB，拒绝空白/NUL），与 metadata 一起维护身份。产品及索引的当前版本与缓存重建规则见资产生产与消费。禁用的绑定也保留脚本资产依赖与类型校验，包内不依赖作者文件。AssetStore 返回启用脚本的去重源码库，Runtime 不依赖 AssetStore 或 Pipeline。
 
-Runtime 私有 Rhai 引擎按资源 UUID 与内容摘要编译并复用 AST，各绑定按 EntityId 顺序执行，独立持有 Scope 和 `this`。启动先验证快照、所有启用脚本的语法及回调签名；此校验不运行作者代码，资源刷新与导出复用同一 Validator。初始化阶段超过总执行预算会拒绝整个候选，避免接纳尚未初始化的绑定。进入 Play 后每绑定执行一次顶层初始化及 `on_start(ctx)`，每固定步先执行 `on_fixed_update(ctx, dt)`、更新导航期望速度、再推进物理，最后对传感器拥有者派发 `on_trigger(ctx, other, entered)`。停止时对未隔离且阶段预算内的绑定执行一次 `on_stop(ctx)`，此时场景命令只读。暂停/宿主冻结不调用固定步；单步、App 与 Editor 共用路径。重开从启动快照和同一源码库新建状态，不重新读取磁盘。
+Runtime 私有 Rhai 引擎按资源 UUID 与内容摘要编译并复用 AST，各绑定按 EntityId 顺序执行，独立持有 Scope 和 `this`。启动先验证快照、所有启用脚本的语法及回调签名；此校验不运行作者代码，资源刷新与导出复用同一 Validator。初始化阶段超过总执行预算会拒绝整个候选，避免接纳尚未初始化的绑定。进入 Play 后每绑定执行一次顶层初始化及 `on_start(ctx)`，每固定步先执行 `on_fixed_update(ctx, dt)`、更新导航期望速度、再推进物理，最后对传感器拥有者派发 `on_trigger(ctx, other, entered)`，再派发已成功采样的动画事件。停止时对未隔离且阶段预算内的绑定执行一次 `on_stop(ctx)`，此时场景命令只读。暂停/宿主冻结不调用固定步；单步、App 与 Editor 共用路径。重开从启动快照和同一源码库新建状态，不重新读取磁盘。
 
 `ctx.entity()` 返回当前世界的实体引用，`ctx.param(name)` / `has_param(name)` 读取显式参数。`position(entity)` / `rotation(entity)` / `scale(entity)` 返回回调入口的父级局部 XYZ / xyzw / XYZ 数组；`set_position` / `translate_local` / `set_rotation` / `rotate_local` / `set_scale` 修改非物理实体，`teleport` 重置物理体位置与速度，`set_velocity` / `impulse` 按运动类型验证，`set_roughness` 写模型覆盖。向量命令接收 `(entity, x, y, z)`。`set_rotation(entity,x,y,z,w)` 要求有限近单位四元数，接受范围内的微小误差归一化；`rotate_local(entity,axis_x,axis_y,axis_z,radians)` 要求近单位局部轴，按暂存的最新旋转后乘增量，弧度 0 保留原值。`set_scale` 为允许零/负的绝对本地值，受完整 Scene 世界矩阵校验约束。物理体可查询旋转/缩放，写入仍只通过其物理接口。`time()` 为固定步游戏时间，`move_x/y()` 与 `held/pressed/released("jump/run/crouch/interact/primary")` 读取已授权动作，补步不重复按下边沿；`log(text)` 写有界诊断。外部场景引用不会自动加载世界，不能用于本地命令。
 
@@ -382,7 +388,7 @@ Runtime 私有 Rhai 引擎按资源 UUID 与内容摘要编译并复用 AST，�
 
 Core 定义分类 GameId 和 Checkpoint v1：只保存游戏身份、当前 Scene AssetId 与显式 ProgressValues。每项进度由 Scene AssetId、拥有者 EntityId 和 key 共同定位，值仅为 bool、i64、有限 f64 或 UTF-8 文本；不保存 WorldId、实体句柄、VM、物理快照或动画播放时钟。最多 128 项，key 最多 128 字节且拒绝控制字符，单条文本最多 4 KiB 且拒绝 NUL，完整进度 JSON 最多 16 KiB，完整检查点最多 64 KiB。编码按稳定身份排序；重复作用域、坏值、未知版本和外来 GameId 明确拒绝。
 
-Rhai 的 `ctx.progress(key, default)` 读取当前场景和自身拥有者的已发布值，缺失时返回 default，不插入表；`set_progress` / `remove_progress` 与其他命令共用 256 条预算并一起验证、发布，类型必须与已有值匹配。读取不包含本回调尚未提交的修改，失败保留旧表；on_stop 可读但不可写。Runtime 只持有不可变共享进度，不做文件 I/O，也不选择用户目录。带身份的启动入口为 start_with_progress，prepare_scene 携当前已发布进度构造下一世界；候选拒绝不会丢失原表。R 使用本次入关的进度基线，继续时重建保存关卡起点并运行 on_start，正常新 Play 从空进度开始。
+Rhai 的 `ctx.progress(key, default)` 读取当前场景和自身拥有者的已发布值，缺失时返回 default，不插入表；`ctx.progress_of(entity, key, default)` 可读取当前世界其他有效实体在同一 Scene 作用域中的已发布进度，仍验证世界身份、目标存在性和缺省值类型，不提供代写。`set_progress` / `remove_progress` 与其他命令共用 256 条预算并一起验证、发布，类型必须与已有值匹配。读取不包含本回调尚未提交的修改，失败保留旧表；on_stop 可读但不可写。Runtime 只持有不可变共享进度，不做文件 I/O，也不选择用户目录。带身份的启动入口为 start_with_progress，prepare_scene 携当前已发布进度构造下一世界；候选拒绝不会丢失原表。R 使用本次入关的进度基线，继续时重建保存关卡起点并运行 on_start，正常新 Play 从空进度开始。
 
 F5/F9 属于宿主输入，经 Application 的共享 CheckpointInput 检查首次按下、窗口活动和文字焦点；模态、后台忙或失活期间的持键须先释放，不在恢复时补执行。全局暂停时仍可保存或继续。Editor 只保存当前 Play 的内存单槽，Stop 清空；Prefab 预览没有场景进度作用域，不支持检查点。App 在包外按 GameId 保存单槽 checkpoint.json，不在启动时自动读取；用户按 F9 后校验游戏身份、明确包含的场景名单及全部资源，初始化和绘制预检成功才接纳新 World。失败保留原世界、进度和原文件，通过有界提示报告。
 
@@ -417,7 +423,7 @@ Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常�
 
 Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径、版本校验与排他身份预留；构建、Scene/Prefab 创建和导航发布复用同一 metadata 写入规则，路径与候选校验仍归各自调用方。SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。有编辑来源信息时，作者身份必须对应源根，不能借用同类型的衍生产品 ID；源文件携带 metadata 改名后仍使用原身份，目录不按旧显示标签推断路径。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
-SceneSnapshot 协议为 10，产品协议为 5，索引协议为 6，NavigationData、AudioData、SkeletonData、SkinData 与 AnimationClipData 协议均为 1。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 可从有效 v1–5 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
+SceneSnapshot 协议为 10，产品协议为 5，索引协议为 6，NavigationData、AudioData、SkeletonData 与 SkinData 协议均为 1；AnimationClipData 支持 v1 线性/阶梯、v2 三次样条和 v3 具名阶段事件。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 可从有效 v1–5 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
 
 标签变化发布新索引身份；构建复用与 `AssetStore::refresh` 的内容比较只使用摘要、类型和运行依赖，后者保留未变产品的原 Arc。源文件与 metadata 一起改路径时可仅更新标签；glTF 内部内容修改仍参与输入摘要，唯一名称也参与既有子身份规则，不承诺改名保留 UUID。模型选择界面只读取已接纳索引，按 revision 缓存轻量 ID/标签列表，不加载产品或重新解析 glTF。
 

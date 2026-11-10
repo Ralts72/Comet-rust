@@ -70,16 +70,21 @@ impl Call {
 pub(super) struct Context(pub Rc<RefCell<Call>>);
 impl Context {
     fn progress(&mut self, key: &str, default: Dynamic) -> ScriptResult<Dynamic> {
+        let owner = self.0.borrow().owner;
+        self.progress_for(owner, key, default)
+    }
+    fn progress_of(&mut self, owner: Entity, key: &str, default: Dynamic) -> ScriptResult<Dynamic> {
+        let owner = owner.resolve(&self.0.borrow())?;
+        self.progress_for(owner, key, default)
+    }
+    fn progress_for(&self, owner: EntityId, key: &str, default: Dynamic) -> ScriptResult<Dynamic> {
         let call = self.0.borrow();
         let scene = call
             .progress_scope
             .ok_or("progress requires a scene asset scope")?;
         validate_progress_key(key).map_err(|error| error.to_string())?;
         let default = progress_value(default)?;
-        let value = call
-            .progress
-            .get(scene, call.owner, key)
-            .unwrap_or(&default);
+        let value = call.progress.get(scene, owner, key).unwrap_or(&default);
         if !value.same_type(&default) {
             return Err("progress default type does not match its existing value".into());
         }
@@ -244,6 +249,7 @@ pub(super) fn register(engine: &mut Engine) {
     engine.register_fn("param", Context::parameter);
     engine.register_fn("request_scene", Context::request_scene);
     engine.register_fn("progress", Context::progress);
+    engine.register_fn("progress_of", Context::progress_of);
     engine.register_fn("set_progress", Context::set_progress);
     engine.register_fn("remove_progress", Context::remove_progress);
     engine.register_fn("set_hud", |context: &mut Context, text: ImmutableString| {

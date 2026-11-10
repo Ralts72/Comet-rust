@@ -14,7 +14,13 @@ use std::{
 };
 
 pub const MAX_ANIMATED_NODES: usize = 8192;
+const MAX_EVENTS_PER_STEP: usize = 1024;
 type TransformClaims = BTreeSet<(EntityId, u32)>;
+
+pub(crate) struct AnimationEventOccurrence {
+    pub animator: EntityId,
+    pub name: String,
+}
 
 /// The last successfully published clip sample, independent of the world's pause/suspend state.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -58,6 +64,7 @@ struct Playback {
     looping: bool,
     cursor: f64,
     control: Control,
+    events_started: bool,
 }
 pub(crate) struct Animation {
     playbacks: BTreeMap<EntityId, Playback>,
@@ -193,6 +200,7 @@ impl Animation {
                         targets: bound,
                         looping: animator.looping,
                         cursor: 0.,
+                        events_started: false,
                         control: Control {
                             playing: true,
                             speed: animator.speed,
@@ -292,19 +300,29 @@ impl Animation {
                 .control = control;
         }
     }
-    pub fn sample(&mut self, scene: &mut Scene, delta: f64) -> Result<()> {
+    pub fn sample(
+        &mut self,
+        scene: &mut Scene,
+        delta: f64,
+    ) -> Result<Vec<AnimationEventOccurrence>> {
         ensure!(delta.is_finite() && delta >= 0., "invalid animation delta");
         let mut updates = Vec::new();
         let mut cursors = Vec::new();
         let mut states = Vec::new();
+        let mut events = Vec::new();
         for (owner, playback) in &self.playbacks {
             let mut control = playback.control;
+            let mut events_started = playback.events_started && !control.reset;
             let duration = f64::from(playback.clip.duration);
             let cursor = if control.reset || !self.states.contains_key(owner) {
                 0.
             } else if control.playing {
                 let cursor = playback.cursor + delta * f64::from(control.speed);
                 ensure!(cursor.is_finite(), "animation clock overflow");
+                if cursor > playback.cursor && duration > 0. {
+                    playback.append_events(*owner, cursor, events_started, &mut events)?;
+                    events_started = true;
+                }
                 if duration == 0. {
                     0.
                 } else if playback.looping {
@@ -333,23 +351,69 @@ impl Animation {
             if previous != Some(&state) {
                 states.push((*owner, state));
             }
-            if playback.cursor != cursor || playback.control != control {
-                cursors.push((*owner, cursor, control));
+            if playback.cursor != cursor
+                || playback.control != control
+                || playback.events_started != events_started
+            {
+                cursors.push((*owner, cursor, control, events_started));
             }
         }
         scene.set_fields(&updates)?;
-        for (owner, cursor, control) in cursors {
+        for (owner, cursor, control, events_started) in cursors {
             let playback = self
                 .playbacks
                 .get_mut(&owner)
                 .expect("known animation owner");
             playback.cursor = cursor;
             playback.control = control;
+            playback.events_started = events_started;
         }
         if !states.is_empty() {
             let published = Arc::make_mut(&mut self.states);
             for (owner, state) in states {
                 published.insert(owner, state);
+            }
+        }
+        Ok(events)
+    }
+}
+
+impl Playback {
+    fn append_events(
+        &self,
+        animator: EntityId,
+        end: f64,
+        started: bool,
+        out: &mut Vec<AnimationEventOccurrence>,
+    ) -> Result<()> {
+        if self.clip.events.is_empty() {
+            return Ok(());
+        }
+        let duration = f64::from(self.clip.duration);
+        let end = if self.looping { end } else { end.min(duration) };
+        let cycles = if self.looping {
+            (end / duration).floor()
+        } else {
+            0.
+        };
+        ensure!(
+            cycles.is_finite() && cycles <= MAX_EVENTS_PER_STEP as f64,
+            "animation event step budget exceeded"
+        );
+        // Traverse the unwrapped interval; a wrapped cursor alone loses whole-loop events.
+        for cycle in 0..=cycles as usize {
+            for event in &self.clip.events {
+                let time = (cycle as f64 + f64::from(event.phase)) * duration;
+                if time <= end && (time > self.cursor || (!started && time == 0.)) {
+                    ensure!(
+                        out.len() < MAX_EVENTS_PER_STEP,
+                        "animation event step budget exceeded"
+                    );
+                    out.push(AnimationEventOccurrence {
+                        animator,
+                        name: event.name.clone(),
+                    });
+                }
             }
         }
         Ok(())

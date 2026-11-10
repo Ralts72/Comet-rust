@@ -1,4 +1,71 @@
 use anyhow::Result;
+
+#[test]
+fn event_tracks_require_an_explicit_version_bounded_names_and_ordered_normalized_phases()
+-> Result<()> {
+    let mut clip = AnimationClipData {
+        version: 3,
+        skeleton: comet_core::AssetId::new(),
+        duration: 1.,
+        channels: vec![AnimationChannel {
+            node: comet_core::EntityId::new(),
+            interpolation: AnimationInterpolation::Linear,
+            times: vec![0., 1.],
+            values: AnimationValues::Translation(vec![[0.; 3], [1.; 3]]),
+        }],
+        events: vec![
+            comet_asset_data::AnimationEvent {
+                phase: 0.,
+                name: "开始".into(),
+            },
+            comet_asset_data::AnimationEvent {
+                phase: 1.,
+                name: "动作完成".into(),
+            },
+        ],
+    };
+    clip.validate()?;
+    let bytes = serde_json::to_vec(&clip)?;
+    assert_eq!(serde_json::from_slice::<AnimationClipData>(&bytes)?, clip);
+    for phase in [-0.1, 1.1, f32::NAN, f32::INFINITY] {
+        let mut invalid = clip.clone();
+        invalid.events[0].phase = phase;
+        assert!(invalid.validate().is_err());
+    }
+    for name in ["", " ", "bad\nname"] {
+        let mut invalid = clip.clone();
+        invalid.events[0].name = name.into();
+        assert!(invalid.validate().is_err());
+    }
+    let mut invalid = clip.clone();
+    invalid.events[0].name = "中".repeat(86);
+    assert!(invalid.validate().is_err());
+    invalid = clip.clone();
+    invalid.events.reverse();
+    assert!(invalid.validate().is_err());
+    invalid = clip.clone();
+    invalid.events = vec![clip.events[0].clone(); 129];
+    assert!(invalid.validate().is_err());
+    invalid = clip.clone();
+    invalid.version = 2;
+    assert!(invalid.validate().is_err());
+    invalid = clip.clone();
+    invalid.duration = 0.;
+    assert!(invalid.validate().is_err());
+    let mut wire: serde_json::Value = serde_json::from_slice(&bytes)?;
+    wire["events"][0]["unknown"] = true.into();
+    assert!(serde_json::from_value::<AnimationClipData>(wire).is_err());
+    for version in [1, 2] {
+        clip.version = version;
+        clip.events.clear();
+        clip.validate()?;
+        let bytes = serde_json::to_vec(&clip)?;
+        assert!(!String::from_utf8(bytes.clone())?.contains("events"));
+        let decoded: AnimationClipData = serde_json::from_slice(&bytes)?;
+        decoded.validate()?;
+    }
+    Ok(())
+}
 use comet_asset_data::{
     AnimationChannel, AnimationClipData, AnimationInterpolation, AnimationValues, SkeletonData,
     SkeletonNode, SkinData, SkinJoint, product::MeshData,
@@ -87,6 +154,7 @@ fn clip_channels_keep_absolute_times_and_reject_duplicate_targets_and_invalid_qu
 -> Result<()> {
     let skeleton = skeleton();
     let clip = AnimationClipData {
+        events: vec![],
         version: 1,
         skeleton: AssetId::new(),
         duration: 4.,
@@ -127,6 +195,7 @@ fn cubic_clips_version_the_triplet_layout_and_validate_values_separately_from_ta
 -> Result<()> {
     let skeleton = skeleton();
     let clip = AnimationClipData {
+        events: vec![],
         version: 2,
         skeleton: AssetId::new(),
         duration: 4.,
@@ -149,7 +218,7 @@ fn cubic_clips_version_the_triplet_layout_and_validate_values_separately_from_ta
         serde_json::from_slice::<AnimationClipData>(&serde_json::to_vec(&clip)?)?,
         clip
     );
-    for version in [0, 1, 3] {
+    for version in [0, 1, 4] {
         let mut bad = clip.clone();
         bad.version = version;
         assert!(bad.validate().is_err(), "version {version}");

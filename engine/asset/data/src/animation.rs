@@ -9,7 +9,8 @@ use std::{
 };
 
 pub const ANIMATION_VERSION: u32 = 1;
-pub const ANIMATION_CLIP_VERSION: u32 = 2;
+pub const ANIMATION_CLIP_VERSION: u32 = 3;
+pub const MAX_ANIMATION_EVENTS: usize = 128;
 pub const MAX_SKIN_JOINTS: usize = 128;
 pub const MAX_ANIMATION_CHANNELS: usize = MAX_ANIMATOR_BINDINGS * 3;
 pub const MAX_ANIMATION_KEYS: usize = 262_144;
@@ -177,11 +178,21 @@ pub struct AnimationChannel {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct AnimationEvent {
+    /// Normalized clip phase, including the entry (0) and completion (1) boundaries.
+    pub phase: f32,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnimationClipData {
     pub version: u32,
     pub skeleton: AssetId,
     pub duration: f32,
     pub channels: Vec<AnimationChannel>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<AnimationEvent>,
 }
 impl AnimationClipData {
     pub fn validate(&self) -> Result<()> {
@@ -192,6 +203,27 @@ impl AnimationClipData {
         ensure!(
             self.duration.is_finite() && self.duration >= 0.,
             "invalid animation duration"
+        );
+        ensure!(
+            self.events.len() <= MAX_ANIMATION_EVENTS
+                && (self.events.is_empty() || (self.version >= 3 && self.duration > 0.)),
+            "animation events require clip version 3, positive duration and at most {MAX_ANIMATION_EVENTS} markers"
+        );
+        for event in &self.events {
+            ensure!(
+                event.phase.is_finite()
+                    && (0. ..=1.).contains(&event.phase)
+                    && !event.name.trim().is_empty()
+                    && event.name.len() <= 256
+                    && !event.name.chars().any(char::is_control),
+                "invalid animation event phase or name"
+            );
+        }
+        ensure!(
+            self.events
+                .windows(2)
+                .all(|events| events[0].phase <= events[1].phase),
+            "animation events must be ordered by phase"
         );
         ensure!(
             !self.channels.is_empty() && self.channels.len() <= MAX_ANIMATION_CHANNELS,
