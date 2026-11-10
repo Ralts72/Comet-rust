@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::{
-    package::{PACKAGE_VERSION, PackageManifest, RuntimeIdentity},
+    package::{PACKAGE_VERSION, PackageManifest, RuntimeIdentity, validate_package_file_name},
     product::{AssetKind, INDEX_VERSION, ProductIndex},
 };
 use comet_core::{AssetId, DirectoryCandidate, atomic_write, resolve_destination};
@@ -162,15 +162,24 @@ pub fn package_scenes(request: PackageRequest<'_>) -> Result<PackageOutput> {
         );
     }
     for notice in notices {
-        let components: Vec<_> = Path::new(&notice.name).components().collect();
-        ensure!(
-            matches!(components.as_slice(), [std::path::Component::Normal(_)])
-                && !notice.name.contains(['\\', ':']),
-            "invalid package notice name"
-        );
+        validate_package_file_name(&notice.name)?;
         let destination = resources.join("licenses").join(&notice.name);
         fs::create_dir_all(destination.parent().context("notice destination")?)?;
-        fs::copy(&notice.path, &destination)?;
+        let metadata = fs::metadata(&notice.path)
+            .with_context(|| format!("inspect program notice {}", notice.path.display()))?;
+        ensure!(
+            metadata.is_file(),
+            "program notice must be a regular file: {}",
+            notice.path.display()
+        );
+        let mut source = fs::File::open(&notice.path)
+            .with_context(|| format!("open program notice {}", notice.path.display()))?;
+        // The filesystem also catches case/normalization aliases of an earlier notice.
+        let mut copied = fs::File::create_new(&destination)
+            .with_context(|| format!("create package notice {}", notice.name))?;
+        std::io::copy(&mut source, &mut copied)?;
+        copied.set_permissions(metadata.permissions())?;
+        drop(copied);
         ensure!(
             comet_core::file_digest(&destination)? == notice.sha256,
             "program notice changed while packaging"

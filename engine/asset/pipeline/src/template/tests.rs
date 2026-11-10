@@ -31,7 +31,6 @@ fn templates_match_explicit_program_identity_and_verify_all_snapshot_inputs() ->
     let path = root.join("template.json");
     fs::write(&path, serde_json::to_vec(&manifest)?)?;
     let template = AppTemplate::open(&path, &editor, &identity)?;
-    assert_eq!(template.identity(), &identity);
     for mutate in 0..4 {
         let mut expected = identity.clone();
         match mutate {

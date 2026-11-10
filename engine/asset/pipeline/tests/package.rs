@@ -195,6 +195,19 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
     assert!(package_scenes(request(None, Some(&app_hash))).is_err());
     assert!(!output.exists());
     fs::write(&notice_file, b"font license")?;
+    let duplicate_notices = [
+        notices[0].clone(),
+        comet_asset_pipeline::PackageFile {
+            name: notices[0].name.clone(),
+            ..icon.clone()
+        },
+    ];
+    let mut duplicate = request(None, Some(&app_hash));
+    duplicate.notices = &duplicate_notices;
+    assert!(package_scenes(duplicate).is_err());
+    assert!(!output.exists());
+    assert_eq!(fs::read(&notice_file)?, b"font license");
+    assert_eq!(fs::read(&icon_path)?, icon_bytes);
     let game = package_scenes(request(Some(store.revision()), Some(&app_hash)))?;
     let packaged = AssetStore::open(&game.products)?;
     assert_eq!(packaged.index().products.len(), 4);

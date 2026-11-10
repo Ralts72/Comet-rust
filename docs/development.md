@@ -78,7 +78,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 | 编辑器交互 | 真实 egui 输入下的多选、Gizmo、吸附、Inspector、拖动事务、焦点和模态隔离 | [UI 测试](../editor/src/ui/tests/)、[Inspector 测试](../editor/src/ui/inspector/) |
 | 项目与文档流程 | 路径边界、身份预留、排他创建、保存失败重试、未保存提示与 Play 隔离 | [文档流程测试](../editor/src/documents/tests/)、[Core 路径与发布测试](../engine/core/tests/) |
 | 帧与原生输出 | 场景/索引缓存身份、在途产品保活、静态及蒙皮变换、拾取、音频输出和线程关闭 | [Application 测试](../engine/application/src/)、[Render 测试](../engine/render/src/)、[Audio 测试](../engine/audio/src/) |
-| 独立程序与启动 | Editor/App 配对、缓存槽复用与恢复、程序图标、产品搬移后运行、包外存储与设置 | [启动工具测试](../tools/launch/tests/)、[完整验收](../tools/verify/verify.py)、[App 测试](../app/src/) |
+| 独立程序与启动 | Editor/App 配对、缓存槽复用与恢复、程序图标、同名许可拒绝与候选清理、产品搬移后运行、包外存储与设置 | [启动工具测试](../tools/launch/tests/)、[打包回归](../engine/asset/pipeline/tests/package.rs)、[完整验收](../tools/verify/verify.py)、[App 测试](../app/src/) |
 
 资产导入、保存、打包、破坏性输入和恢复测试只写临时项目，不修改 demo 作者源。模型与声音复用正式资产或既有 fixtures，修改输入时先复制；自动测试不访问玩家存档、设置或最近项目记录。
 

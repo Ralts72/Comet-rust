@@ -84,9 +84,9 @@ impl AppTemplateManifest {
         validate_digest(&self.app_sha256)?;
         validate_digest(&self.editor_sha256)?;
         validate_digest(&self.app_icon_sha256)?;
-        executable_name(&self.app)?;
+        validate_package_file_name(&self.app)?;
         for (name, hash) in &self.notices {
-            executable_name(name)?;
+            validate_package_file_name(name)?;
             validate_digest(hash)?;
         }
         Ok(())
@@ -117,7 +117,7 @@ impl PackageManifest {
             scenes.len() == self.scenes.len() && scenes.contains(&self.entry_scene),
             "invalid package scene list"
         );
-        executable_name(&self.executable)?;
+        validate_package_file_name(&self.executable)?;
         if let Some(hash) = &self.game_icon_sha256 {
             validate_digest(hash)?;
         }
@@ -138,10 +138,11 @@ impl PackageManifest {
         Ok(())
     }
 }
-fn executable_name(value: &str) -> Result<()> {
+/// One filename rule for template manifests, package manifests and package writers.
+pub fn validate_package_file_name(value: &str) -> Result<()> {
     ensure!(
         !value.is_empty() && value != "." && value != ".." && !value.contains(['/', '\\', ':']),
-        "invalid package executable name"
+        "invalid package file name"
     );
     Ok(())
 }
