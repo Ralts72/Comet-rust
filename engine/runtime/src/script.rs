@@ -287,12 +287,9 @@ impl Scripts {
     }
     fn push_diagnostic(&mut self, mut entry: ScriptDiagnostic) {
         if entry.message.len() > MAX_DIAGNOSTIC_BYTES {
-            let mut end = MAX_DIAGNOSTIC_BYTES;
-            while !entry.message.is_char_boundary(end) {
-                end -= 1;
-            }
             // Drop the original allocation too, so host errors cannot retain an oversized buffer.
-            entry.message = entry.message[..end].to_owned();
+            entry.message =
+                entry.message[..entry.message.floor_char_boundary(MAX_DIAGNOSTIC_BYTES)].to_owned();
         }
         self.sequence = self.sequence.saturating_add(1);
         entry.sequence = self.sequence;

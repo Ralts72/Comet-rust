@@ -1,3 +1,4 @@
+use super::properties::ComponentEdit;
 use crate::{
     navigation::{AGENT_FIELDS, REGION_FIELDS},
     session::Editor,
@@ -7,23 +8,6 @@ use comet_asset_data::product::AssetKind;
 use comet_core::{EntityId, WorldId};
 use comet_editor_core::FieldTarget;
 use comet_scene::{BodyMotion, EntityData, EntityRef, NavigationAgent, NavigationRegion};
-
-#[derive(Default)]
-struct Edit {
-    finish: bool,
-}
-impl Edit {
-    fn number(&mut self, ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, max: f32) {
-        let response = ui.add(
-            egui::DragValue::new(value)
-                .prefix(format!("{label} "))
-                .range(min..=max)
-                .speed(0.05)
-                .max_decimals(3),
-        );
-        self.finish |= response.drag_stopped() || response.lost_focus();
-    }
-}
 
 pub(super) fn draw(
     editor: &mut Editor,
@@ -58,7 +42,7 @@ pub(super) fn draw(
             .show(ui, |ui| {
                 let mut next = entity.clone();
                 let value = next.navigation_region.as_mut().unwrap();
-                let mut edit = Edit::default();
+                let mut edit = ComponentEdit::default();
                 let mut remove = false;
                 ui.add_enabled_ui(editable, |ui| {
                     if authored {
@@ -184,7 +168,7 @@ pub(super) fn draw(
                 } else {
                     None
                 };
-                let mut edit = Edit::default();
+                let mut edit = ComponentEdit::default();
                 let mut remove = false;
                 ui.add_enabled_ui(editable, |ui| {
                     if authored {

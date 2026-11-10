@@ -488,11 +488,7 @@ fn bounded(error: String) -> String {
     if error.len() <= 4096 {
         return error;
     }
-    let mut end = 4096;
-    while !error.is_char_boundary(end) {
-        end -= 1;
-    }
-    error[..end].to_owned()
+    error[..error.floor_char_boundary(4096)].to_owned()
 }
 fn convert(voice: &AudioVoice) -> StaticSoundData {
     let frames: Vec<_> = if voice.data.channels == 1 {

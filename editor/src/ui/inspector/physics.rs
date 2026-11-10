@@ -1,27 +1,8 @@
+use super::properties::ComponentEdit;
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_core::EntityId;
 use comet_scene::{BodyMotion, Character, ColliderShape, EntityData, PhysicsBody};
-
-#[derive(Default)]
-struct Edit {
-    finish: bool,
-}
-impl Edit {
-    fn number(&mut self, ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, max: f32) {
-        let response = ui.add(
-            egui::DragValue::new(value)
-                .prefix(format!("{label} "))
-                .range(min..=max)
-                .speed(0.05)
-                .max_decimals(3),
-        );
-        self.finish |= response.drag_stopped() || response.lost_focus();
-    }
-    fn checkbox(&mut self, ui: &mut egui::Ui, value: &mut bool, label: &str) {
-        self.finish |= ui.checkbox(value, label).changed();
-    }
-}
 
 pub(super) fn draw(
     editor: &mut Editor,
@@ -91,7 +72,7 @@ pub(super) fn draw(
                 replace(editor, assets, entity.id, None, None);
                 return;
             }
-            let mut edit = Edit::default();
+            let mut edit = ComponentEdit::default();
             ui.add_enabled_ui(character.is_none(), |ui| {
                 egui::ComboBox::from_id_salt("motion")
                     .selected_text(motion_name(body.motion))

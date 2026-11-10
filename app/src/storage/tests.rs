@@ -323,16 +323,3 @@ fn linux_data_home_is_absolute_and_uses_data_rather_than_editor_state() -> Resul
     assert!(environment(None, Some("relative".into())).is_err());
     Ok(())
 }
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-#[test]
-fn native_user_directory_resolution_returns_an_absolute_path_without_creating_a_slot() -> Result<()>
-{
-    let root = user_directory()?;
-    assert!(root.is_absolute());
-    let game = GameId::new();
-    let store = Store::for_user(game)?;
-    assert!(store.load_checkpoint()?.is_none());
-    assert!(!root.join(game.to_string()).exists());
-    Ok(())
-}

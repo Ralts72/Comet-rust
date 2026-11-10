@@ -1,3 +1,4 @@
+use super::properties::ComponentEdit;
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_core::math::{EulerRot, Quat};
@@ -9,59 +10,43 @@ use comet_scene::{
     schema::{self, FieldKey},
 };
 
-#[derive(Default)]
-struct Edit {
-    finish: bool,
+fn vector(edit: &mut ComponentEdit, ui: &mut egui::Ui, label: &str, value: &mut [f32; 3]) {
+    ui.label(label);
+    ui.horizontal(|ui| {
+        for (axis, v) in ["X", "Y", "Z"].into_iter().zip(value) {
+            edit.number(ui, axis, v, f32::MIN, f32::MAX);
+        }
+    });
 }
-impl Edit {
-    fn number(&mut self, ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, max: f32) {
-        let response = ui.add(
-            egui::DragValue::new(value)
-                .prefix(format!("{label} "))
-                .range(min..=max)
-                .speed(0.05)
-                .max_decimals(3),
-        );
-        self.finish |= response.drag_stopped() || response.lost_focus();
+fn rotation(edit: &mut ComponentEdit, ui: &mut egui::Ui, label: &str, rotation: &mut [f32; 4]) {
+    let (x, y, z) = Quat::from_array(*rotation).to_euler(EulerRot::XYZ);
+    let mut degrees = [x.to_degrees(), y.to_degrees(), z.to_degrees()];
+    let before = degrees;
+    vector(edit, ui, label, &mut degrees);
+    // A passive draw must preserve the source quaternion, including its sign and rounding.
+    if degrees != before {
+        *rotation = Quat::from_euler(
+            EulerRot::XYZ,
+            degrees[0].to_radians(),
+            degrees[1].to_radians(),
+            degrees[2].to_radians(),
+        )
+        .to_array();
     }
-    fn vector(&mut self, ui: &mut egui::Ui, label: &str, value: &mut [f32; 3]) {
-        ui.label(label);
-        ui.horizontal(|ui| {
-            for (axis, v) in ["X", "Y", "Z"].into_iter().zip(value) {
-                self.number(ui, axis, v, f32::MIN, f32::MAX);
-            }
-        });
-    }
-    fn rotation(&mut self, ui: &mut egui::Ui, label: &str, rotation: &mut [f32; 4]) {
-        let (x, y, z) = Quat::from_array(*rotation).to_euler(EulerRot::XYZ);
-        let mut degrees = [x.to_degrees(), y.to_degrees(), z.to_degrees()];
-        let before = degrees;
-        self.vector(ui, label, &mut degrees);
-        // A passive draw must preserve the source quaternion, including its sign and rounding.
-        if degrees != before {
-            *rotation = Quat::from_euler(
-                EulerRot::XYZ,
-                degrees[0].to_radians(),
-                degrees[1].to_radians(),
-                degrees[2].to_radians(),
-            )
-            .to_array();
-        }
-    }
-    fn angle(&mut self, ui: &mut egui::Ui, label: &str, value: &mut f32) {
-        let mut degrees = f64::from(*value).to_degrees();
-        let before = degrees;
-        let response = ui.add(
-            egui::DragValue::new(&mut degrees)
-                .prefix(format!("{label} "))
-                .range(f64::from(f32::MIN).to_degrees()..=f64::from(f32::MAX).to_degrees())
-                .speed(0.5)
-                .max_decimals(3),
-        );
-        self.finish |= response.drag_stopped() || response.lost_focus();
-        if degrees != before {
-            *value = degrees.to_radians() as f32;
-        }
+}
+fn angle(edit: &mut ComponentEdit, ui: &mut egui::Ui, label: &str, value: &mut f32) {
+    let mut degrees = f64::from(*value).to_degrees();
+    let before = degrees;
+    let response = ui.add(
+        egui::DragValue::new(&mut degrees)
+            .prefix(format!("{label} "))
+            .range(f64::from(f32::MIN).to_degrees()..=f64::from(f32::MAX).to_degrees())
+            .speed(0.5)
+            .max_decimals(3),
+    );
+    edit.finish |= response.drag_stopped() || response.lost_focus();
+    if degrees != before {
+        *value = degrees.to_radians() as f32;
     }
 }
 
@@ -121,7 +106,7 @@ pub(super) fn draw(
                     }
                     let cancel = ui.input(|input| input.key_pressed(egui::Key::Escape));
                     let mut next = entity.clone();
-                    let mut edit = Edit::default();
+                    let mut edit = ComponentEdit::default();
                     let mut remove = false;
                     ui.add_enabled_ui(editor.play.is_none(), |ui| {
                         if authored {
@@ -154,8 +139,9 @@ pub(super) fn draw(
                                     );
                                     joint.connected_anchor = connected.anchor;
                                 }
-                                edit.vector(ui, "本地锚点（米）", &mut joint.anchor);
-                                edit.vector(
+                                vector(&mut edit, ui, "本地锚点（米）", &mut joint.anchor);
+                                vector(
+                                    &mut edit,
                                     ui,
                                     connected_anchor_label(&joint.settings.connection),
                                     &mut joint.connected_anchor,
@@ -349,7 +335,7 @@ fn settings(
     assets: &mut AssetStore,
     entity: &EntityData,
     settings: &mut JointSettings,
-    edit: &mut Edit,
+    edit: &mut ComponentEdit,
 ) -> bool {
     edit.finish |= ui.checkbox(&mut settings.enabled, "启用关节").changed();
     let before = settings.connection.clone();
@@ -449,24 +435,30 @@ fn frames(
     settings: &JointSettings,
     frame: &mut JointFrame,
     connected: &mut JointFrame,
-    edit: &mut Edit,
+    edit: &mut ComponentEdit,
 ) {
-    edit.vector(ui, "本地锚点（米）", &mut frame.anchor);
-    edit.vector(
+    vector(edit, ui, "本地锚点（米）", &mut frame.anchor);
+    vector(
+        edit,
         ui,
         connected_anchor_label(&settings.connection),
         &mut connected.anchor,
     );
     ui.weak("X 为主轴，Y 定义零角参考；朝向不继承缩放。");
-    edit.rotation(ui, "自身坐标朝向（XYZ，度）", &mut frame.rotation);
-    edit.rotation(ui, "连接端坐标朝向（XYZ，度）", &mut connected.rotation);
+    rotation(edit, ui, "自身坐标朝向（XYZ，度）", &mut frame.rotation);
+    rotation(
+        edit,
+        ui,
+        "连接端坐标朝向（XYZ，度）",
+        &mut connected.rotation,
+    );
 }
 fn axial(
     ui: &mut egui::Ui,
     angular: bool,
     limits: &mut Option<JointLimits>,
     motor: &mut Option<JointMotor>,
-    edit: &mut Edit,
+    edit: &mut ComponentEdit,
 ) {
     let mut enabled = limits.is_some();
     if ui
@@ -497,8 +489,8 @@ fn axial(
     if let Some(limits) = limits {
         if angular {
             ui.weak("铰链限位跨度不超过 360°；上下限相同会锁定该轴。");
-            edit.angle(ui, "最小角度 (°)", &mut limits.min);
-            edit.angle(ui, "最大角度 (°)", &mut limits.max);
+            angle(edit, ui, "最小角度 (°)", &mut limits.min);
+            angle(edit, ui, "最大角度 (°)", &mut limits.max);
         } else {
             edit.number(ui, "最小行程 (m)", &mut limits.min, f32::MIN, f32::MAX);
             edit.number(ui, "最大行程 (m)", &mut limits.max, f32::MIN, f32::MAX);
@@ -538,7 +530,7 @@ fn axial(
         let effort = match motor {
             JointMotor::Velocity { speed, max_effort } => {
                 if angular {
-                    edit.angle(ui, "目标角速度 (°/s)", speed);
+                    angle(edit, ui, "目标角速度 (°/s)", speed);
                 } else {
                     edit.number(ui, "目标速度 (m/s)", speed, f32::MIN, f32::MAX);
                 }
@@ -551,7 +543,7 @@ fn axial(
                 max_effort,
             } => {
                 if angular {
-                    edit.angle(ui, "目标角度 (°)", target);
+                    angle(edit, ui, "目标角度 (°)", target);
                 } else {
                     edit.number(ui, "目标行程 (m)", target, f32::MIN, f32::MAX);
                 }

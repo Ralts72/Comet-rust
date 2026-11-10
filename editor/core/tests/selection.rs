@@ -398,6 +398,28 @@ fn fixture() -> Result<Fixture> {
 #[test]
 fn mixed_clone_deduplicates_subtrees_and_attached_instances_in_one_history_state() -> Result<()> {
     let mut f = fixture()?;
+    let mut source = f.doc.source();
+    source.base.version = 10;
+    let external = source
+        .base
+        .entities
+        .iter()
+        .find(|e| e.id == f.observer)
+        .unwrap()
+        .links
+        .connections[1]
+        .clone();
+    for entity in &mut source.base.entities {
+        if entity.id == f.root {
+            entity.links.target = Some(EntityRef::in_instance(f.direct, f.prefab_entity));
+        } else if entity.id == f.child {
+            entity.links.connections = vec![
+                EntityRef::in_instance(f.attached, f.prefab_entity),
+                external.clone(),
+            ];
+        }
+    }
+    f.doc = Document::open_source(source)?;
     let before = f.doc.shared_source();
     let copied = f.doc.clone_selection(
         &[
@@ -427,6 +449,32 @@ fn mixed_clone_deduplicates_subtrees_and_attached_instances_in_one_history_state
         child.links.target,
         Some(EntityRef::local(copied.entities[&f.root]))
     );
+    assert_eq!(
+        child.links.connections,
+        [
+            EntityRef::in_instance(copied.instances[&f.attached], f.prefab_entity),
+            external,
+        ]
+    );
+    let root = after
+        .base
+        .entities
+        .iter()
+        .find(|entity| entity.id == copied.entities[&f.root])
+        .unwrap();
+    assert_eq!(
+        root.links.target,
+        Some(EntityRef::in_instance(
+            copied.instances[&f.direct],
+            f.prefab_entity,
+        ))
+    );
+    for entity in &before.base.entities {
+        assert_eq!(
+            after.base.entities.iter().find(|e| e.id == entity.id),
+            Some(entity)
+        );
+    }
     let attached = after
         .instances
         .iter()
@@ -449,15 +497,37 @@ fn mixed_clone_deduplicates_subtrees_and_attached_instances_in_one_history_state
 }
 
 #[test]
-fn mixed_remove_is_one_undo_step_and_clears_only_deleted_local_links() -> Result<()> {
+fn mixed_remove_is_one_undo_step_and_clears_deleted_author_and_instance_links() -> Result<()> {
     let mut f = fixture()?;
+    let mut source = f.doc.source();
+    source.base.version = 10;
+    let spare = InstanceId::new();
+    source.instances.push(PrefabInstance {
+        id: spare,
+        prefab: f.library.asset,
+        parent: None,
+        overrides: vec![],
+    });
+    source
+        .base
+        .entities
+        .iter_mut()
+        .find(|entity| entity.id == f.observer)
+        .unwrap()
+        .links
+        .connections
+        .extend([
+            EntityRef::in_instance(f.direct, f.prefab_entity),
+            EntityRef::in_instance(f.attached, f.prefab_entity),
+            EntityRef::in_instance(spare, f.prefab_entity),
+        ]);
+    f.doc = Document::open_source(source)?;
     let before = f.doc.shared_source();
     f.doc.remove_selection(
         &[
             ObjectTarget::Authored(f.root),
             ObjectTarget::Authored(f.child),
             ObjectTarget::Authored(f.root),
-            ObjectTarget::Prefab(f.attached),
             ObjectTarget::Prefab(f.direct),
         ],
         &mut f.library,
@@ -466,12 +536,17 @@ fn mixed_remove_is_one_undo_step_and_clears_only_deleted_local_links() -> Result
     assert_eq!(after.base.entities.len(), 1);
     assert_eq!(after.base.entities[0].id, f.observer);
     assert!(after.base.entities[0].links.target.is_none());
-    assert_eq!(after.base.entities[0].links.connections.len(), 1);
+    assert_eq!(after.base.entities[0].links.connections.len(), 2);
     assert!(matches!(
         after.base.entities[0].links.connections[0],
         EntityRef::External { .. }
     ));
-    assert!(after.instances.is_empty());
+    assert_eq!(
+        after.base.entities[0].links.connections[1],
+        EntityRef::in_instance(spare, f.prefab_entity)
+    );
+    assert_eq!(after.instances.len(), 1);
+    assert_eq!(after.instances[0].id, spare);
     assert_eq!(f.doc.history_len(), 1);
     f.doc.undo()?;
     assert_eq!(f.doc.shared_source(), before);

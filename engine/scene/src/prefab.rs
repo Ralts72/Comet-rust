@@ -155,40 +155,13 @@ impl ContentSource {
                     FieldValue::OptionalAsset(Some(id)) => {
                         deps.insert(*id);
                     }
-                    FieldValue::Entity(Some(crate::EntityRef::External { scene, .. })) => {
-                        deps.insert(*scene);
-                    }
-                    FieldValue::JointConnection(crate::JointConnection::Body(
-                        crate::EntityRef::External { scene, .. },
-                    )) => {
-                        deps.insert(*scene);
-                    }
-                    FieldValue::Entities(refs) => {
-                        for r in refs {
-                            if let crate::EntityRef::External { scene, .. } = r {
+                    _ => {
+                        for reference in schema::value_entity_references(&o.value) {
+                            if let crate::EntityRef::External { scene, .. } = reference {
                                 deps.insert(*scene);
                             }
                         }
                     }
-                    FieldValue::AnimatorBindings(bindings) => {
-                        for r in bindings.values().flatten() {
-                            if let crate::EntityRef::External { scene, .. } = r {
-                                deps.insert(*scene);
-                            }
-                        }
-                    }
-                    FieldValue::ScriptParameters(parameters) => {
-                        for value in parameters.values() {
-                            if let crate::ScriptValue::Entity(Some(crate::EntityRef::External {
-                                scene,
-                                ..
-                            })) = value
-                            {
-                                deps.insert(*scene);
-                            }
-                        }
-                    }
-                    _ => {}
                 }
             }
         }
@@ -196,7 +169,7 @@ impl ContentSource {
     }
     /// Expand declarations from snapshots; dependency discovery does not create an ECS World.
     pub fn expand(&self, resolver: &mut impl PrefabResolver) -> Result<SceneSnapshot> {
-        self.expand_root(None, resolver)
+        self.expand_content(None, resolver, None)
     }
     /// Describe all expanded roots without binding them to a particular outer instance.
     pub fn prefab_roots(&self, resolver: &mut impl PrefabResolver) -> Result<Vec<PrefabRoot>> {
@@ -211,14 +184,7 @@ impl ContentSource {
         root: AssetId,
         resolver: &mut impl PrefabResolver,
     ) -> Result<SceneSnapshot> {
-        self.expand_root(Some(root), resolver)
-    }
-    fn expand_root(
-        &self,
-        root: Option<AssetId>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<SceneSnapshot> {
-        self.expand_content(root, resolver, None)
+        self.expand_content(Some(root), resolver, None)
     }
     fn expand_content(
         &self,

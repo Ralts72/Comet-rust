@@ -23,13 +23,9 @@ impl ScriptConsole {
                 continue;
             }
             let mut entry = diagnostic.clone();
-            if entry.message.len() > MESSAGE_BYTES {
-                let mut end = MESSAGE_BYTES;
-                while !entry.message.is_char_boundary(end) {
-                    end -= 1;
-                }
-                entry.message.truncate(end);
-            }
+            entry
+                .message
+                .truncate(entry.message.floor_char_boundary(MESSAGE_BYTES));
             self.entries.push_back(entry);
             while self.entries.len() > CAPACITY {
                 self.entries.pop_front();

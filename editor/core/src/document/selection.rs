@@ -250,6 +250,14 @@ impl Document {
                 }
             }
             next.instances.extend(copies);
+            if !result.instances.is_empty() {
+                let copied: BTreeSet<_> = result.entities.values().copied().collect();
+                for entity in &mut next.base.entities {
+                    if copied.contains(&entity.id) {
+                        schema::remap_instance_references(entity, &result.instances)?;
+                    }
+                }
+            }
             Ok(result)
         })
     }
@@ -260,14 +268,23 @@ impl Document {
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
         self.change(resolver, |next| {
-            let (roots, instances) = selection_targets(next, selection)?;
+            let (roots, mut removed_instances) = selection_targets(next, selection)?;
             let removed = next.base.remove_subtrees(&roots)?;
             next.instances.retain(|instance| {
-                !instances.contains(&instance.id)
-                    && !instance
-                        .parent
-                        .is_some_and(|parent| removed.contains(&parent))
+                if instance
+                    .parent
+                    .is_some_and(|parent| removed.contains(&parent))
+                {
+                    removed_instances.insert(instance.id);
+                }
+                !removed_instances.contains(&instance.id)
             });
+            if !removed_instances.is_empty() {
+                // Child override values use the child's namespace; only this source's entities change.
+                for entity in &mut next.base.entities {
+                    schema::clear_instance_references(entity, &removed_instances)?;
+                }
+            }
             Ok(())
         })
     }

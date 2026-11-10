@@ -39,11 +39,7 @@ impl Editor {
 
     fn recent_preference_error(&mut self, error: anyhow::Error) {
         let mut message = format!("最近项目记录不可用：{error:#}");
-        let mut end = message.len().min(4096);
-        while !message.is_char_boundary(end) {
-            end -= 1;
-        }
-        message.truncate(end);
+        message.truncate(message.floor_char_boundary(4096));
         self.recent_warning = Some(message);
     }
 

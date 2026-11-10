@@ -1,4 +1,4 @@
-//! 原生调用和 unsafe 仅存在于此适配原型。所有 CPU 读取都在完成反馈之后。
+//! Metal 能力诊断；所有 CPU 读取都在命令完成之后。
 use anyhow::{Context, Result, ensure};
 use objc2::{
     rc::{Retained, autoreleasepool},

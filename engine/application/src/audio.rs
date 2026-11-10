@@ -78,13 +78,7 @@ impl AudioHost {
 
     fn notify(&mut self, app: &mut impl Application, fallback: String) {
         let mut message = self.output.report().error.unwrap_or(fallback);
-        if message.len() > 4096 {
-            let mut end = 4096;
-            while !message.is_char_boundary(end) {
-                end -= 1;
-            }
-            message.truncate(end);
-        }
+        message.truncate(message.floor_char_boundary(4096));
         if self.last_error.as_deref() != Some(&message) {
             app.audio_error(&message);
             self.last_error = Some(message);

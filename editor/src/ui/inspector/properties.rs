@@ -5,6 +5,34 @@ use comet_scene::{
     schema::{self, FieldKey, FieldValue},
 };
 
+/// Component panels collect input completion; each panel owns candidate validation and publication.
+#[derive(Default)]
+pub(super) struct ComponentEdit {
+    pub(super) finish: bool,
+}
+impl ComponentEdit {
+    pub(super) fn number(
+        &mut self,
+        ui: &mut egui::Ui,
+        label: &str,
+        value: &mut f32,
+        min: f32,
+        max: f32,
+    ) {
+        let response = ui.add(
+            egui::DragValue::new(value)
+                .prefix(format!("{label} "))
+                .range(min..=max)
+                .speed(0.05)
+                .max_decimals(3),
+        );
+        self.finish |= response.drag_stopped() || response.lost_focus();
+    }
+    pub(super) fn checkbox(&mut self, ui: &mut egui::Ui, value: &mut bool, label: &str) {
+        self.finish |= ui.checkbox(value, label).changed();
+    }
+}
+
 pub(super) fn shared_value(
     entities: &[&EntityData],
     field: FieldKey,
