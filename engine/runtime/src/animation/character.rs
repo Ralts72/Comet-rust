@@ -2,7 +2,10 @@
 use super::{AnimationCommand, TransformClaims, playback::Playback};
 use anyhow::{Result, ensure};
 use comet_asset_data::AnimationParameter as Parameter;
-use comet_core::{EntityId, math::Quat};
+use comet_core::{
+    EntityId,
+    math::{Quat, Vec3},
+};
 use comet_scene::{
     ColliderShape, EntityRef, FieldUpdate, SceneSnapshot,
     schema::{self, FieldValue},
@@ -156,7 +159,17 @@ pub(super) fn drive(
             });
         }
         if speed > 0.01 {
-            let rotation = Quat::from_rotation_y((-velocity[0]).atan2(-velocity[1])).to_array();
+            let actor = snapshot
+                .entities
+                .iter()
+                .find(|e| e.id == driver.character)
+                .expect("validated driver character");
+            let local_velocity = Quat::from_array(actor.transform.rotation)
+                .normalize()
+                .inverse()
+                * Vec3::new(velocity[0], 0., velocity[1]);
+            let rotation =
+                Quat::from_rotation_y((-local_velocity.x).atan2(-local_velocity.z)).to_array();
             if rotation != owner.transform.rotation {
                 updates.push(FieldUpdate {
                     entity: driver.owner,

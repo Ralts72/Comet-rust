@@ -1,5 +1,6 @@
 use super::*;
 use comet_application::CheckpointAction;
+use comet_core::math::{Quat, Vec3};
 use comet_core::{Action, ActionEvent, ActionInput, ProgressValue};
 use comet_scene::PoseUpdate;
 use std::{fs, path::Path, sync::Arc};
@@ -159,6 +160,17 @@ fn real_character_levels_collect_six_targets_gate_on_animation_events_and_restor
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo"),
         &project,
     )?;
+    let path = project.join("assets/character.scene");
+    let mut source = comet_scene::ContentSource::from_json(&fs::read(&path)?)?;
+    source
+        .base
+        .entities
+        .iter_mut()
+        .find(|e| e.character.is_some())
+        .unwrap()
+        .transform
+        .rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).to_array();
+    fs::write(path, source.to_json()?)?;
     let (mut editor, mut assets) = open(
         project,
         temp.path().join("products"),
@@ -193,6 +205,24 @@ fn real_character_levels_collect_six_targets_gate_on_animation_events_and_restor
     let mut locomotion = input();
     locomotion.movement = [1., 0.];
     step(&mut editor, &mut assets, 10, locomotion.clone())?;
+    let snapshot = editor.play.as_mut().unwrap().shared_snapshot();
+    let actor = snapshot
+        .entities
+        .iter()
+        .find(|e| e.id == first.player)
+        .unwrap();
+    let visual = snapshot
+        .entities
+        .iter()
+        .find(|e| e.id == first.visual)
+        .unwrap();
+    let forward = Quat::from_array(actor.transform.rotation)
+        * Quat::from_array(visual.transform.rotation)
+        * Vec3::NEG_Z;
+    assert!(
+        forward.dot(Vec3::X) > 0.99999,
+        "the visual follows world movement even when the character root is rotated"
+    );
     let state = editor
         .play
         .as_ref()
