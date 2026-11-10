@@ -49,6 +49,7 @@ fn fixture(source: &str) -> Fixture {
     bone.parent = Some(owner.id);
     owner.audio_source = Some(AudioSource::new(sound));
     owner.animator = Some(Animator {
+        controller: None,
         skeleton,
         clip: Some(clip),
         bindings: [(node, Some(EntityRef::local(bone.id)))].into(),
@@ -316,6 +317,10 @@ fn on_start_reads_the_initial_sample_then_publishes_controls_at_zero_without_los
     assert_eq!(
         state(&play, f.owner),
         AnimationState {
+            clip: state(&play, f.owner).clip,
+            state: None,
+            blend: 1.,
+            parameters: Arc::new(Default::default()),
             time: 0.,
             duration: 1.,
             playing: false,
@@ -528,6 +533,10 @@ fn paused_worlds_step_controls_once_and_restart_and_candidate_acceptance_reset_r
     assert_eq!(
         state(&play, next.owner),
         AnimationState {
+            clip: state(&play, next.owner).clip,
+            state: None,
+            blend: 1.,
+            parameters: Arc::new(Default::default()),
             time: 0.,
             duration: 1.,
             playing: true,

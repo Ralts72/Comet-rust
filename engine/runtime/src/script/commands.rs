@@ -43,6 +43,7 @@ pub(super) enum Command {
     PauseAnimation(EntityId),
     ResumeAnimation(EntityId),
     AnimationSpeed(EntityId, f32),
+    AnimationParameter(EntityId, String, comet_asset_data::AnimationParameter),
     SetProgress(EntityId, String, ProgressValue),
     RemoveProgress(EntityId, String),
 }
@@ -144,6 +145,10 @@ pub(super) fn apply(
                 animations.push(AnimationCommand::Speed(id, speed));
                 continue;
             }
+            Command::AnimationParameter(id, ref name, value) => {
+                animations.push(AnimationCommand::Parameter(id, name.clone(), value));
+                continue;
+            }
         };
         if matches!(
             command,
@@ -234,7 +239,8 @@ pub(super) fn apply(
             Command::PlayAnimation(..)
             | Command::PauseAnimation(..)
             | Command::ResumeAnimation(..)
-            | Command::AnimationSpeed(..) => unreachable!(),
+            | Command::AnimationSpeed(..)
+            | Command::AnimationParameter(..) => unreachable!(),
         };
         schema::descriptor(field)?.write(entity, value.clone())?;
         fields.insert(

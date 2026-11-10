@@ -25,6 +25,8 @@ struct Level {
     asset: AssetId,
     player: EntityId,
     gate: EntityId,
+    animator: EntityId,
+    visual: EntityId,
     targets: Vec<(EntityId, [f32; 3])>,
 }
 impl Level {
@@ -50,10 +52,22 @@ impl Level {
             .collect();
         targets.sort_by_key(|e| &e.name);
         ensure!(targets.len() == 3, "three authored targets");
+        let visual = snapshot
+            .entities
+            .iter()
+            .find(|e| e.character_animation.is_some())
+            .unwrap();
+        let Some(comet_scene::EntityRef::Local { entity: animator }) =
+            visual.character_animation.as_ref().unwrap().animator
+        else {
+            panic!("expanded character animator")
+        };
         Ok(Self {
             asset,
             player,
             gate,
+            animator,
+            visual: visual.id,
             targets: targets
                 .into_iter()
                 .map(|e| (e.id, e.transform.translation))
@@ -164,10 +178,132 @@ fn real_character_levels_collect_six_targets_gate_on_animation_events_and_restor
             .enumerate()
             .all(|(i, _)| !first.collected(&editor, i))
     );
+    step(&mut editor, &mut assets, 30, input())?;
+    assert_eq!(
+        editor
+            .play
+            .as_ref()
+            .unwrap()
+            .animation_state(first.animator)
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("ground")
+    );
+    let mut locomotion = input();
+    locomotion.movement = [1., 0.];
+    step(&mut editor, &mut assets, 10, locomotion.clone())?;
+    let state = editor
+        .play
+        .as_ref()
+        .unwrap()
+        .animation_state(first.animator)
+        .unwrap();
+    assert!(
+        matches!(state.parameters["speed"],comet_asset_data::AnimationParameter::Number(speed) if (speed-4.).abs()<0.01)
+    );
+    locomotion.held.set(Action::Run, true);
+    step(&mut editor, &mut assets, 12, locomotion)?;
+    let state = editor
+        .play
+        .as_ref()
+        .unwrap()
+        .animation_state(first.animator)
+        .unwrap();
+    assert!(
+        matches!(state.parameters["speed"],comet_asset_data::AnimationParameter::Number(speed) if (speed-7.).abs()<0.01)
+    );
+    let mut crouch = input();
+    crouch.held.set(Action::Crouch, true);
+    step(&mut editor, &mut assets, 3, crouch)?;
+    assert_eq!(
+        editor
+            .play
+            .as_ref()
+            .unwrap()
+            .animation_state(first.animator)
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("crouch")
+    );
+    let visual_y = editor
+        .play
+        .as_mut()
+        .unwrap()
+        .shared_snapshot()
+        .entities
+        .iter()
+        .find(|e| e.id == first.visual)
+        .unwrap()
+        .transform
+        .translation[1];
+    assert!(
+        (visual_y + 0.48).abs() < 1e-5,
+        "crouching keeps the visual at the capsule's feet"
+    );
+    let mut jump = input();
+    jump.held.set(Action::Jump, true);
+    jump.events.push(ActionEvent {
+        action: Action::Jump,
+        pressed: true,
+    });
+    step(&mut editor, &mut assets, 1, jump)?;
+    assert_eq!(
+        editor
+            .play
+            .as_ref()
+            .unwrap()
+            .animation_state(first.animator)
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("jump")
+    );
+    step(&mut editor, &mut assets, 40, input())?;
+    assert_eq!(
+        editor
+            .play
+            .as_ref()
+            .unwrap()
+            .animation_state(first.animator)
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("fall")
+    );
+    step(&mut editor, &mut assets, 40, input())?;
+    assert_eq!(
+        editor
+            .play
+            .as_ref()
+            .unwrap()
+            .animation_state(first.animator)
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("ground")
+    );
+    assert!(
+        editor
+            .play
+            .as_mut()
+            .unwrap()
+            .audio_frame()?
+            .unwrap()
+            .voices
+            .iter()
+            .any(|v| v.entity == first.visual && v.generation > 0),
+        "locomotion events start the spatial footstep voice"
+    );
     first.move_to(&mut editor, [0., 1., -4.8])?;
     let mut walking = input();
     walking.movement = [0., 1.];
     step(&mut editor, &mut assets, 30, walking.clone())?;
+    assert!(
+        matches!(editor.play.as_ref().unwrap().animation_state(first.animator).unwrap().parameters["speed"],comet_asset_data::AnimationParameter::Number(speed) if speed<0.1),
+        "blocked movement uses actual collision feedback"
+    );
     assert!(
         editor
             .play

@@ -111,6 +111,8 @@ pub struct EntityData {
         deserialize_with = "crate::animation::deserialize_skin"
     )]
     pub skin: Option<crate::SkinBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character_animation: Option<crate::CharacterAnimation>,
 }
 impl EntityData {
     /// Minimum protocol for the actual component configuration and its reference values.
@@ -137,6 +139,14 @@ impl EntityData {
         if self.animator.is_some() || self.skin.is_some() {
             version = version.max(9);
         }
+        if self
+            .animator
+            .as_ref()
+            .is_some_and(|a| a.controller.is_some())
+            || self.character_animation.is_some()
+        {
+            version = version.max(11);
+        }
         crate::schema::entity_references(self)
             .iter()
             .map(EntityRef::required_scene_version)
@@ -162,6 +172,7 @@ impl EntityData {
             audio_source: None,
             animator: None,
             skin: None,
+            character_animation: None,
         }
     }
 }

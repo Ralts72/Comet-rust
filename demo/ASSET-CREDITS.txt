@@ -1,0 +1,22 @@
+Comet 示例资源来源
+
+models/character/character.glb
+从旧 Comet 仓库 engine/resources/characters/default.glb 原样迁入。
+旧仓库提交：0702fee6ee28b01ea013292e175ad7babdd6d39e
+SHA-256：a24e811d9b5b3849516aba70177ba59a75513cb7d71dd73b777405b00337b1ea
+文件内 generator：Comet: basic clips extracted from Quaternius UAL Standard v2.0
+模型和动作原作者：Quaternius，Universal Animation Library，CC0。
+官方来源：https://quaternius.com/packs/universalanimationlibrary.html
+CC0：https://creativecommons.org/publicdomain/zero/1.0/
+Rust 使用独立资产 UUID；没有复制旧引擎实现或第三方代码。
+
+audio/footstep.wav
+本工程合成的 0.1 秒、48 kHz、单声道 PCM16 脚步提示音。
+由固定随机种子 1701 的低通噪声、105 Hz 正弦和指数衰减包络生成；
+这是示例反馈音，未宣称与旧版脚步录音相同。设备试听仍需单独验收。
+
+models/simple_skin
+Khronos glTF Sample Assets 的 SimpleSkin，作者 Marco Hutter，CC0。
+锁定提交：8f492390ddc7a2ae221a1369ef560589cf8c70fb
+来源：https://github.com/KhronosGroup/glTF-Sample-Assets/tree/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin
+该目录保持上游 glTF 与四份 buffer，不复制长期测试副本。

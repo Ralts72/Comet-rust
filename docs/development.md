@@ -140,13 +140,17 @@ Scene/Core 回归检查 v6 与旧格式、可空资产依赖、目标复制/删�
 
 ## 蒙皮模型与动画验证
 
-运行 `./start.sh --scene animation.scene`，Play 后观察蒙皮模型随骨骼弯曲，再检查暂停、单步、R 重开和 Stop 后作者姿态保持。当前为一个选中 Clip 的 STEP/LINEAR/CUBICSPLINE TRS 播放，不含状态机、事件、根运动、重定向或 IK；角色胶囊仍独立于蒙皮几何。协议与数据所有权见[蒙皮与动画](architecture.md#蒙皮与动画)。
+运行 `./start.sh --scene animation.scene`，Play 后观察蒙皮模型随骨骼弯曲，再检查暂停、单步、R 重开和 Stop 后作者姿态保持。该示例为单 Clip 的 STEP/LINEAR/CUBICSPLINE TRS 播放；参数状态机与具名事件使用下述双关示例，根运动、分层、重定向及 IK 尚未接入；角色胶囊仍独立于蒙皮几何。协议与数据所有权见[蒙皮与动画](architecture.md#蒙皮与动画)。
 
 属性面板“动画”可选同骨架片段或“不播放片段”、循环和播放速度，“骨骼绑定”按 Node 0/1/2 等名称选择目标或“未绑定”；源键集合不匹配时可显式“重建绑定表”。“蒙皮”可选择产品与同骨架的动画实体。直接 Prefab 配置保留已有字段覆盖，结构在源中修改；嵌套实例和 Play 配置只读，Play 显示采样时间。控件事务、未绑定重开修复和撤销回归与实际鼠标操作分别验收。
 
 官方 SimpleSkin 作者源只保留在 demo/assets/models/simple_skin，测试复制该目录到临时项目，不另存长期模型或二进制副本。来源为 [Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin)，锁定提交 8f492390ddc7a2ae221a1369ef560589cf8c70fb；Marco Hutter 的模型以 [CC0](https://github.com/KhronosGroup/glTF-Sample-Assets/blob/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin/README.md#legal) 发布。原 glTF 与四份 buffer 共 3242 字节，保持上游内容。
 
 资产回归覆盖稳定子身份、skin-local joint 顺序、逆绑定、四权重、骨架域、关键帧/时间/四元数、预算和不支持格式拒绝；失败保持索引与 metadata，包搬移并移走作者源后仍可读取完整产品。强引用有效时，明确未绑定及缺失/过期源键可构建并打开修复，原映射不会自动改写；“重建绑定表”是显式的一条可撤销操作。悬空 Local 强引用与失效 Prefab override 仍拒绝，不隐式清理或迁移。新增曲线回归检查非单位/零切线、非单位关键帧间隔、保留旋转符号、退化四元数失败及暂停/单步/重开。完整验收在临时项目中将同一 SimpleSkin 副本改为 CUBICSPLINE，导出搬移后移除作者源和开发产品，校验 Clip v2；`--gpu` / `--native` 另比较包内实际播放姿态与独立 Hermite 计算，并保存本次截图。Runtime、作者事务、真实着色与变形拾取分别验证；编译、CPU 数值、GPU 离屏、实际鼠标操作及三个平台运行不互相替代。
+
+角色控制器验证使用 `./start.sh --scene character.scene`：观察待机、WASD 走路、Shift 跑步、Ctrl 蹲伏/蹲行、Space 起跳、下落和着地；靠墙持续前进应按实际速度停步，空中与原地不播放脚步。脚步使用本工程合成提示音，模型与动作来自旧项目保留的 Quaternius GLB，详见 [资源说明](../demo/ASSET-CREDITS.txt)。两关共用 `animations/character.ani`，通过实例覆盖选择控制器，不复制骨架。参数与状态图目前编辑 JSON；属性面板负责控制器选择、骨骼和角色驱动绑定，支持撤销、保存及运行只读状态。
+
+CPU 回归复用真实双关和产品，覆盖走跑跳蹲、碰墙、脚底位置、脚步意图、收集/闸门/往返/检查点与作者隔离；数值回归覆盖阶段连续、一维混合、rest 回退、平滑、中断过渡、结束转换和坏参数整批拒绝。独立包检查控制器及七个动作的完整依赖、65 joints 蒙皮和 67 节点绑定；Metal GPU 与窗口截图验证实际消费，人工操作、试听以及 Linux/Windows GPU 仍分别待验收。
 
 ## 音频开发与验证
 

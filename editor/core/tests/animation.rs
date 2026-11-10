@@ -53,6 +53,7 @@ fn component_previews_upgrade_only_the_required_protocol_and_reject_bad_animatio
     document.cancel()?;
     assert!(Arc::ptr_eq(&document.shared_source(), &physical));
     let animator = Animator {
+        controller: None,
         skeleton: AssetId::new(),
         clip: None,
         bindings: BTreeMap::new(),
@@ -116,6 +117,7 @@ fn removing_a_controller_unbinds_its_skins_without_clearing_other_entity_links()
     let mut controller = EntityData::new("controller");
     let id = controller.id;
     controller.animator = Some(Animator {
+        controller: None,
         skeleton: AssetId::new(),
         clip: None,
         bindings: BTreeMap::new(),

@@ -59,6 +59,7 @@ pub struct RuntimeResources {
     pub audio: comet_audio::AudioLibrary,
     pub skeletons: comet_asset_data::SkeletonLibrary,
     pub animations: comet_asset_data::AnimationLibrary,
+    pub controllers: comet_asset_data::ControllerLibrary,
 }
 impl PlaySession {
     pub fn start(snapshot: SceneSnapshot) -> Result<Self> {
@@ -124,7 +125,12 @@ impl PlaySession {
         baseline.validate_expanded()?;
         let mut physics = Physics::new(&baseline)?;
         let mut scene = Scene::open((*baseline).clone())?;
-        let mut animation = Animation::new(&baseline, &resources.skeletons, &resources.animations)?;
+        let mut animation = Animation::new(
+            &baseline,
+            &resources.skeletons,
+            &resources.animations,
+            &resources.controllers,
+        )?;
         animation.sample(&mut scene, 0.)?;
         let mut audio = Audio::new(&baseline, &resources.audio, scene.world_id())?;
         let mut navigation = crate::navigation::Navigation::new(
@@ -342,7 +348,6 @@ impl PlaySession {
             &mut self.audio,
             &mut self.animation,
         );
-        let animation_events = self.animation.sample(&mut self.scene, crate::FIXED_DELTA)?;
         let velocities = if let Some(nav) = &mut self.navigation {
             Some(nav.velocities(&self.scene.shared_snapshot(), &self.physics)?)
         } else {
@@ -354,6 +359,9 @@ impl PlaySession {
             &mut self.scene,
             velocities,
         )?;
+        self.animation
+            .drive_characters(&mut self.scene, &self.physics)?;
+        let animation_events = self.animation.sample(&mut self.scene, crate::FIXED_DELTA)?;
         self.scripts.triggers(
             self.clock.steps(),
             &self.last_input,
@@ -452,6 +460,24 @@ impl PlaySession {
         } else {
             self.animation.state(entity)
         }
+    }
+    /// Queue a typed controller parameter; queries change only after the next successful sample.
+    pub fn set_animation_parameter(
+        &mut self,
+        entity: EntityId,
+        name: &str,
+        value: comet_asset_data::AnimationParameter,
+    ) -> Result<()> {
+        ensure!(!self.stopped, "Play session is stopped");
+        let prepared =
+            self.animation
+                .prepare_commands(&[crate::animation::AnimationCommand::Parameter(
+                    entity,
+                    name.into(),
+                    value,
+                )])?;
+        self.animation.publish_commands(prepared);
+        Ok(())
     }
     pub fn is_animation_controlled(&self, entity: EntityId, key: FieldKey) -> bool {
         !self.stopped && self.animation.is_controlled(entity, key)

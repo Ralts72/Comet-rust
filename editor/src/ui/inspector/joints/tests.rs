@@ -196,7 +196,10 @@ fn authored_joint_picker_connects_to_one_direct_instance_with_atomic_anchor_and_
             * (Vec3::from_array(body.transform.scale) * Vec3::from_array(joint.connected_anchor));
     assert!((connected_world - Vec3::new(2., 3., 4.)).length() < 1e-5);
     assert_eq!(editor.document.history_len(), 2);
-    assert_eq!(changed.base.version, 10);
+    assert_eq!(
+        changed.base.version,
+        comet_scene::SceneSnapshot::default().version
+    );
     let snapshot = editor.snapshot(&mut assets)?;
     assert_eq!(
         snapshot

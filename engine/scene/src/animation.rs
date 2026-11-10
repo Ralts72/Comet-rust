@@ -14,6 +14,8 @@ pub type AnimatorBindings = BTreeMap<EntityId, Option<EntityRef>>;
 pub struct Animator {
     pub skeleton: AssetId,
     pub clip: Option<AssetId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller: Option<AssetId>,
     #[serde(deserialize_with = "deserialize_bindings")]
     pub bindings: AnimatorBindings,
     pub looping: bool,
@@ -24,12 +26,17 @@ impl Animator {
         Self {
             skeleton,
             clip: None,
+            controller: None,
             bindings: BTreeMap::new(),
             looping: true,
             speed: 1.,
         }
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.clip.is_none() || self.controller.is_none(),
+            "choose a clip or an animation controller, not both"
+        );
         ensure!(
             self.bindings.len() <= MAX_ANIMATOR_BINDINGS,
             "animator binding budget exceeded"
@@ -40,6 +47,14 @@ impl Animator {
         );
         Ok(())
     }
+}
+
+/// A visual container follows a capsule's feet and supplies its controller's locomotion parameters.
+#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterAnimation {
+    pub character: Option<EntityRef>,
+    pub animator: Option<EntityRef>,
 }
 
 #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]

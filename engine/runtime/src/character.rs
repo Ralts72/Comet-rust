@@ -15,6 +15,8 @@ pub struct CharacterState {
     pub grounded: bool,
     pub vertical_velocity: f32,
     pub crouched: bool,
+    /// Collision-constrained horizontal movement, in world metres per second.
+    pub horizontal_velocity: [f32; 2],
 }
 pub(super) struct Motor {
     pub config: Character,
@@ -41,6 +43,7 @@ impl Motor {
                 grounded: false,
                 vertical_velocity: 0.,
                 crouched: false,
+                horizontal_velocity: [0.; 2],
             },
             standing: SharedShape::capsule_y(half_height, radius),
             crouching: SharedShape::capsule_y(crouch_half_height, radius),
@@ -160,6 +163,7 @@ impl Motor {
         );
         let movement =
             controller.move_shape(dt, &queries, collider.shape(), &current, desired, |_| {});
+        self.state.horizontal_velocity = [movement.translation.x / dt, movement.translation.z / dt];
         self.state.grounded = movement.grounded;
         if (movement.grounded && self.state.vertical_velocity < 0.)
             || (self.state.vertical_velocity > 0. && movement.translation.y + 1e-4 < desired.y)

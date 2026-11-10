@@ -230,6 +230,9 @@ pub(super) fn draw(
         ));
         if let Some(play) = &editor.play {
             if let Some(state) = play.animation_state(entity.id) {
+                if let Some(name) = &state.state {
+                    ui.label(format!("当前状态：{name}，过渡 {:.0}%", state.blend * 100.));
+                }
                 ui.label(format!(
                     "片段时间：{:.3} / {:.3} 秒",
                     state.time, state.duration
@@ -256,12 +259,25 @@ pub(super) fn draw(
             }
         }
         let (mut clip, mut looping, mut speed) = (animator.clip, animator.looping, animator.speed);
+        let mut controller = animator.controller;
         let mut discrete = false;
         let mut finish = false;
         let mut remove = false;
         let mut binding_edits = vec![];
         let mut rebuild = None;
         ui.add_enabled_ui(editable, |ui| {
+            asset_picker(
+                ui,
+                ("animator-controller", editor.world(), entity.id),
+                "动画控制器",
+                &mut controller,
+                choices.controllers.iter().copied()
+                    .filter(|id| choices.skeleton.get(id) == Some(&animator.skeleton)),
+                &choices,
+                Some("单片段播放"),
+            );
+            if controller != animator.controller && controller.is_some() { clip = None; }
+            ui.add_enabled_ui(controller.is_none(), |ui| {
             asset_picker(
                 ui,
                 ("animator-clip", editor.world(), entity.id),
@@ -276,6 +292,7 @@ pub(super) fn draw(
                 Some("不播放片段"),
             );
             discrete |= ui.checkbox(&mut looping, "循环").changed();
+            });
             let response = ui.add(
                 egui::DragValue::new(&mut speed)
                     .range(0. ..=f32::MAX)
@@ -329,14 +346,19 @@ pub(super) fn draw(
                 replace(editor, assets, entity, None, entity.skin.clone());
                 return;
             }
-            let changed = clip != animator.clip
+            let changed = controller != animator.controller
+                || clip != animator.clip
                 || looping != animator.looping
                 || speed != animator.speed
                 || !binding_edits.is_empty()
                 || rebuild.is_some();
             if changed {
-                discrete |= clip != animator.clip || !binding_edits.is_empty() || rebuild.is_some();
+                discrete |= controller != animator.controller
+                    || clip != animator.clip
+                    || !binding_edits.is_empty()
+                    || rebuild.is_some();
                 let mut next = animator.clone();
+                next.controller = controller;
                 next.clip = clip;
                 next.looping = looping;
                 next.speed = speed;
@@ -476,6 +498,16 @@ pub(super) fn draw(
     } else if authored {
         ui.weak("先为实体添加网格渲染，再绑定蒙皮。");
     }
+    draw_character_driver(
+        editor,
+        ui,
+        assets,
+        entity,
+        targets.as_ref(),
+        authored,
+        editable,
+        cancel,
+    );
     if !editable {
         ui.weak(if editor.play.is_some() {
             "运行期间动画配置只读。"
@@ -504,6 +536,67 @@ fn replace(
         .and_then(|_| editor.edit_animation(entity.id, animator, skin, assets))
         .and_then(|_| editor.commit());
     editor.notice(result);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_character_driver(
+    editor: &mut Editor,
+    ui: &mut egui::Ui,
+    assets: &mut AssetStore,
+    entity: &EntityData,
+    targets: Option<&Targets>,
+    authored: bool,
+    editable: bool,
+    cancel: bool,
+) {
+    if entity.character_animation.is_none() && (!authored || entity.parent.is_none()) {
+        return;
+    }
+    ui.strong("角色动画");
+    let mut next = entity.character_animation.clone();
+    let mut changed = false;
+    ui.add_enabled_ui(editable, |ui| {
+        if let Some(driver) = &mut next {
+            ui.weak("从父角色的实际移动、着地和蹲伏状态驱动动画；本实体负责外观的脚底位置与朝向。");
+            ui.label("角色实体");
+            entity_picker(
+                ui,
+                ("animation-character", editor.world(), entity.id),
+                &mut driver.character,
+                targets
+                    .into_iter()
+                    .flat_map(|t| t.nodes.iter())
+                    .filter(|(id, _)| Some(*id) == entity.parent)
+                    .map(|(id, name)| (*id, name.as_str())),
+            );
+            ui.label("动画实体");
+            entity_picker(
+                ui,
+                ("character-animator", editor.world(), entity.id),
+                &mut driver.animator,
+                targets
+                    .into_iter()
+                    .flat_map(|t| t.animators.iter())
+                    .map(|(id, name, _)| (*id, name.as_str())),
+            );
+            if authored && ui.small_button("移除角色动画").clicked() {
+                next = None;
+            }
+        } else if ui.small_button("添加角色动画").clicked() {
+            next = Some(comet_scene::CharacterAnimation {
+                character: entity.parent.map(EntityRef::local),
+                animator: None,
+            });
+        }
+        changed = next != entity.character_animation;
+    });
+    if editable && !cancel && changed {
+        let result = editor
+            .commit()
+            .and_then(|_| editor.edit_character_animation(entity.id, next, assets))
+            .and_then(|_| editor.commit());
+        editor.notice(result);
+    }
 }
 
 #[cfg(test)]

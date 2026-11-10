@@ -7,8 +7,8 @@ use comet_scene::{ContentSource, EntityRef, SceneSnapshot, schema};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const PRODUCT_VERSION: u32 = 5;
-pub const INDEX_VERSION: u32 = 6;
+pub const PRODUCT_VERSION: u32 = 6;
+pub const INDEX_VERSION: u32 = 7;
 pub const SCRIPT_VERSION: u32 = 1;
 pub const MAX_SCRIPT_BYTES: usize = 64 * 1024;
 pub const MAX_EDITOR_LABEL_BYTES: usize = 4 * 1024;
@@ -26,11 +26,13 @@ pub enum AssetKind {
     Skeleton,
     Skin,
     AnimationClip,
+    AnimationController,
 }
 impl AssetKind {
     /// Byte limit for a complete encoded ProductFile, separate from source and payload limits.
     pub fn encoded_byte_limit(self) -> Option<usize> {
         match self {
+            Self::AnimationController => Some(crate::animation::controller::MAX_CONTROLLER_BYTES),
             Self::Audio => Some(crate::audio::MAX_AUDIO_BYTES),
             Self::Mesh | Self::Skeleton | Self::Skin | Self::AnimationClip => {
                 Some(crate::animation::MAX_ANIMATION_BYTES)
@@ -212,6 +214,7 @@ pub enum Product {
     Skeleton(SkeletonData),
     Skin(SkinData),
     AnimationClip(AnimationClipData),
+    AnimationController(crate::AnimationControllerData),
 }
 impl Product {
     pub fn kind(&self) -> AssetKind {
@@ -227,6 +230,7 @@ impl Product {
             Self::Skeleton(_) => AssetKind::Skeleton,
             Self::Skin(_) => AssetKind::Skin,
             Self::AnimationClip(_) => AssetKind::AnimationClip,
+            Self::AnimationController(_) => AssetKind::AnimationController,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -241,6 +245,7 @@ impl Product {
             Self::Skeleton(value) => value.validate(),
             Self::Skin(value) => value.validate(),
             Self::AnimationClip(value) => value.validate(),
+            Self::AnimationController(value) => value.validate(),
         }
     }
     pub fn dependencies(&self) -> BTreeSet<AssetId> {
@@ -249,6 +254,9 @@ impl Product {
             Self::Material(m) => m.base_color_texture.into_iter().collect(),
             Self::Skin(value) => [value.skeleton].into_iter().collect(),
             Self::AnimationClip(value) => [value.skeleton].into_iter().collect(),
+            Self::AnimationController(value) => {
+                value.clips().into_iter().chain([value.skeleton]).collect()
+            }
             _ => BTreeSet::new(),
         }
     }
@@ -272,6 +280,9 @@ impl Product {
                             }
                             if o.field == schema::ANIMATOR_CLIP {
                                 expect(id, AssetKind::AnimationClip)?;
+                            }
+                            if o.field == schema::ANIMATOR_CONTROLLER {
+                                expect(id, AssetKind::AnimationController)?;
                             }
                         }
                         if let schema::FieldValue::Asset(id) = o.value {
@@ -299,6 +310,12 @@ impl Product {
             }
             Self::Skin(value) => expect(value.skeleton, AssetKind::Skeleton)?,
             Self::AnimationClip(value) => expect(value.skeleton, AssetKind::Skeleton)?,
+            Self::AnimationController(value) => {
+                expect(value.skeleton, AssetKind::Skeleton)?;
+                for clip in value.clips() {
+                    expect(clip, AssetKind::AnimationClip)?;
+                }
+            }
             Self::Material(m) => {
                 if let Some(id) = m.base_color_texture {
                     expect(id, AssetKind::Texture)?;
@@ -350,6 +367,9 @@ fn validate_entity_dependency_kinds(
             expect(animator.skeleton, AssetKind::Skeleton)?;
             if let Some(clip) = animator.clip {
                 expect(clip, AssetKind::AnimationClip)?;
+            }
+            if let Some(controller) = animator.controller {
+                expect(controller, AssetKind::AnimationController)?;
             }
         }
         if let Some(skin) = &e.skin {

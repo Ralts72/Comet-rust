@@ -14,6 +14,7 @@ fn rig() -> (SceneSnapshot, EntityId, EntityId, EntityId, EntityId) {
     let source = EntityId::new();
     let (root, joint, model) = (owner.id, bone.id, mesh.id);
     owner.animator = Some(Animator {
+        controller: None,
         skeleton: AssetId::new(),
         clip: Some(AssetId::new()),
         bindings: [(source, Some(EntityRef::local(joint)))].into(),

@@ -112,12 +112,13 @@ fn runtime_resources(
     assets: &mut AssetStore,
 ) -> Result<comet_runtime::RuntimeResources> {
     comet_application::extract(snapshot, assets, &[])?;
-    let (skeletons, animations) = assets.animation_sources(snapshot)?;
+    let libraries = assets.animation_sources(snapshot)?;
     Ok(comet_runtime::RuntimeResources {
         scripts: assets.script_sources(snapshot)?,
         navigation: assets.navigation_data(snapshot)?,
         audio: assets.audio_sources(snapshot)?,
-        skeletons,
-        animations,
+        skeletons: libraries.skeletons,
+        animations: libraries.clips,
+        controllers: libraries.controllers,
     })
 }

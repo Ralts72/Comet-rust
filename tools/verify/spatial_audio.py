@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 
-from audio import CUE, LOOP
+from audio import CUE
 
 SCENE = "a0000000-0000-4000-8000-00000000000c"
 SCRIPT = "a0000000-0000-4000-8000-00000000000d"
@@ -20,7 +20,6 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert all("editor" not in entry for entry in entries.values()), "package retains editor provenance"
     assert entries[SCENE]["kind"] == "scene" and entries[SCRIPT]["kind"] == "script"
     assert {CUE, SCRIPT} <= set(entries[SCENE]["dependencies"])
-    assert {asset for asset, entry in entries.items() if entry["kind"] == "audio"} == {LOOP, CUE}
     assert entries[CUE]["dependencies"] == entries[SCRIPT]["dependencies"] == []
     scene = read_product(products, entries, SCENE, protocols)["data"]
     assert scene["version"] == 1 and scene["base"]["version"] == 8

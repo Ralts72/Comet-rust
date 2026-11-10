@@ -112,6 +112,15 @@ impl AssetStore {
                 };
                 clip.validate_for(skeleton)?;
             }
+            Product::AnimationController(controller) => {
+                for clip in controller.clips() {
+                    let clip = self.load(clip)?;
+                    let Product::AnimationClip(clip) = &clip.payload else {
+                        anyhow::bail!("controller requires animation clips");
+                    };
+                    controller.validate_clip(clip)?;
+                }
+            }
             _ => {}
         }
         let file = Arc::new(file);
@@ -225,17 +234,26 @@ impl AssetStore {
     pub fn animation_sources(
         &mut self,
         snapshot: &SceneSnapshot,
-    ) -> Result<(
-        comet_asset_data::SkeletonLibrary,
-        comet_asset_data::AnimationLibrary,
-    )> {
+    ) -> Result<comet_asset_data::AnimationLibraries> {
         snapshot.validate()?;
         let mut skeleton_ids = BTreeSet::new();
         let mut clip_ids = BTreeSet::new();
+        let mut controllers = comet_asset_data::ControllerLibrary::new();
         for entity in &snapshot.entities {
             if let Some(animator) = &entity.animator {
                 skeleton_ids.insert(animator.skeleton);
                 clip_ids.extend(animator.clip);
+                if let Some(id) = animator.controller {
+                    let product = self.load(id)?;
+                    let Product::AnimationController(controller) = &product.payload else {
+                        anyhow::bail!(
+                            "animator controller requires an animation controller product"
+                        );
+                    };
+                    skeleton_ids.insert(controller.skeleton);
+                    clip_ids.extend(controller.clips());
+                    controllers.insert(id, Arc::new(controller.clone()));
+                }
             }
             if let Some(binding) = &entity.skin {
                 let product = self.load(binding.skin)?;
@@ -267,7 +285,11 @@ impl AssetStore {
             };
             skeletons.insert(id, Arc::new(skeleton.clone()));
         }
-        Ok((skeletons, animations))
+        Ok(comet_asset_data::AnimationLibraries {
+            skeletons,
+            clips: animations,
+            controllers,
+        })
     }
     /// Validate all world dependency kinds, then return enabled scripts for Runtime compilation.
     pub fn script_sources(

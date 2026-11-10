@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "skeleton": "c770291e-4bf6-55c5-ab37-b59fffb339a2",
+  "parameters": {
+    "speed": 0.0,
+    "grounded": true,
+    "rising": false,
+    "crouched": false
+  },
+  "initial": "ground",
+  "states": [
+    {
+      "name": "ground",
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "055b6b47-e683-5d69-bd3e-acbedccd7ade"
+        },
+        {
+          "threshold": 4,
+          "clip": "777b8d9f-388a-5637-b3f2-1dee5307e6c4"
+        },
+        {
+          "threshold": 6,
+          "clip": "1d855673-c519-5b75-97cb-819c70b2e431"
+        }
+      ],
+      "parameter": "speed",
+      "smoothing": 0.15,
+      "looping": true,
+      "events": [
+        {
+          "phase": 0.2,
+          "name": "footstep"
+        },
+        {
+          "phase": 0.7,
+          "name": "footstep"
+        }
+      ]
+    },
+    {
+      "name": "crouch",
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "af7a4647-b597-59ab-afcb-394f33b3a9f7"
+        },
+        {
+          "threshold": 2,
+          "clip": "1d2d5bd6-fa5a-5ed7-aace-97ced6868c7a"
+        }
+      ],
+      "parameter": "speed",
+      "smoothing": 0.15,
+      "looping": true,
+      "events": [
+        {
+          "phase": 0.2,
+          "name": "footstep"
+        },
+        {
+          "phase": 0.7,
+          "name": "footstep"
+        }
+      ]
+    },
+    {
+      "name": "jump",
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "02ccf021-c30e-544b-b704-d15985337651"
+        }
+      ],
+      "looping": false
+    },
+    {
+      "name": "fall",
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "d0261196-6f94-53f0-acc5-6f98270af144"
+        }
+      ],
+      "looping": false
+    }
+  ],
+  "transitions": [
+    {
+      "from": null,
+      "to": "jump",
+      "duration": 0.15,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "rising",
+          "compare": "==",
+          "value": true
+        }
+      ]
+    },
+    {
+      "from": null,
+      "to": "fall",
+      "duration": 0.15,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "rising",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    },
+    {
+      "from": null,
+      "to": "crouch",
+      "duration": 0.15,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "crouched",
+          "compare": "==",
+          "value": true
+        }
+      ]
+    },
+    {
+      "from": null,
+      "to": "ground",
+      "duration": 0.15,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "crouched",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    }
+  ]
+}

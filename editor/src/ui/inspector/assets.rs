@@ -17,6 +17,7 @@ pub(super) struct Catalog {
     pub scripts: Vec<AssetId>,
     pub skeletons: Vec<AssetId>,
     pub clips: Vec<AssetId>,
+    pub controllers: Vec<AssetId>,
     pub skins: Vec<AssetId>,
     pub skeleton: BTreeMap<AssetId, AssetId>,
     pub labels: BTreeMap<AssetId, String>,
@@ -43,6 +44,7 @@ pub(super) fn catalog(ui: &egui::Ui, assets: &AssetStore) -> Arc<Catalog> {
             AssetKind::Skeleton => (&mut value.skeletons, "骨架"),
             AssetKind::Skin => (&mut value.skins, "蒙皮"),
             AssetKind::AnimationClip => (&mut value.clips, "动画片段"),
+            AssetKind::AnimationController => (&mut value.controllers, "动画控制器"),
             _ => continue,
         };
         let label = entry.editor.as_ref().map_or_else(
@@ -129,34 +131,40 @@ pub(super) fn draw_common(
             _ => unreachable!("common asset menu field"),
         };
         let selected = ui
-            .add_enabled_ui(editable, |ui| {
-                draw(
-                    ui,
-                    editor,
-                    primary.id,
-                    Choice {
-                        field,
-                        label,
-                        current,
-                        mixed,
-                        empty,
-                    },
-                    list.iter()
-                        .copied()
-                        .filter(|id| {
-                            field != schema::ANIMATOR_CLIP
-                                || choices.skeleton.get(id).is_some_and(|skeleton| {
-                                    entities.iter().all(|entity| {
-                                        entity
-                                            .animator
-                                            .as_ref()
-                                            .is_some_and(|animator| animator.skeleton == *skeleton)
+            .add_enabled_ui(
+                editable
+                    && (field != schema::ANIMATOR_CLIP
+                        || entities
+                            .iter()
+                            .all(|e| e.animator.as_ref().is_none_or(|a| a.controller.is_none()))),
+                |ui| {
+                    draw(
+                        ui,
+                        editor,
+                        primary.id,
+                        Choice {
+                            field,
+                            label,
+                            current,
+                            mixed,
+                            empty,
+                        },
+                        list.iter()
+                            .copied()
+                            .filter(|id| {
+                                field != schema::ANIMATOR_CLIP
+                                    || choices.skeleton.get(id).is_some_and(|skeleton| {
+                                        entities.iter().all(|entity| {
+                                            entity.animator.as_ref().is_some_and(|animator| {
+                                                animator.skeleton == *skeleton
+                                            })
+                                        })
                                     })
-                                })
-                        })
-                        .map(|id| (id, choices.labels[&id].as_str())),
-                )
-            })
+                            })
+                            .map(|id| (id, choices.labels[&id].as_str())),
+                    )
+                },
+            )
             .inner;
         if editable
             && !cancel

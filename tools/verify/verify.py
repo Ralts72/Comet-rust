@@ -879,6 +879,13 @@ def main():
         run("template_mismatch_rejected", [editor, "--app-template", bad_template, "--project", project, "--products", products, "--export-game", rejected_output], expect_failure=True)
         assert not rejected_output.exists() and "start.sh" in (OUT / "template_mismatch_rejected.log").read_text()
         relocated = case / ("relocated-game.app" if sys.platform == "darwin" else "relocated-game")
+        source_entries = json.loads((products / "index.json").read_text())["products"]
+        expected_products, pending = set(), list(manifest["scenes"])
+        while pending:
+            asset = pending.pop()
+            if asset not in expected_products:
+                expected_products.add(asset)
+                pending.extend(source_entries[asset]["dependencies"])
         built.rename(relocated)
         shutil.rmtree(project)
         shutil.rmtree(products)
@@ -887,7 +894,12 @@ def main():
         run("standalone_products", [assetc, "inspect", relocated / products_relative, scene], cwd=empty)
         inspected = json.loads((OUT / "standalone_products.log").read_text())
         assert DEMO_SCRIPT in inspected["dependencies"]
-        inspect_script_package(relocated / products_relative, scene, manifest["runtime"]["protocols"], [audio_verification.SCRIPT, spatial_verification.SCRIPT, collect_verification.SCRIPT, character_verification.SCRIPT])
+        inspect_script_package(relocated / products_relative, scene, manifest["runtime"]["protocols"], [audio_verification.SCRIPT, spatial_verification.SCRIPT, collect_verification.SCRIPT, character_verification.SCRIPT, character_verification.FEEDBACK])
+        package_entries = json.loads((relocated / products_relative / "index.json").read_text())["products"]
+        assert set(package_entries) == expected_products, "package differs from the declared scene dependency union"
+        audio_ids = {asset for asset, entry in package_entries.items() if entry["kind"] == "audio"}
+        assert audio_ids == {audio_verification.LOOP, audio_verification.CUE, character_verification.FOOTSTEP}
+        checks["audio_product_inventory"] = {"status": "passed", "clips": sorted(audio_ids)}
         inspect_navigation_package(relocated / products_relative, manifest["runtime"]["protocols"])
         checks["audio_package"] = audio_verification.inspect_package(relocated / products_relative, manifest["runtime"]["protocols"], read_product, ROOT / "demo/assets")
         checks["spatial_audio_package"] = spatial_verification.inspect_package(relocated / products_relative, manifest["runtime"]["protocols"], read_product, ROOT / "demo/assets")
@@ -1004,7 +1016,7 @@ def main():
                 "settings_file_unchanged": True, "checkpoint_created": False,
                 "scope": "Release packaged App and temporary explicit data directory; no listening claim"}
         checks["package_isolation"] = {"status": "passed", "package": str(relocated), "authoring_exists": project.exists(), "development_cache_exists": products.exists(), "included_scenes": manifest["scenes"], "product_count": len(json.loads((relocated / products_relative / "index.json").read_text())["products"])}
-        assert checks["package_isolation"]["product_count"] == 39
+        assert checks["package_isolation"]["product_count"] == len(expected_products)
         verify_empty_project(case, assetc, editor, template, args)
         verify_prefab_document(case, assetc, editor, template, args)
         checks["cubic_animation"] = animation_verification.verify_cubic(

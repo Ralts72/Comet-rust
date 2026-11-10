@@ -20,6 +20,18 @@ pub const ANIMATOR_SPEED: FieldKey = FieldKey {
     component: 13,
     field: 5,
 };
+pub const ANIMATOR_CONTROLLER: FieldKey = FieldKey {
+    component: 13,
+    field: 6,
+};
+pub const CHARACTER_ANIMATION_CHARACTER: FieldKey = FieldKey {
+    component: 15,
+    field: 1,
+};
+pub const CHARACTER_ANIMATION_ANIMATOR: FieldKey = FieldKey {
+    component: 15,
+    field: 2,
+};
 pub const SKIN_ASSET: FieldKey = FieldKey {
     component: 14,
     field: 1,
@@ -56,6 +68,36 @@ macro_rules! field {
     };
 }
 pub(super) static FIELDS: &[FieldDescriptor] = &[
+    field!(
+        ANIMATOR_CONTROLLER,
+        animator,
+        controller,
+        OptionalAsset,
+        optional_asset,
+        Asset,
+        "animator.controller",
+        |c| c.controller
+    ),
+    field!(
+        CHARACTER_ANIMATION_CHARACTER,
+        character_animation,
+        character,
+        Entity,
+        super::entity,
+        Entity,
+        "character_animation.character",
+        |c| c.character.clone()
+    ),
+    field!(
+        CHARACTER_ANIMATION_ANIMATOR,
+        character_animation,
+        animator,
+        Entity,
+        super::entity,
+        Entity,
+        "character_animation.animator",
+        |c| c.animator.clone()
+    ),
     field!(
         ANIMATOR_SKELETON,
         animator,

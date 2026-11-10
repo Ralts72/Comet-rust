@@ -166,6 +166,14 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
                     };
                     clip.validate_for(skeleton)?;
                 }
+                Product::AnimationController(controller) => {
+                    for clip in controller.clips() {
+                        let Some(Product::AnimationClip(clip)) = products.get(&clip) else {
+                            anyhow::bail!("controller requires animation clips");
+                        };
+                        controller.validate_clip(clip)?;
+                    }
+                }
                 _ => {}
             }
             if let Product::Scene(s) | Product::Prefab(s) = &product.file.payload {
@@ -286,7 +294,7 @@ fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
     };
     let mut previous: ProductIndex = serde_json::from_slice(&bytes)
         .context("parse previous product index; the existing index is invalid")?;
-    if matches!(previous.version, 1..=5) {
+    if matches!(previous.version, 1..=6) {
         let legacy: serde_json::Value = serde_json::from_slice(&bytes)?;
         ensure!(
             previous.version >= 3
@@ -322,14 +330,15 @@ fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
             "legacy index contains a newer audio asset kind"
         );
         ensure!(
-            previous.products.values().all(|entry| !matches!(
-                entry.kind,
-                AssetKind::Skeleton | AssetKind::Skin | AssetKind::AnimationClip
-            )),
+            previous.version >= 6
+                || previous.products.values().all(|entry| !matches!(
+                    entry.kind,
+                    AssetKind::Skeleton | AssetKind::Skin | AssetKind::AnimationClip
+                )),
             "legacy index contains a newer animation asset kind"
         );
         for (id, entry) in &previous.products {
-            if entry.kind == AssetKind::Mesh {
+            if previous.version < 6 && entry.kind == AssetKind::Mesh {
                 comet_core::validate_digest(&entry.digest)?;
                 let path = output
                     .join("products")
@@ -355,6 +364,13 @@ fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
                 mesh.validate()?;
             }
         }
+        ensure!(
+            previous
+                .products
+                .values()
+                .all(|entry| entry.kind != AssetKind::AnimationController),
+            "legacy index contains a newer animation controller kind"
+        );
         // Only the producer migrates known caches; author identities and current product bytes stay intact.
         previous.version = INDEX_VERSION;
     }

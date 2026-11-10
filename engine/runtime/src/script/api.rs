@@ -413,6 +413,35 @@ pub(super) fn register(engine: &mut Engine) {
         },
     );
     engine.register_fn(
+        "set_animation_parameter",
+        |context: &mut Context, entity: Entity, name: &str, value: Dynamic| -> ScriptResult<()> {
+            let value = if value.is::<bool>() {
+                comet_asset_data::AnimationParameter::Bool(value.cast())
+            } else {
+                comet_asset_data::AnimationParameter::Number(number(value)?)
+            };
+            context.enqueue(entity, |id| {
+                Command::AnimationParameter(id, name.into(), value)
+            })
+        },
+    );
+    engine.register_fn(
+        "animation_parameter",
+        |context: &mut Context, entity: Entity, name: &str| -> ScriptResult<Dynamic> {
+            let call = context.0.borrow();
+            let id = entity.resolve(&call)?;
+            let value = call
+                .animation_states
+                .get(&id)
+                .and_then(|state| state.parameters.get(name))
+                .ok_or("unknown animation controller parameter")?;
+            Ok(match value {
+                comet_asset_data::AnimationParameter::Bool(value) => (*value).into(),
+                comet_asset_data::AnimationParameter::Number(value) => (*value as FLOAT).into(),
+            })
+        },
+    );
+    engine.register_fn(
         "animation_state",
         |context: &mut Context, entity: Entity| -> ScriptResult<rhai::Map> {
             let call = context.0.borrow();
@@ -426,6 +455,12 @@ pub(super) fn register(engine: &mut Engine) {
                 ("duration".into(), Dynamic::from(state.duration as FLOAT)),
                 ("playing".into(), Dynamic::from(state.playing)),
                 ("speed".into(), Dynamic::from(state.speed as FLOAT)),
+                (
+                    "state".into(),
+                    Dynamic::from(state.state.as_deref().unwrap_or("").to_owned()),
+                ),
+                ("blend".into(), Dynamic::from(state.blend as FLOAT)),
+                ("clip".into(), Dynamic::from(state.clip.to_string())),
             ]
             .into())
         },

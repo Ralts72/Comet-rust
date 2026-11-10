@@ -405,7 +405,10 @@ fn animation_report(
         let state = play.animation_state(owner.id);
         controllers.push(
             serde_json::json!({"entity":owner.id,"skeleton":animator.skeleton,
-            "clip":animator.clip,"time":state.as_ref().map(|state| state.time),
+            "clip":state.as_ref().map(|state| state.clip),"controller":animator.controller,
+            "state":state.as_ref().and_then(|state|state.state.as_deref()),
+            "blend":state.as_ref().map(|state|state.blend),
+            "time":state.as_ref().map(|state| state.time),
             "duration":state.as_ref().map(|state| state.duration),
             "playing":state.as_ref().map(|state| state.playing),
             "speed":state.as_ref().map(|state| state.speed),"bindings":animator.bindings.len()}),
@@ -438,15 +441,16 @@ fn prepare_play(
     let scripts = assets.script_sources(&snapshot)?;
     let navigation = assets.navigation_data(&snapshot)?;
     let audio = assets.audio_sources(&snapshot)?;
-    let (skeletons, animations) = assets.animation_sources(&snapshot)?;
+    let libraries = assets.animation_sources(&snapshot)?;
     let mut candidate = PlaySession::start_with_progress(
         snapshot,
         comet_runtime::RuntimeResources {
             scripts,
             navigation,
             audio,
-            skeletons,
-            animations,
+            skeletons: libraries.skeletons,
+            animations: libraries.clips,
+            controllers: libraries.controllers,
         },
         scene,
         progress,

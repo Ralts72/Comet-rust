@@ -29,6 +29,7 @@ pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
         "rhai" => Some(AssetKind::Script),
         "nav" => Some(AssetKind::Navigation),
         "wav" => Some(AssetKind::Audio),
+        "ani" => Some(AssetKind::AnimationController),
         _ => None,
     }
 }
@@ -76,6 +77,12 @@ pub(crate) fn import(path: &Path, bytes: &[u8]) -> Result<Product> {
                 .context("script source must be UTF-8")?
                 .to_owned(),
         })
+    } else if name.ends_with(".ani") {
+        ensure!(
+            bytes.len() <= comet_asset_data::animation::controller::MAX_CONTROLLER_BYTES,
+            "animation controller source exceeds its byte budget"
+        );
+        Product::AnimationController(serde_json::from_slice(bytes)?)
     } else if name.ends_with(".wav") {
         Product::Audio(crate::audio::import(bytes)?)
     } else if name.ends_with(".nav") {
@@ -96,6 +103,7 @@ pub(crate) fn read(path: &Path) -> Result<Vec<u8>> {
         Some("gltf" | "glb") => Some(comet_asset_data::MAX_ANIMATION_BYTES),
         Some("rhai") => Some(MAX_SCRIPT_BYTES),
         Some("nav") => Some(comet_asset_data::navigation::MAX_NAVIGATION_BYTES),
+        Some("ani") => Some(comet_asset_data::animation::controller::MAX_CONTROLLER_BYTES),
         _ => None,
     };
     if let Some(limit) = limit {
@@ -163,6 +171,10 @@ mod tests {
         let temp = tempfile::tempdir()?;
         for (extension, limit) in [
             ("rhai", MAX_SCRIPT_BYTES),
+            (
+                "ani",
+                comet_asset_data::animation::controller::MAX_CONTROLLER_BYTES,
+            ),
             ("nav", comet_asset_data::navigation::MAX_NAVIGATION_BYTES),
             ("gltf", comet_asset_data::MAX_ANIMATION_BYTES),
             ("glb", comet_asset_data::MAX_ANIMATION_BYTES),

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "base": {
-    "version": 10,
+    "version": 11,
     "entities": [
       {
         "id": "e12b0501-e63f-535e-b1f0-c43c5731648a",
@@ -102,12 +102,12 @@
       },
       {
         "id": "06f607b4-6977-5a54-a024-a0ff38e8cdfb",
-        "name": "角色 / 外观 1",
+        "name": "角色 / 外观",
         "parent": "e12b0501-e63f-535e-b1f0-c43c5731648a",
         "transform": {
           "translation": [
             0.0,
-            0.0,
+            -0.8,
             0.0
           ],
           "rotation": [
@@ -117,27 +117,53 @@
             1.0
           ],
           "scale": [
-            0.4285714285714286,
-            1.142857142857143,
-            0.4285714285714286
+            1.0,
+            1.0,
+            1.0
           ]
         },
-        "model": {
-          "mesh": "5cc92713-d422-572f-8405-50a91d96417f",
-          "surface": {
-            "material": "1ec2f785-030e-55d5-b640-030a50caaa13",
-            "roughness": 0.4
-          }
-        },
+        "model": null,
         "links": {
           "target": null,
           "connections": []
+        },
+        "character_animation": {
+          "character": {
+            "scope": "local",
+            "entity": "e12b0501-e63f-535e-b1f0-c43c5731648a"
+          },
+          "animator": {
+            "scope": "in_instance",
+            "instance": "7b401d76-edb9-59a6-ac58-81a154e967c7",
+            "entity": "dfcb6432-d0ca-5970-950f-63ad0eb946f1"
+          }
+        },
+        "audio_source": {
+          "clip": "b064757d-3011-544d-bafc-8756cc8561cd",
+          "gain": 0.6,
+          "looping": false,
+          "autoplay": false,
+          "spatial": true
+        },
+        "script": {
+          "asset": "e4266474-5bd6-5c3b-b0a7-a83ac42133ba",
+          "enabled": true,
+          "parameters": {
+            "animator": {
+              "type": "entity",
+              "value": {
+                "scope": "in_instance",
+                "instance": "7b401d76-edb9-59a6-ac58-81a154e967c7",
+                "entity": "dfcb6432-d0ca-5970-950f-63ad0eb946f1"
+              }
+            }
+          }
         }
       },
       {
         "id": "3e7a251f-3ca8-513d-8486-0a38ca2d4daf",
-        "name": "角色 / 外观 2",
-        "parent": "e12b0501-e63f-535e-b1f0-c43c5731648a",
+        "name": "角色 / 模型",
+        "parent": "06f607b4-6977-5a54-a024-a0ff38e8cdfb",
         "transform": {
           "translation": [
             0.0,
@@ -146,23 +172,17 @@
           ],
           "rotation": [
             0.0,
+            1.0,
             0.0,
-            0.0,
-            1.0
+            0.0
           ],
           "scale": [
-            0.4285714285714286,
-            1.142857142857143,
-            0.4285714285714286
+            0.9,
+            0.9,
+            0.9
           ]
         },
-        "model": {
-          "mesh": "9500f4f3-3500-5aba-a25b-d39f512c1242",
-          "surface": {
-            "material": "584f61e7-2c75-54e4-b7bc-926b4fa9777e",
-            "roughness": 0.4
-          }
-        },
+        "model": null,
         "links": {
           "target": null,
           "connections": []
@@ -1221,6 +1241,35 @@
           "value": {
             "type": "bool",
             "value": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "7b401d76-edb9-59a6-ac58-81a154e967c7",
+      "prefab": "331e3889-e9ac-527e-ac27-0ae02585657f",
+      "parent": "3e7a251f-3ca8-513d-8486-0a38ca2d4daf",
+      "overrides": [
+        {
+          "entity": "dfcb6432-d0ca-5970-950f-63ad0eb946f1",
+          "field": {
+            "component": 13,
+            "field": 2
+          },
+          "value": {
+            "type": "optional_asset",
+            "value": null
+          }
+        },
+        {
+          "entity": "dfcb6432-d0ca-5970-950f-63ad0eb946f1",
+          "field": {
+            "component": 13,
+            "field": 6
+          },
+          "value": {
+            "type": "optional_asset",
+            "value": "412ab660-dc19-5a08-95f2-8e0439de26ca"
           }
         }
       ]

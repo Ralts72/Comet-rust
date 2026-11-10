@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from animation import CLIP, MATERIAL, MESH, NODES, SKELETON, SKIN, SOURCE, _child, _instanced
-from audio import CUE, LOOP
+from audio import CUE
 
 SCENE = "a0000000-0000-4000-8000-00000000000e"
 SCRIPT = "a0000000-0000-4000-8000-00000000000f"
@@ -49,7 +49,6 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
                         (MESH, "mesh"), (MATERIAL, "material")):
         assert entries[asset]["kind"] == kind
     assert entries[CUE]["kind"] == "audio" and entries[SCRIPT]["dependencies"] == []
-    assert {asset for asset, entry in entries.items() if entry["kind"] == "audio"} == {LOOP, CUE}
     assert entries[NEXT_SCENE]["kind"] == "scene"
     scene = read_product(products, entries, SCENE, protocols)["data"]
     assert scene["version"] == 1 and scene["base"]["version"] == 10

@@ -4,6 +4,11 @@ pub mod audio;
 pub mod navigation;
 pub mod package;
 pub mod product;
+pub use animation::AnimationLibraries;
+pub use animation::controller::{
+    AnimationCompare, AnimationCondition, AnimationControllerData, AnimationControllerState,
+    AnimationMotion, AnimationParameter, AnimationTransition, ControllerLibrary,
+};
 pub use animation::{
     ANIMATION_CLIP_VERSION, ANIMATION_VERSION, AnimationChannel, AnimationClipData, AnimationEvent,
     AnimationInterpolation, AnimationLibrary, AnimationValues, MAX_ANIMATION_BYTES,

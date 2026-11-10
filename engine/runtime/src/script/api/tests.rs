@@ -99,6 +99,10 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
             [(
                 id,
                 crate::AnimationState {
+                    clip: AssetId::new(),
+                    state: None,
+                    blend: 1.,
+                    parameters: Arc::new(Default::default()),
                     time: 0.25,
                     duration: 1.,
                     playing: true,

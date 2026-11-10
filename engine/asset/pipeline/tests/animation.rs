@@ -63,6 +63,120 @@ fn model() -> AssetId {
 }
 
 #[test]
+fn controller_products_validate_graph_types_and_dependencies_before_atomic_publication()
+-> Result<()> {
+    let f = Fixture::new()?;
+    let mut legacy: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.products.join("index.json"))?)?;
+    legacy["version"] = 6.into();
+    fs::write(f.products.join("index.json"), serde_json::to_vec(&legacy)?)?;
+    assert!(
+        AssetStore::open(&f.products).is_err(),
+        "runtime requires the current protocol"
+    );
+    f.prepare()?;
+    let source = f.project.join("assets/locomotion.ani");
+    let id = AssetId::new();
+    fs::write(
+        SourceMeta::path(&source),
+        serde_json::to_vec(&serde_json::json!({"version":1,"id":id}))?,
+    )?;
+    let definition = serde_json::json!({
+        "version":1,"skeleton":model().child("skeleton:scene"),"initial":"idle",
+        "parameters":{"speed":0.,"grounded":true},
+        "states":[{"name":"idle","parameter":"speed","looping":true,
+            "motions":[{"threshold":0.,"clip":model().child("animation:index:0")},{"threshold":4.,"clip":model().child("animation:index:0")}]}],
+        "transitions":[]
+    });
+    fs::write(&source, serde_json::to_vec(&definition)?)?;
+    let mut scene = ContentSource::from_json(&fs::read(f.project.join("assets/main.scene"))?)?;
+    scene.base.version = 11;
+    let owner = EntityId::in_asset(model(), "animation:controller");
+    for (field, value) in [
+        (comet_scene::schema::ANIMATOR_CLIP, None),
+        (comet_scene::schema::ANIMATOR_CONTROLLER, Some(id)),
+    ] {
+        scene.instances[0]
+            .overrides
+            .push(comet_scene::FieldOverride {
+                entity: owner,
+                field,
+                value: comet_scene::schema::FieldValue::OptionalAsset(value),
+            });
+    }
+    fs::write(f.project.join("assets/main.scene"), scene.to_json()?)?;
+    f.prepare()?;
+    let accepted = fs::read(f.products.join("index.json"))?;
+    let metadata = fs::read(SourceMeta::path(&source))?;
+    let duplicate =
+        serde_json::to_string(&definition)?.replace("\"speed\":0.0", "\"speed\":0.0,\"speed\":1.0");
+    fs::write(&source, duplicate)?;
+    assert!(f.prepare().is_err());
+    assert_eq!(fs::read(f.products.join("index.json"))?, accepted);
+    fs::write(&source, serde_json::to_vec(&definition)?)?;
+    let mut store = AssetStore::open(&f.products)?;
+    let snapshot = store.expand_scene(f.scene)?;
+    let libraries = store.animation_sources(&snapshot)?;
+    assert_eq!(libraries.controllers.len(), 1);
+    assert_eq!(
+        libraries.clips.len(),
+        1,
+        "shared motions retain one immutable clip"
+    );
+    assert!(store.dependency_closure(f.scene)?.contains(&id));
+    let mut cases = Vec::new();
+    for (key, value) in [
+        ("version", serde_json::json!(2)),
+        ("initial", serde_json::json!("missing")),
+        ("skeleton", serde_json::json!(f.scene)),
+    ] {
+        let mut bad = definition.clone();
+        bad[key] = value;
+        cases.push(bad);
+    }
+    for value in [serde_json::json!(0.), serde_json::json!(-1.)] {
+        let mut bad = definition.clone();
+        bad["states"][0]["motions"][1]["threshold"] = value;
+        cases.push(bad);
+    }
+    let mut bad = definition.clone();
+    bad["states"][0]["parameter"] = serde_json::json!("grounded");
+    cases.push(bad);
+    let mut bad = definition.clone();
+    bad["states"][0]["motions"][0]["clip"] = serde_json::json!(f.scene);
+    cases.push(bad);
+    let mut bad = definition.clone();
+    bad["states"][0]["events"] = serde_json::json!([{"phase":1.1,"name":"bad"}]);
+    cases.push(bad);
+    let mut bad = definition.clone();
+    let duplicate = bad["states"][0].clone();
+    bad["states"].as_array_mut().unwrap().push(duplicate);
+    cases.push(bad);
+    let mut bad = definition.clone();
+    bad["transitions"] =
+        serde_json::json!([{"from":"idle","to":"missing","duration":0.1,"conditions":[]}]);
+    cases.push(bad);
+    for bad in cases {
+        fs::write(&source, serde_json::to_vec(&bad)?)?;
+        assert!(f.prepare().is_err(), "{bad}");
+        assert_eq!(fs::read(f.products.join("index.json"))?, accepted);
+        assert_eq!(fs::read(SourceMeta::path(&source))?, metadata);
+    }
+    fs::write(&source, serde_json::to_vec(&definition)?)?;
+    assert_eq!(f.prepare()?.changed, 0);
+    let mut legacy: serde_json::Value = serde_json::from_slice(&accepted)?;
+    legacy["version"] = 6.into();
+    let bytes = serde_json::to_vec(&legacy)?;
+    fs::write(f.products.join("index.json"), &bytes)?;
+    assert!(
+        f.prepare().is_err(),
+        "index 6 cannot contain controller products"
+    );
+    assert_eq!(fs::read(f.products.join("index.json"))?, bytes);
+    Ok(())
+}
+
+#[test]
 fn animation_event_import_rejects_bad_tracks_before_replacing_the_accepted_product_index()
 -> Result<()> {
     let f = Fixture::new()?;
@@ -184,7 +298,8 @@ fn official_skin_builds_typed_products_and_scoped_bindings_then_loads_without_au
         assert_ne!(source, entity);
         assert!(snapshot.entities.iter().any(|node| node.id == *entity));
     }
-    let (skeletons, clips) = store.animation_sources(&snapshot)?;
+    let libraries = store.animation_sources(&snapshot)?;
+    let (skeletons, clips) = (libraries.skeletons, libraries.clips);
     assert_eq!((skeletons.len(), clips.len()), (1, 1));
     assert_eq!(f.prepare()?.changed, 0);
     assert_eq!(fs::read(SourceMeta::path(&f.source))?, metadata);
@@ -203,7 +318,7 @@ fn official_skin_builds_typed_products_and_scoped_bindings_then_loads_without_au
     fs::remove_dir_all(&f.products)?;
     let mut packaged = AssetStore::open(moved.join("products"))?;
     let snapshot = packaged.expand_scene(f.scene)?;
-    assert_eq!(packaged.animation_sources(&snapshot)?.1.len(), 1);
+    assert_eq!(packaged.animation_sources(&snapshot)?.clips.len(), 1);
     assert!(
         packaged
             .index()
@@ -389,7 +504,7 @@ fn author_unbound_rigs_remain_saveable_but_dangling_bindings_and_legacy_animatio
         Product::Prefab(value) => value.expand(&mut store)?,
         _ => unreachable!(),
     };
-    assert_eq!(store.animation_sources(&snapshot)?.0.len(), 1);
+    assert_eq!(store.animation_sources(&snapshot)?.skeletons.len(), 1);
     let index_path = f.products.join("index.json");
     let accepted = fs::read(&index_path)?;
     let animator = prefab

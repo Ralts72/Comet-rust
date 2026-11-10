@@ -130,6 +130,7 @@ pub const SCRIPT_PARAMETERS: FieldKey = FieldKey {
 /// Minimum scene protocol that can describe a field or a prefab override.
 pub fn required_scene_version(key: FieldKey) -> u32 {
     match key {
+        ANIMATOR_CONTROLLER | CHARACTER_ANIMATION_CHARACTER | CHARACTER_ANIMATION_ANIMATOR => 11,
         FieldKey {
             component: 13..=14, ..
         } => 9,

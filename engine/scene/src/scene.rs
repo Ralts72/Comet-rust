@@ -12,7 +12,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-pub const SCENE_VERSION: u32 = 10;
+pub const SCENE_VERSION: u32 = 11;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneSnapshot {
@@ -346,6 +346,9 @@ impl Scene {
             if let Some(skin) = e.skin {
                 entity.insert(skin);
             }
+            if let Some(driver) = e.character_animation {
+                entity.insert(driver);
+            }
         }
         self.revision = revision;
         self.cached = None;
@@ -426,6 +429,9 @@ impl Scene {
             if let Some(skin) = &data.skin {
                 entity.insert(skin.clone());
             }
+            if let Some(driver) = &data.character_animation {
+                entity.insert(driver.clone());
+            }
         }
         self.revision = revision;
         self.cached = Some(Arc::new(candidate));
@@ -451,8 +457,11 @@ impl Scene {
                 Option<&NavigationRegion>,
                 Option<&NavigationAgent>,
                 Option<&crate::AudioSource>,
-                Option<&crate::Animator>,
-                Option<&crate::SkinBinding>,
+                (
+                    Option<&crate::Animator>,
+                    Option<&crate::SkinBinding>,
+                    Option<&crate::CharacterAnimation>,
+                ),
             )>()
             .iter(&self.world)
             .map(
@@ -470,8 +479,7 @@ impl Scene {
                     region,
                     agent,
                     audio,
-                    animator,
-                    skin,
+                    (animator, skin, driver),
                 )| EntityData {
                     id: i.id,
                     name: i.name.clone(),
@@ -490,6 +498,7 @@ impl Scene {
                     audio_source: audio.cloned(),
                     animator: animator.cloned(),
                     skin: skin.cloned(),
+                    character_animation: driver.cloned(),
                 },
             )
             .collect();

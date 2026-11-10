@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+pub mod controller;
 
 pub const ANIMATION_VERSION: u32 = 1;
 pub const ANIMATION_CLIP_VERSION: u32 = 3;
@@ -18,6 +19,12 @@ pub const MAX_ANIMATION_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_SKIN_VERTICES: usize = 262_144;
 pub type SkeletonLibrary = BTreeMap<AssetId, Arc<SkeletonData>>;
 pub type AnimationLibrary = BTreeMap<AssetId, Arc<AnimationClipData>>;
+#[derive(Clone, Default)]
+pub struct AnimationLibraries {
+    pub skeletons: SkeletonLibrary,
+    pub clips: AnimationLibrary,
+    pub controllers: controller::ControllerLibrary,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -183,6 +190,29 @@ pub struct AnimationEvent {
     pub phase: f32,
     pub name: String,
 }
+fn validate_events(events: &[AnimationEvent]) -> Result<()> {
+    ensure!(
+        events.len() <= MAX_ANIMATION_EVENTS,
+        "animation event marker budget exceeded"
+    );
+    for event in events {
+        ensure!(
+            event.phase.is_finite()
+                && (0. ..=1.).contains(&event.phase)
+                && !event.name.trim().is_empty()
+                && event.name.len() <= 256
+                && !event.name.chars().any(char::is_control),
+            "invalid animation event phase or name"
+        );
+    }
+    ensure!(
+        events
+            .windows(2)
+            .all(|events| events[0].phase <= events[1].phase),
+        "animation events must be ordered by phase"
+    );
+    Ok(())
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -209,22 +239,7 @@ impl AnimationClipData {
                 && (self.events.is_empty() || (self.version >= 3 && self.duration > 0.)),
             "animation events require clip version 3, positive duration and at most {MAX_ANIMATION_EVENTS} markers"
         );
-        for event in &self.events {
-            ensure!(
-                event.phase.is_finite()
-                    && (0. ..=1.).contains(&event.phase)
-                    && !event.name.trim().is_empty()
-                    && event.name.len() <= 256
-                    && !event.name.chars().any(char::is_control),
-                "invalid animation event phase or name"
-            );
-        }
-        ensure!(
-            self.events
-                .windows(2)
-                .all(|events| events[0].phase <= events[1].phase),
-            "animation events must be ordered by phase"
-        );
+        validate_events(&self.events)?;
         ensure!(
             !self.channels.is_empty() && self.channels.len() <= MAX_ANIMATION_CHANNELS,
             "animation channel budget exceeded"

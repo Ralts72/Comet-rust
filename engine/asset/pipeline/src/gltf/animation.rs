@@ -411,6 +411,7 @@ pub(super) fn import(
     let mut owner = EntityData::new("蒙皮模型控制器");
     owner.id = controller;
     owner.animator = Some(Animator {
+        controller: None,
         skeleton: skeleton_id,
         clip: first_clip,
         bindings: node_ids

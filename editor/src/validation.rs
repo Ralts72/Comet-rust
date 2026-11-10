@@ -36,11 +36,12 @@ pub(crate) fn validate_sources<'a>(
 /// Incomplete explicit bindings remain editable; every other asset or draw error still rejects.
 pub(crate) fn validate_authoring(snapshot: &SceneSnapshot, assets: &mut AssetStore) -> Result<()> {
     allow_unbound(comet_application::extract(snapshot, assets, &[]).map(|_| ()))?;
-    let (skeletons, animations) = assets.animation_sources(snapshot)?;
+    let libraries = assets.animation_sources(snapshot)?;
     allow_unbound(comet_runtime::validate_animations(
         snapshot,
-        &skeletons,
-        &animations,
+        &libraries.skeletons,
+        &libraries.clips,
+        &libraries.controllers,
     ))
 }
 

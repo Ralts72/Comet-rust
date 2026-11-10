@@ -22,6 +22,7 @@ fn scene_handoff_and_shutdown_report_keep_the_current_published_animation_state(
     joint.parent = Some(owner);
     let target = joint.id;
     controller.animator = Some(Animator {
+        controller: None,
         skeleton,
         clip: Some(clip),
         bindings: BTreeMap::from([(node, Some(EntityRef::Local { entity: target }))]),

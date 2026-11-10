@@ -165,7 +165,15 @@ pub(in crate::ui) fn draw(
             super::assets::draw_common(editor, ui, assets, entities, assets_fields);
         }
         draw_fields(editor, ui, assets, entities, fields, editor.play.is_none());
-        draw_flags(editor, ui, assets, entities, flags);
+        if key != schema::ANIMATOR_SPEED
+            || entities
+                .iter()
+                .all(|e| e.animator.as_ref().is_none_or(|a| a.controller.is_none()))
+        {
+            draw_flags(editor, ui, assets, entities, flags);
+        } else {
+            ui.weak("状态的片段和循环由动画控制器配置。");
+        }
         if key == schema::AUDIO_GAIN {
             // Match the legacy Inspector: distances are disabled only when every source is 2D.
             let spatial = entities

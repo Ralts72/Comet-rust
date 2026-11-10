@@ -358,6 +358,7 @@ impl Physics {
             motor.state.position = update.translation;
             motor.state.grounded = false;
             motor.state.vertical_velocity = 0.;
+            motor.state.horizontal_velocity = [0.; 2];
         }
         refresh_queries(&mut self.world);
         Ok(())

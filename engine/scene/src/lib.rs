@@ -1,7 +1,9 @@
 //! Persistent scene content, independent of editing and simulation services.
 mod animation;
 mod audio;
-pub use animation::{Animator, AnimatorBindings, MAX_ANIMATOR_BINDINGS, SkinBinding, UnboundRig};
+pub use animation::{
+    Animator, AnimatorBindings, CharacterAnimation, MAX_ANIMATOR_BINDINGS, SkinBinding, UnboundRig,
+};
 pub mod components;
 pub use audio::AudioSource;
 mod joints;

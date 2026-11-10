@@ -9,6 +9,55 @@ use comet_scene::{Animator, EntityData, EntityRef, SceneSnapshot, SkinBinding, s
 use std::collections::BTreeSet;
 
 impl Editor {
+    pub(crate) fn edit_character_animation(
+        &mut self,
+        id: EntityId,
+        driver: Option<comet_scene::CharacterAnimation>,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.ensure_authoring_editable()?;
+        let target = self.resolve_field_target(id, assets)?;
+        let snapshot = self.document.expand(assets)?;
+        let before = snapshot
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .context("角色动画对象已不存在")?;
+        let mut after = before.clone();
+        after.character_animation = driver;
+        let mut edits = Vec::new();
+        if matches!(target, FieldTarget::Prefab { .. }) {
+            ensure!(
+                before.character_animation.is_some() == after.character_animation.is_some(),
+                "请在源 Prefab 中维护角色动画组件结构"
+            );
+        }
+        for field in [
+            schema::CHARACTER_ANIMATION_CHARACTER,
+            schema::CHARACTER_ANIMATION_ANIMATOR,
+        ] {
+            let descriptor = schema::descriptor(field)?;
+            if let Some(mut value) = descriptor.read(&after) {
+                self.source_field_value(target, &mut value, assets)?;
+                if matches!(target, FieldTarget::Authored(_)) {
+                    descriptor.write(&mut after, value)?;
+                } else if descriptor.read(before) != descriptor.read(&after) {
+                    edits.push(FieldEdit {
+                        target,
+                        field,
+                        value,
+                    });
+                }
+            }
+        }
+        self.preview_document(assets, |document, assets| match target {
+            FieldTarget::Authored(_) => {
+                document.preview_character_animation(id, after.character_animation, assets)
+            }
+            FieldTarget::Prefab { .. } => document.preview_field_values(&edits, assets),
+        })
+    }
+
     pub(crate) fn replace_animation_clips(
         &mut self,
         ids: &[EntityId],
@@ -56,6 +105,7 @@ impl Editor {
             for field in [
                 schema::ANIMATOR_SKELETON,
                 schema::ANIMATOR_CLIP,
+                schema::ANIMATOR_CONTROLLER,
                 schema::ANIMATOR_BINDINGS,
                 schema::ANIMATOR_LOOPING,
                 schema::ANIMATOR_SPEED,
@@ -118,6 +168,16 @@ pub(crate) fn validate_configuration(
             ensure!(
                 clip.skeleton == animator.skeleton,
                 "动画片段与当前骨架不匹配"
+            );
+        }
+        if let Some(controller) = animator.controller {
+            let product = assets.load(controller)?;
+            let Product::AnimationController(controller) = &product.payload else {
+                anyhow::bail!("请选择动画控制器产品");
+            };
+            ensure!(
+                controller.skeleton == animator.skeleton,
+                "动画控制器与当前骨架不匹配"
             );
         }
     }

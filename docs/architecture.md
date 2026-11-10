@@ -37,7 +37,7 @@
 | 关节锚点、限位与 motor | 本地锚点、连接锚点；角度限位、行程限位；驱动 | 沿用旧属性术语；连接锚点继续注明本地或世界空间，限位仍只有硬限位 |
 | AudioSource | 音频源 | 沿用旧组件名，播放/停止声音是运行操作 |
 | 音频源属性 | 音频片段、启动时播放、空间音效、开始衰减距离、最大距离 | 沿用旧标签；当前固定衰减规则不等于旧版可调衰减强度 |
-| Animator | 动画、播放片段、循环、播放速度 | 沿用旧组件名；单 Clip 组件不称为旧版状态机资源“动画控制器” |
+| Animator | 动画、播放片段、循环、播放速度 | 沿用旧组件名；“动画控制器”专指 `.ani` 状态机资产 |
 | SkinBinding | 蒙皮资源、动画实体 | 当前显式绑定方式；动画实体指持有 Animator 的实体，不是状态机资产 |
 | 游戏保存 | 保存进度、继续存档 | 沿用旧游戏用语；当前手动保存单槽检查点，Editor 预览仅在内存中保留，未接入自动保存 |
 | 单位与参数含义 | 质量 (kg)、移动/蹲伏/跳跃速度 (m/s)、地面吸附距离 (m) | 同量使用旧标签与单位；跑步倍率、重力 (m/s²)、胶囊半高（不含端部，米）分别是倍率、绝对加速度和半高，不套用旧版跑步速度、重力倍率或胶囊总高度 |
@@ -169,10 +169,11 @@ Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links�
 | 10 NavigationRegion | 1–7 | data / half_extents / cell_size / agent_radius / agent_height / max_climb / max_slope_degrees | 可空导航资产、世界米数与度；轴对齐根区域 |
 | 11 NavigationAgent | 1/2/3 | enabled / target / arrival_distance | 启用、可空 EntityRef、正到达距离 |
 | 12 AudioSource | 1–7 | clip / gain / looping / autoplay / spatial / min_distance / max_distance | 音频资产、[0,1] 音量、播放设置、空间开关与米制近远距离；5–7 要求 Scene8 |
-| 13 Animator | 1–5 | skeleton / clip / bindings / looping / speed | 骨架、可选 Clip、源节点到场景引用映射和播放设置；要求 Scene9 |
-| 14 SkinBinding | 1–2 | skin / animator | Skin 资产与可选控制器引用；与 Model 共存，要求 Scene9 |
+| 13 Animator | 1–6 | skeleton / clip / bindings / looping / speed / controller | 原字段要求 Scene9；可选控制器与 Clip 互斥，字段 6 要求 Scene11 |
+| 14 SkinBinding | 1–2 | skin / animator | Skin 资产与可选动画实体引用；与 Model 共存，要求 Scene9 |
+| 15 CharacterAnimation | 1–2 | character / animator | 视觉容器绑定父角色与后代动画实体，要求 Scene11 |
 
-场景快照当前版本为 10；仍读取版本 1–9。版本 10 增加 InInstance 实体引用，旧版本不能夹带该引用；文档按具体字段值显式升级，旧 Local/External 引用不因此升级。版本 9 增加可选 Animator 与 SkinBinding；旧版本不能夹带这些组件，缺失字段不补写。版本 8 增加 AudioSource 空间配置，缺少字段时默认 spatial=false、近距 1 米、远距 30 米；默认值不写入旧 2D 格式，普通 Scene7 打开、保存和构建保留版本。空间启用或非默认距离要求版本 8，新 Schema 字段覆盖同样要求版本 8。版本 7 增加可选 `audio_source`，版本 6 增加可选 `navigation_region`、`navigation_agent`，版本 5 增加三种可选关节，版本 4 增加可选 Script；缺少这些组件的旧场景保留原协议。版本 2 支持可选 `physics`、`character`，版本 3 增加可配置蹲伏速度和高度比例。旧场景缺少蹲伏字段时使用默认值（2、0.6），默认字段不额外写入旧格式；版本 1 不允许物理组件，版本 2 不允许非默认蹲伏配置。最低协议由 Scene 的 EntityData 按实际组件配置及引用值统一计算，Scene 校验和 Document 组件/插入候选复用同一规则；字段与覆盖同时考虑字段版本和具体值。只打开和保存旧场景保留版本与 UUID，显式编辑才升级，撤销可恢复旧版本。Prefab 新字段覆盖也升级作者 base，展开时只升级被覆写候选并合成最高版本，不修改源 Prefab。ContentSource 外层版本仍为 1；产品需随协议实现重新构建，metadata 身份不变。
+场景快照当前版本为 11；仍读取版本 1–10。版本 11 增加 Animator.controller 与 CharacterAnimation；缺失字段不补写，旧场景保持原版本。版本 10 增加 InInstance 实体引用，旧版本不能夹带该引用；文档按具体字段值显式升级，旧 Local/External 引用不因此升级。版本 9 增加可选 Animator 与 SkinBinding；旧版本不能夹带这些组件，缺失字段不补写。版本 8 增加 AudioSource 空间配置，缺少字段时默认 spatial=false、近距 1 米、远距 30 米；默认值不写入旧 2D 格式，普通 Scene7 打开、保存和构建保留版本。空间启用或非默认距离要求版本 8，新 Schema 字段覆盖同样要求版本 8。版本 7 增加可选 `audio_source`，版本 6 增加可选 `navigation_region`、`navigation_agent`，版本 5 增加三种可选关节，版本 4 增加可选 Script；缺少这些组件的旧场景保留原协议。版本 2 支持可选 `physics`、`character`，版本 3 增加可配置蹲伏速度和高度比例。旧场景缺少蹲伏字段时使用默认值（2、0.6），默认字段不额外写入旧格式；版本 1 不允许物理组件，版本 2 不允许非默认蹲伏配置。最低协议由 Scene 的 EntityData 按实际组件配置及引用值统一计算，Scene 校验和 Document 组件/插入候选复用同一规则；字段与覆盖同时考虑字段版本和具体值。只打开和保存旧场景保留版本与 UUID，显式编辑才升级，撤销可恢复旧版本。Prefab 新字段覆盖也升级作者 base，展开时只升级被覆写候选并合成最高版本，不修改源 Prefab。ContentSource 外层版本仍为 1；产品需随协议实现重新构建，metadata 身份不变。
 Scene 同时检查局部字段和组合后的世界矩阵，有限本地数值不能绕过层级乘积溢出校验。字段候选、场景替换、Prefab 覆盖与姿态写回在成功发布前共用组合规则；Prefab 的同一实例覆盖一次批量校验，不以逐字段的临时状态拒绝合法最终结果。姿态快路径只借用当前 Identity/Transform 和待写姿态，不克隆 EntityData 或脚本参数；变化时重算世界矩阵，组合 O(N log N)、辅助空间 O(N)，无变化沿用早退。结构/引用校验仍有其原有成本，不据此承诺整个 Scene 验证已线性化。
 
 PrefabRoot 是不序列化的派生元数据，由真实展开同步收集源实体、相对嵌套 InstanceId 路径和根层级约束。实例化及复制沿路径逐层组合 scope 后再派生实体 UUID，不能对已展开 UUID 再套一次 instance，也不能按新旧随机 UUID 排序配对。Editor 每条结构命令按 AssetId 缓存这类轻量元数据，同实例多根合并为一次操作并保留各选中根及点击锚点；发布后选择映射不读取资源。内部非根节点仍不提供结构覆盖。
@@ -342,9 +343,9 @@ Pipeline 在私有 gltf/animation.rs 适配既有 gltf Reader，不向运行模�
 
 Skeleton/Skin 保持 v1；Clip v1 仍读取和产出 STEP/LINEAR，新含 CUBICSPLINE 的片段使用 Clip v2，混合通道同属 v2。不修改 Scene、外层产品或现有资产身份，也不重写旧片段；旧运行程序会拒绝新插值及版本，配对模板仍按源码身份校验。CUBICSPLINE 每键保存入切线、值、出切线，至少两个关键帧；旋转值要求近单位四元数，切线只要求有限，导入不归一化切线或翻转符号。采样遵循 [glTF 插值规范](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#appendix-c-animation-sampler-interpolation-modes)，按秒缩放切线，以 f64 计算 Hermite 分量；旋转结果在 f64 中归一化，零四元数和向量溢出明确失败，姿态及播放时钟均不部分发布。关键帧累计上限不变，输出最多为三倍条目，仍受产品字节预算约束。
 
-Animator 的 bindings 键是稳定源节点身份，值才是当前 Scene EntityRef；Prefab 展开、复制与删除只处理引用值，不能靠猜测嵌套实例 UUID 恢复绑定。导入的 Animator 根实体统一承接源场景根，骨骼姿态仍由 Scene 唯一持有。强引用仍有效的 Scene 中，明确未绑定、缺少或过期的源键可作为 UnboundRig 打开和保存；源键集合变化导致的旧绑定层级同时延后修复，原映射保持。已知节点、产品、t0 姿态及其余绘制仍完整校验，不用未绑定掩盖后续错误。悬空 Local 强引用与失效 Prefab override 继续严格拒绝，不自动删除或迁移。Play、App 和全部导出场景要求完整绑定。Runtime 启动采样 t0，固定步在脚本后、物理前采样 STEP、短弧 LINEAR 和 CUBICSPLINE TRS，使用 f64 时钟；零时长固定采样，不执行除零循环。只写通道拥有的 TRS，保留未动画的作者/Prefab 值，物理目标和重复驱动拒绝。暂停/冻结不推进，重开和换关重建播放状态，不写作者历史。
+Animator 的 bindings 键是稳定源节点身份，值才是当前 Scene EntityRef；Prefab 展开、复制与删除只处理引用值，不能靠猜测嵌套实例 UUID 恢复绑定。导入的 Animator 根实体统一承接源场景根，骨骼姿态仍由 Scene 唯一持有。强引用仍有效的 Scene 中，明确未绑定、缺少或过期的源键可作为 UnboundRig 打开和保存；源键集合变化导致的旧绑定层级同时延后修复，原映射保持。已知节点、产品、t0 姿态及其余绘制仍完整校验，不用未绑定掩盖后续错误。悬空 Local 强引用与失效 Prefab override 继续严格拒绝，不自动删除或迁移。Play、App 和全部导出场景要求完整绑定。Runtime 启动采样 t0，固定步在脚本、导航和物理完成后采样 STEP、短弧 LINEAR 和 CUBICSPLINE TRS，使用 f64 时钟；零时长固定采样，不执行除零循环。只写通道拥有的 TRS，保留未动画的作者/Prefab 值，物理目标和重复驱动拒绝。暂停/冻结不推进，重开和换关重建播放状态，不写作者历史。
 
-运行播放时钟归每个 Animator，默认从 0 自动播放。Rhai 的 `play_animation(entity)` 每次从 0 播放或重播，`pause_animation` 保持当前位置，`resume_animation` 从暂停处继续但不复活已结束的非循环片段；`set_animation_speed(entity, speed)` 接受有限非负速度，不倒带，速度 0 保持播放意图但不推进时间。`animation_state(entity)` 返回已发布的 `{time, duration, playing, speed}`，同一回调排入命令后仍读旧状态；Rust 宿主使用 `PlaySession::animation_state`，不暴露内部播放对象。命令与变换、物理、声音、HUD 及换关一起校验后发布，共用 256 条预算；无有效片段、坏目标或后续失败不会留下部分播放意图。
+运行播放时钟归每个 Animator，默认从 0 自动播放。Rhai 的 `play_animation(entity)` 每次从 0 播放或重播，`pause_animation` 保持当前位置，`resume_animation` 从暂停处继续但不复活已结束的非循环片段；`set_animation_speed(entity, speed)` 接受有限非负速度，不倒带，速度 0 保持播放意图但不推进时间。`animation_state(entity)` 返回已发布的 `{time, duration, playing, speed, clip, state, blend}`，同一回调排入命令后仍读旧状态；Rust 宿主使用 `PlaySession::animation_state`，不暴露内部播放对象。命令与变换、物理、声音、HUD 及换关一起校验后发布，共用 256 条预算；无有效片段、坏目标或后续失败不会留下部分播放意图。
 
 启动先采样 0，再执行 on_start，全部启动回调后统一以 delta 0 发布暂停、速度及重播结果。后续重播在下一个采样阶段只发布 0，不再加该阶段的时长；触发回调位于采样之后，因此本步请求重播在下一固定步归零，再从后一步推进。查询及报告描述最近成功发布的姿态，不把尚未采样的命令冒充新姿态。片段的 `playing` 与全局 Play 暂停独立：全局暂停或宿主冻结时，片段可仍为 playing=true，但时钟不推进；全局单步执行一个固定步，仍遵守片段自身的暂停和速度，不能越过 `pause_animation`。Stop、重开和换关清理播放意图及查询缓存，新世界从作者配置重新启动。
 
@@ -352,11 +353,19 @@ Inspector 的“动画”面板显示只读骨架，允许选择同骨架片段�
 
 Application 复用展开 Scene 的 jointWorld × inverseBind 生成不可变世界空间调色板；蒙皮 Draw 的 model 为单位阵，忽略 glTF mesh 节点自身变换，Actor 与 Prefab 祖先只应用一次。Render 保留静态顶点流，蒙皮增加独立影响流和有界常规骨骼缓冲；场景/阴影与 CPU 点击/框选使用同一变形规则，提交数据保活至 GPU 完成。法线使用加权线性矩阵的缩放余子式并处理镜像符号，奇异结果为零法线/环境光，不把合法混合退化升级为整世界失败。
 
-glTF 读取预算为累计输入 64 MiB，每个 primitive 最多 262144 顶点与 1572864 索引，静态与蒙皮共用这些导入上限。动画上限为 128 joints、每 rig 2048 源节点、每世界 8192 驱动节点、每 Clip 262144 keys、每动画/网格产品 64 MiB；Skin/Clip 与引用骨架联合校验。animation.scene 复用唯一官方 CC0 SimpleSkin 源，提供真实蒙皮消费；状态机、根运动、重定向、IK 与动态蒙皮碰撞尚未接入。
+glTF 读取预算为累计输入 64 MiB，每个 primitive 最多 262144 顶点与 1572864 索引，静态与蒙皮共用这些导入上限。动画上限为 128 joints、每 rig 2048 源节点、每世界 8192 驱动节点、每 Clip 262144 keys、每动画/网格产品 64 MiB；Skin/Clip 与引用骨架联合校验。animation.scene 复用唯一官方 CC0 SimpleSkin 源，提供真实蒙皮消费；参数状态机与一维混合见下文；根运动、分层、重定向、IK 与动态蒙皮碰撞尚未接入。
 
 AnimationClipData v3 增加可选 events；无事件的线性/阶梯片段继续输出 v1，三次样条输出 v2，Runtime 保持读取 v1–3。glTF 导入器只读取 animation.extras.comet_events 的 `{phase, name}` 列表：phase 为有序的 0～1 阶段值，可包含同阶段的不同事件，每片段最多 128 项，名称非空、无控制字符且最多 256 UTF-8 字节；带事件的片段必须有正时长。原 metadata、节点、骨架、网格和片段 UUID 保持；产品缓存可由原作者源重建，不自动修改作者格式。当前仅迁移具名阶段事件，不提供旧状态机事件参数或编辑器时间线。
 
 Runtime 从取模前的推进区间收集事件，跨多圈按圈及轨道顺序触发；进入阶段 0、结束阶段 1 分别处理，暂停/零速/初始化姿态不发事件，重播从新入口重新消费。每固定步全世界最多 1024 项，超限在动画姿态、播放时钟和事件候选发布前拒绝。动画成功采样、物理及触发回调完成后，向启用脚本按稳定实体顺序派发 `on_animation_event(ctx, animator, name)`；animator 是当前世界句柄，观察者自行匹配参数中的目标。整批事件固定，回调中的重播不会递归产生本步事件；回调沿用命令候选、状态/执行预算及失败隔离，不创建第二套世界写入入口。
+
+`.ani` 是独立的 AnimationControllerData v1 CPU 产品，强引用同一骨架和片段；Pipeline 校验全部动作的类型、骨架和正时长，Runtime 只读加载依赖闭包。它不依赖旧 `.ani` 的 64 位 GUID 格式。最多 32 个 bool/有限数值参数、32 个状态、每状态 8 个有序阈值动作、128 条有序转换；整体源与产品受 256 KiB 上限约束。条件类型必须匹配声明，bool 只支持相等/不等。首条满足条件的转换生效，空 from 表示任意状态且不重入当前状态；after_finished 只在非循环状态结束后生效，每次采样最多转换一次。
+
+一维混合按参数夹取相邻动作，以共同归一化阶段采样并混合周期；参数变化保持阶段，可按真实时间指数平滑。未写通道回到骨架 rest，控制器对全部动作通道的并集取得所有权；旋转归一化后短弧混合。过渡从上一帧已发布的混合姿态快照淡入，源姿态在淡出期间固定；中断时重新取当前快照，不保存递归过渡树。这是当前明确范围，与旧版持续推进淡出动作的效果有差异。控制器使用状态 events，单片段使用片段 events；混合多个动作不重复派发轨道。初始化、暂停和零速不消费事件；非循环状态到尾保持可求值，以便后续 after_finished 转换。
+
+每个 Play 世界独立拥有参数、阶段、平滑值和过渡快照，产品仍共享不可变 Arc。Rhai 的 `set_animation_parameter(entity, name, value)` 与其他命令一起准备，未知参数、类型不符或坏数值使整批失败；`animation_parameter(entity, name)` 和状态查询只读最近成功采样。重播回到初始状态并保留本世界参数，重开或换关重新取作者默认值。Inspector 选择同骨架“动画控制器”会与清空片段组成一个事务；控制器启用时，片段/循环由状态资产定义。
+
+CharacterAnimation 位于角色的直接视觉子实体，绑定父 Character 与视觉子树内 Animator。固定步顺序为脚本、导航、物理、角色参数/外观定位、动画、触发回调、动画事件回调。驱动读取碰撞后的水平速度、着地、上升和实际蹲伏状态，写 speed/grounded/rising/crouched；视觉容器拥有自身平移与朝向，将模型放在胶囊脚底，模型对齐与缩放由其子层承担。多个驱动争用 Animator、动画片段争用视觉字段、角色驱动物理根均拒绝，不引入第二个角色位置来源。未绑定可在作者文档中保存修复，Play/导出必须完整。
 
 ## 游戏 HUD
 
@@ -423,7 +432,7 @@ Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常�
 
 Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径、版本校验与排他身份预留；构建、Scene/Prefab 创建和导航发布复用同一 metadata 写入规则，路径与候选校验仍归各自调用方。SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。有编辑来源信息时，作者身份必须对应源根，不能借用同类型的衍生产品 ID；源文件携带 metadata 改名后仍使用原身份，目录不按旧显示标签推断路径。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
-SceneSnapshot 协议为 10，产品协议为 5，索引协议为 6，NavigationData、AudioData、SkeletonData 与 SkinData 协议均为 1；AnimationClipData 支持 v1 线性/阶梯、v2 三次样条和 v3 具名阶段事件。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 可从有效 v1–5 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
+SceneSnapshot 协议为 11，产品协议为 6，索引协议为 7，NavigationData、AudioData、SkeletonData 与 SkinData 协议均为 1；AnimationClipData 支持 v1 线性/阶梯、v2 三次样条和 v3 具名阶段事件。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。AnimationControllerData 为 v1。Pipeline 可从有效 v1–6 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2，v1–6 不得夹带 AnimationController。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
 
 标签变化发布新索引身份；构建复用与 `AssetStore::refresh` 的内容比较只使用摘要、类型和运行依赖，后者保留未变产品的原 Arc。源文件与 metadata 一起改路径时可仅更新标签；glTF 内部内容修改仍参与输入摘要，唯一名称也参与既有子身份规则，不承诺改名保留 UUID。模型选择界面只读取已接纳索引，按 revision 缓存轻量 ID/标签列表，不加载产品或重新解析 glTF。
 

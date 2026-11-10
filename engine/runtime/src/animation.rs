@@ -1,9 +1,10 @@
-//! Clips drive the existing scene nodes; products and binding indices stay immutable per world.
+//! Immutable rig products feed per-world playback; candidate poses publish as one scene update.
 use anyhow::{Context, Result, ensure};
 use comet_asset_data::{
-    AnimationClipData, AnimationInterpolation, AnimationLibrary, AnimationValues, SkeletonLibrary,
+    AnimationInterpolation, AnimationLibrary, AnimationParameter, AnimationValues,
+    ControllerLibrary, SkeletonLibrary,
 };
-use comet_core::{EntityId, math::Quat};
+use comet_core::{AssetId, EntityId, math::Quat};
 use comet_scene::{
     EntityRef, FieldUpdate, Scene, SceneSnapshot, UnboundRig,
     schema::{self, FieldKey, FieldValue},
@@ -12,76 +13,74 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod character;
+mod controller;
+mod playback;
+use playback::{Mode, Playback, Rig};
 
 pub const MAX_ANIMATED_NODES: usize = 8192;
 const MAX_EVENTS_PER_STEP: usize = 1024;
 type TransformClaims = BTreeSet<(EntityId, u32)>;
-
 pub(crate) struct AnimationEventOccurrence {
     pub animator: EntityId,
     pub name: String,
 }
 
-/// The last successfully published clip sample, independent of the world's pause/suspend state.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Last published playback, independent of the whole world's pause/suspend state.
+#[derive(Clone, Debug, PartialEq)]
 pub struct AnimationState {
-    /// Wrapped/clamped clip seconds, not the world's elapsed time or an unconsumed reset intent.
     pub time: f64,
-    /// Selected clip length in seconds.
     pub duration: f64,
-    /// A clip may be playing at speed zero or while its whole Play world is paused.
     pub playing: bool,
-    /// Published playback multiplier; runtime overrides never change the author component.
     pub speed: f32,
+    pub clip: AssetId,
+    pub state: Option<Arc<str>>,
+    pub blend: f32,
+    pub parameters: Arc<BTreeMap<String, AnimationParameter>>,
 }
 pub(crate) type AnimationStates = BTreeMap<EntityId, AnimationState>;
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum AnimationCommand {
     Play(EntityId),
     Pause(EntityId),
     Resume(EntityId),
     Speed(EntityId, f32),
+    Parameter(EntityId, String, AnimationParameter),
 }
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct Control {
     playing: bool,
     speed: f32,
     reset: bool,
+    parameters: Arc<BTreeMap<String, AnimationParameter>>,
 }
 pub(crate) struct PreparedAnimationControls(BTreeMap<EntityId, Control>);
-
 pub fn validate_animations(
     snapshot: &SceneSnapshot,
     skeletons: &SkeletonLibrary,
-    animations: &AnimationLibrary,
+    clips: &AnimationLibrary,
+    controllers: &ControllerLibrary,
 ) -> Result<()> {
-    Animation::new(snapshot, skeletons, animations).map(|_| ())
-}
-
-struct Playback {
-    clip: Arc<AnimationClipData>,
-    targets: Vec<(usize, EntityId)>,
-    looping: bool,
-    cursor: f64,
-    control: Control,
-    events_started: bool,
+    Animation::new(snapshot, skeletons, clips, controllers).map(|_| ())
 }
 pub(crate) struct Animation {
     playbacks: BTreeMap<EntityId, Playback>,
     claims: TransformClaims,
     states: Arc<AnimationStates>,
+    drivers: Vec<character::Driver>,
 }
 impl Animation {
     pub fn new(
         snapshot: &SceneSnapshot,
         skeletons: &SkeletonLibrary,
-        animations: &AnimationLibrary,
+        clips: &AnimationLibrary,
+        controllers: &ControllerLibrary,
     ) -> Result<Self> {
         snapshot.validate()?;
         let entities: BTreeMap<_, _> = snapshot.entities.iter().map(|e| (e.id, e)).collect();
         let mut unbound = BTreeSet::new();
         let mut claims = TransformClaims::new();
-        let mut driven_nodes = BTreeSet::new();
+        let mut driven = BTreeSet::new();
         let mut playbacks = BTreeMap::new();
         for entity in &snapshot.entities {
             if let Some(skin) = &entity.skin {
@@ -108,26 +107,63 @@ impl Animation {
                 )
             })?;
             skeleton.validate()?;
-            let nodes: BTreeSet<_> = skeleton.nodes.iter().map(|node| node.id).collect();
+            let nodes: BTreeMap<_, _> = skeleton.nodes.iter().map(|n| (n.id, &n.rest)).collect();
             let keys_match = animator.bindings.len() == nodes.len()
-                && animator.bindings.keys().all(|node| nodes.contains(node));
+                && animator
+                    .bindings
+                    .keys()
+                    .all(|node| nodes.contains_key(node));
             if !keys_match {
                 unbound.insert(entity.id);
             }
-            let clip = animator
-                .clip
-                .map(|id| -> Result<_> {
-                    let clip = animations
-                        .get(&id)
-                        .with_context(|| format!("animator {} requires clip {id}", entity.id))?;
+            let mut parameters = Arc::new(BTreeMap::new());
+            let (mode, ids) = if let Some(id) = animator.controller {
+                let definition = controllers
+                    .get(&id)
+                    .with_context(|| format!("animator {} requires controller {id}", entity.id))?
+                    .clone();
+                definition.validate()?;
+                ensure!(
+                    definition.skeleton == animator.skeleton,
+                    "animation controller belongs to a different skeleton"
+                );
+                parameters = Arc::new(definition.parameters.clone());
+                let ids = definition.clips();
+                (
+                    Some(Mode::Controller(controller::Machine::new(definition))),
+                    ids,
+                )
+            } else if let Some(id) = animator.clip {
+                (
+                    Some(Mode::Clip {
+                        id,
+                        looping: animator.looping,
+                        cursor: 0.,
+                        started: false,
+                    }),
+                    [id].into(),
+                )
+            } else {
+                (None, BTreeSet::new())
+            };
+            let mut prepared = BTreeMap::new();
+            for id in ids {
+                let clip = clips
+                    .get(&id)
+                    .with_context(|| format!("animator {} requires clip {id}", entity.id))?;
+                ensure!(
+                    clip.skeleton == animator.skeleton,
+                    "animation clip belongs to a different skeleton"
+                );
+                clip.validate_for(skeleton)?;
+                if animator.controller.is_some() {
                     ensure!(
-                        clip.skeleton == animator.skeleton,
-                        "animation clip belongs to a different skeleton"
+                        clip.duration > 0.,
+                        "controller clip requires positive duration"
                     );
-                    clip.validate_for(skeleton)?;
-                    Ok(clip.clone())
-                })
-                .transpose()?;
+                }
+                prepared.insert(id, clip.clone());
+            }
             let mut targets = BTreeMap::new();
             let mut unique = BTreeSet::new();
             for node in &skeleton.nodes {
@@ -153,72 +189,93 @@ impl Animation {
                 }
             }
             for node in &skeleton.nodes {
-                let Some(target) = targets.get(&node.id) else {
-                    continue;
-                };
-                let expected = match node.parent {
-                    Some(parent) => targets.get(&parent).copied(),
-                    None => Some(entity.id),
-                };
-                // A changed source topology needs an explicit binding-table repair first.
-                if keys_match && let Some(parent) = expected {
-                    ensure!(
-                        entities[target].parent == Some(parent),
-                        "animation target hierarchy differs from its skeleton"
-                    );
+                if let Some(target) = targets.get(&node.id) {
+                    let expected = node
+                        .parent
+                        .map_or(Some(entity.id), |p| targets.get(&p).copied());
+                    if keys_match && let Some(parent) = expected {
+                        ensure!(
+                            entities[target].parent == Some(parent),
+                            "animation target hierarchy differs from its skeleton"
+                        );
+                    }
                 }
             }
-            if let Some(clip) = clip {
-                let mut bound = Vec::with_capacity(clip.channels.len());
-                for (index, channel) in clip.channels.iter().enumerate() {
+            let mut rest = BTreeMap::new();
+            for clip in prepared.values() {
+                for channel in &clip.channels {
                     let Some(target) = targets.get(&channel.node).copied() else {
                         continue;
                     };
-                    let target_data = entities[&target];
+                    let data = entities[&target];
                     ensure!(
-                        target_data.physics.is_none()
-                            && target_data.character.is_none()
-                            && target_data.navigation_region.is_none(),
+                        data.physics.is_none()
+                            && data.character.is_none()
+                            && data.navigation_region.is_none(),
                         "animation cannot drive a physics body, character or navigation region transform"
                     );
-                    let field = channel_field(&channel.values);
-                    ensure!(
-                        claims.insert((target, field.field)),
-                        "multiple animators drive the same transform field"
-                    );
-                    driven_nodes.insert(target);
-                    ensure!(
-                        driven_nodes.len() <= MAX_ANIMATED_NODES,
-                        "animated node budget exceeded"
-                    );
-                    bound.push((index, target));
+                    let field = channel_field(&channel.values).field;
+                    let transform = nodes[&channel.node];
+                    let value = match &channel.values {
+                        AnimationValues::Translation(_) => FieldValue::Vec3(transform.translation),
+                        AnimationValues::Scale(_) => FieldValue::Vec3(transform.scale),
+                        AnimationValues::Rotation(_) => FieldValue::Quat(transform.rotation),
+                    };
+                    rest.insert((target, field), value);
                 }
-                playbacks.insert(
-                    entity.id,
-                    Playback {
-                        clip,
-                        targets: bound,
-                        looping: animator.looping,
-                        cursor: 0.,
-                        events_started: false,
-                        control: Control {
-                            playing: true,
-                            speed: animator.speed,
-                            reset: false,
-                        },
-                    },
+            }
+            for (target, field) in rest.keys() {
+                ensure!(
+                    claims.insert((*target, *field)),
+                    "multiple animators drive the same transform field"
+                );
+                driven.insert(*target);
+                ensure!(
+                    driven.len() <= MAX_ANIMATED_NODES,
+                    "animated node budget exceeded"
                 );
             }
+            if let Some(mode) = mode {
+                let rig = Arc::new(Rig {
+                    targets,
+                    clips: prepared,
+                    rest,
+                });
+                let mut playback = Playback {
+                    pose: Arc::new(rig.rest.clone()),
+                    rig,
+                    mode,
+                    control: Control {
+                        playing: true,
+                        speed: animator.speed,
+                        reset: false,
+                        parameters,
+                    },
+                    published: false,
+                };
+                let mut candidate = playback.clone();
+                candidate.sample(entity.id, 0., &mut Vec::new())?;
+                playback.pose = candidate.pose;
+                playbacks.insert(entity.id, playback);
+            }
         }
-        let animation = Self {
-            playbacks,
-            claims,
-            states: Arc::new(BTreeMap::new()),
-        };
-        // Even an incomplete rig must not hide a bad initial pose in another valid binding.
+        let drivers = character::prepare(snapshot, &playbacks, &claims, &mut unbound)?;
+        for driver in &drivers {
+            claims.insert((driver.owner, schema::TRANSLATION.field));
+            claims.insert((driver.owner, schema::ROTATION.field));
+        }
         let mut updates = Vec::new();
-        for (owner, playback) in &animation.playbacks {
-            playback.append_pose(*owner, 0., &mut updates)?;
+        for playback in playbacks.values() {
+            for ((entity, field), value) in playback.pose.iter() {
+                updates.push(FieldUpdate {
+                    entity: *entity,
+                    field: FieldKey {
+                        component: 1,
+                        field: *field,
+                    },
+                    value: value.clone(),
+                });
+            }
         }
         if !updates.is_empty() {
             let mut candidate = snapshot.clone();
@@ -230,7 +287,12 @@ impl Animation {
             }
             .into());
         }
-        Ok(animation)
+        Ok(Self {
+            playbacks,
+            claims,
+            states: Arc::new(BTreeMap::new()),
+            drivers,
+        })
     }
     pub fn is_controlled(&self, entity: EntityId, key: FieldKey) -> bool {
         key.component == 1 && self.claims.contains(&(entity, key.field))
@@ -245,7 +307,7 @@ impl Animation {
         Ok(())
     }
     pub fn state(&self, owner: EntityId) -> Option<AnimationState> {
-        self.states.get(&owner).copied()
+        self.states.get(&owner).cloned()
     }
     pub fn states(&self) -> Arc<AnimationStates> {
         self.states.clone()
@@ -256,37 +318,51 @@ impl Animation {
     ) -> Result<PreparedAnimationControls> {
         let mut controls = BTreeMap::new();
         for command in commands {
-            let owner = match *command {
-                AnimationCommand::Play(owner)
-                | AnimationCommand::Pause(owner)
-                | AnimationCommand::Resume(owner)
-                | AnimationCommand::Speed(owner, _) => owner,
+            let owner = match command {
+                AnimationCommand::Play(id)
+                | AnimationCommand::Pause(id)
+                | AnimationCommand::Resume(id)
+                | AnimationCommand::Speed(id, _)
+                | AnimationCommand::Parameter(id, _, _) => *id,
             };
             let playback = self
                 .playbacks
                 .get(&owner)
                 .context("entity has no selected animation")?;
-            let control = controls.entry(owner).or_insert(playback.control);
-            match *command {
+            let control = controls
+                .entry(owner)
+                .or_insert_with(|| playback.control.clone());
+            match command {
                 AnimationCommand::Play(_) => {
                     control.playing = true;
                     control.reset = true;
                 }
                 AnimationCommand::Pause(_) => control.playing = false,
                 AnimationCommand::Resume(_) => {
-                    if control.reset
-                        || playback.looping
-                        || playback.cursor < f64::from(playback.clip.duration)
-                    {
+                    if control.reset || playback.can_resume() {
                         control.playing = true;
                     }
                 }
                 AnimationCommand::Speed(_, speed) => {
                     ensure!(
-                        speed.is_finite() && speed >= 0.,
+                        speed.is_finite() && *speed >= 0.,
                         "animation speed must be finite and nonnegative"
                     );
-                    control.speed = speed;
+                    control.speed = *speed;
+                }
+                AnimationCommand::Parameter(_, name, value) => {
+                    value.validate()?;
+                    let previous = control
+                        .parameters
+                        .get(name)
+                        .context("unknown animation controller parameter")?;
+                    ensure!(
+                        previous.same_type(*value),
+                        "animation controller parameter type mismatch"
+                    );
+                    if previous != value {
+                        Arc::make_mut(&mut control.parameters).insert(name.clone(), *value);
+                    }
                 }
             }
         }
@@ -306,67 +382,47 @@ impl Animation {
         delta: f64,
     ) -> Result<Vec<AnimationEventOccurrence>> {
         ensure!(delta.is_finite() && delta >= 0., "invalid animation delta");
-        let mut updates = Vec::new();
-        let mut cursors = Vec::new();
-        let mut states = Vec::new();
         let mut events = Vec::new();
+        let mut updates = Vec::new();
+        let mut candidates = Vec::new();
+        let mut states = Vec::new();
         for (owner, playback) in &self.playbacks {
-            let mut control = playback.control;
-            let mut events_started = playback.events_started && !control.reset;
-            let duration = f64::from(playback.clip.duration);
-            let cursor = if control.reset || !self.states.contains_key(owner) {
-                0.
-            } else if control.playing {
-                let cursor = playback.cursor + delta * f64::from(control.speed);
-                ensure!(cursor.is_finite(), "animation clock overflow");
-                if cursor > playback.cursor && duration > 0. {
-                    playback.append_events(*owner, cursor, events_started, &mut events)?;
-                    events_started = true;
-                }
-                if duration == 0. {
-                    0.
-                } else if playback.looping {
-                    cursor.rem_euclid(duration)
-                } else {
-                    cursor.min(duration)
-                }
+            let mut candidate = playback.clone();
+            let state = if playback.published
+                && !playback.control.reset
+                && (delta == 0. || !playback.control.playing || playback.control.speed == 0.)
+            {
+                let mut state = self.states[owner].clone();
+                state.playing = playback.control.playing;
+                state.speed = playback.control.speed;
+                state.parameters = playback.control.parameters.clone();
+                state
             } else {
-                playback.cursor
+                candidate.sample(*owner, delta, &mut events)?
             };
-            control.reset = false;
-            if !playback.looping && cursor == duration {
-                control.playing = false;
+            for ((entity, field), value) in candidate.pose.iter() {
+                if !playback.published || playback.pose.get(&(*entity, *field)) != Some(value) {
+                    updates.push(FieldUpdate {
+                        entity: *entity,
+                        field: FieldKey {
+                            component: 1,
+                            field: *field,
+                        },
+                        value: value.clone(),
+                    });
+                }
             }
-            let state = AnimationState {
-                time: cursor,
-                duration,
-                playing: control.playing,
-                speed: control.speed,
-            };
-            let previous = self.states.get(owner);
-            // Claimed fields cannot change outside this sampler, even when the clip is paused.
-            if previous.is_none_or(|state| state.time != cursor) {
-                playback.append_pose(*owner, cursor, &mut updates)?;
+            if *candidate.pose == *playback.pose {
+                candidate.pose = playback.pose.clone();
             }
-            if previous != Some(&state) {
+            if self.states.get(owner) != Some(&state) {
                 states.push((*owner, state));
             }
-            if playback.cursor != cursor
-                || playback.control != control
-                || playback.events_started != events_started
-            {
-                cursors.push((*owner, cursor, control, events_started));
-            }
+            candidates.push((*owner, candidate));
         }
         scene.set_fields(&updates)?;
-        for (owner, cursor, control, events_started) in cursors {
-            let playback = self
-                .playbacks
-                .get_mut(&owner)
-                .expect("known animation owner");
-            playback.cursor = cursor;
-            playback.control = control;
-            playback.events_started = events_started;
+        for (owner, playback) in candidates {
+            self.playbacks.insert(owner, playback);
         }
         if !states.is_empty() {
             let published = Arc::make_mut(&mut self.states);
@@ -376,66 +432,16 @@ impl Animation {
         }
         Ok(events)
     }
-}
-
-impl Playback {
-    fn append_events(
-        &self,
-        animator: EntityId,
-        end: f64,
-        started: bool,
-        out: &mut Vec<AnimationEventOccurrence>,
+    pub fn drive_characters(
+        &mut self,
+        scene: &mut Scene,
+        physics: &crate::physics::Physics,
     ) -> Result<()> {
-        if self.clip.events.is_empty() {
-            return Ok(());
-        }
-        let duration = f64::from(self.clip.duration);
-        let end = if self.looping { end } else { end.min(duration) };
-        let cycles = if self.looping {
-            (end / duration).floor()
-        } else {
-            0.
-        };
-        ensure!(
-            cycles.is_finite() && cycles <= MAX_EVENTS_PER_STEP as f64,
-            "animation event step budget exceeded"
-        );
-        // Traverse the unwrapped interval; a wrapped cursor alone loses whole-loop events.
-        for cycle in 0..=cycles as usize {
-            for event in &self.clip.events {
-                let time = (cycle as f64 + f64::from(event.phase)) * duration;
-                if time <= end && (time > self.cursor || (!started && time == 0.)) {
-                    ensure!(
-                        out.len() < MAX_EVENTS_PER_STEP,
-                        "animation event step budget exceeded"
-                    );
-                    out.push(AnimationEventOccurrence {
-                        animator,
-                        name: event.name.clone(),
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
-}
-impl Playback {
-    fn append_pose(
-        &self,
-        owner: EntityId,
-        time: f64,
-        updates: &mut Vec<FieldUpdate>,
-    ) -> Result<()> {
-        for (index, target) in &self.targets {
-            let channel = &self.clip.channels[*index];
-            let value = sample_channel(channel, time)
-                .with_context(|| format!("sample animator {owner}"))?;
-            updates.push(FieldUpdate {
-                entity: *target,
-                field: channel_field(&channel.values),
-                value,
-            });
-        }
+        let (commands, updates) =
+            character::drive(&self.drivers, &scene.shared_snapshot(), physics)?;
+        let prepared = self.prepare_commands(&commands)?;
+        scene.set_fields(&updates)?;
+        self.publish_commands(prepared);
         Ok(())
     }
 }

@@ -354,10 +354,23 @@ impl Document {
                     {
                         skin.animator = None;
                     }
+                    if let Some(driver) = &mut entity.character_animation
+                        && driver.animator == Some(EntityRef::local(id))
+                    {
+                        driver.animator = None;
+                    }
                 }
             }
             Ok(())
         })
+    }
+    pub fn preview_character_animation(
+        &mut self,
+        id: EntityId,
+        driver: Option<comet_scene::CharacterAnimation>,
+        resolver: &mut impl PrefabResolver,
+    ) -> Result<()> {
+        self.preview_component(id, resolver, |entity| entity.character_animation = driver)
     }
     fn record(&mut self, before: State) {
         self.undo.push_back(before);

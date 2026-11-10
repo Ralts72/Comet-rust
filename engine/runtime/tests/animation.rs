@@ -36,6 +36,7 @@ fn rig() -> Rig {
     b.parent = Some(a.id);
     b.transform.translation = [0., 1., 0.];
     owner.animator = Some(Animator {
+        controller: None,
         skeleton,
         clip: Some(clip),
         bindings: [
@@ -382,6 +383,7 @@ fn missing_bindings_are_typed_only_after_other_resources_and_initial_poses_have_
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_some());
@@ -394,6 +396,7 @@ fn missing_bindings_are_typed_only_after_other_resources_and_initial_poses_have_
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_none());
@@ -407,6 +410,7 @@ fn missing_bindings_are_typed_only_after_other_resources_and_initial_poses_have_
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_none());
@@ -434,6 +438,7 @@ fn missing_bindings_are_typed_only_after_other_resources_and_initial_poses_have_
         &partial.scene,
         &partial.resources.skeletons,
         &partial.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(
@@ -465,6 +470,7 @@ fn stale_source_keys_remain_authorable_but_never_hide_bad_resources_or_known_ini
         &loaded,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert_eq!(
@@ -494,6 +500,7 @@ fn stale_source_keys_remain_authorable_but_never_hide_bad_resources_or_known_ini
         &fixture.scene,
         &bad_resources.skeletons,
         &bad_resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_none());
@@ -506,6 +513,7 @@ fn stale_source_keys_remain_authorable_but_never_hide_bad_resources_or_known_ini
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(
@@ -536,6 +544,7 @@ fn removing_an_intermediate_source_node_keeps_an_old_valid_author_graph_repairab
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert_eq!(
@@ -555,6 +564,7 @@ fn removing_an_intermediate_source_node_keeps_an_old_valid_author_graph_repairab
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_none());
@@ -574,6 +584,7 @@ fn removing_an_intermediate_source_node_keeps_an_old_valid_author_graph_repairab
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_some());
@@ -589,6 +600,7 @@ fn removing_an_intermediate_source_node_keeps_an_old_valid_author_graph_repairab
         &fixture.scene,
         &fixture.resources.skeletons,
         &fixture.resources.animations,
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.downcast_ref::<UnboundRig>().is_none());
@@ -733,6 +745,7 @@ fn duplicated_rigs_cannot_exceed_the_world_budget_with_individually_valid_produc
             scene.entities.push(target);
         }
         owner.animator = Some(Animator {
+            controller: None,
             skeleton,
             clip: Some(clip),
             bindings,
@@ -745,6 +758,7 @@ fn duplicated_rigs_cannot_exceed_the_world_budget_with_individually_valid_produc
         &scene,
         &[(skeleton, skeleton_data)].into(),
         &[(clip, clip_data)].into(),
+        &Default::default(),
     )
     .unwrap_err();
     assert!(error.to_string().contains("animated node budget"));

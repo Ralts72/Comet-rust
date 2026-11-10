@@ -85,6 +85,7 @@ fn prefab() -> ContentSource {
     let mut owner = EntityData::new("prepared SimpleSkin controller");
     owner.id = controller;
     owner.animator = Some(Animator {
+        controller: None,
         skeleton: model().child("skeleton:scene"),
         clip: Some(model().child("animation:index:0")),
         bindings: skeleton

@@ -165,7 +165,10 @@ fn authored_entity_picker_persists_one_instance_and_runtime_controls_only_that_r
             entity: controller
         }))
     );
-    assert_eq!(changed.base.version, 10);
+    assert_eq!(
+        changed.base.version,
+        comet_scene::SceneSnapshot::default().version
+    );
     assert_eq!(editor.document.history_len(), 1);
     let snapshot = editor.snapshot(&mut assets)?;
     assert_eq!(

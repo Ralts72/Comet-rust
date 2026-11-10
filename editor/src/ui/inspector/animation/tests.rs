@@ -171,6 +171,60 @@ fn speed(output: &egui::FullOutput) -> Pos2 {
 }
 
 #[test]
+fn controller_picker_switches_atomically_and_preserves_prefab_overrides_undo_and_saved_protocol()
+-> Result<()> {
+    let mut f = Fixture::new()?;
+    let animator = f.animator();
+    let path = f.editor.project_root().join("assets/locomotion.ani");
+    fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({
+            "version":1,"skeleton":animator.skeleton,"initial":"idle","parameters":{},
+            "states":[{"name":"idle","looping":true,"motions":[{"threshold":0.,"clip":animator.clip.unwrap()}]}],"transitions":[]
+        }))?,
+    )?;
+    comet_asset_pipeline::prepare(f.editor.project_root(), &f.editor.products)?;
+    f.assets.refresh()?;
+    let controller = comet_asset_pipeline::SourceMeta::load(&path)?.id;
+    let instance = comet_core::InstanceId::new();
+    let source_owner = f.selected;
+    f.editor.document = Document::open_source(ContentSource {
+        instances: vec![PrefabInstance {
+            id: instance,
+            prefab: f.prefab,
+            parent: None,
+            overrides: vec![],
+        }],
+        ..Default::default()
+    })?;
+    f.selected = source_owner.in_instance(instance);
+    let original = f.source();
+    f.choose("单片段播放", "locomotion.ani");
+    assert!(f.editor.error.is_none(), "{:?}", f.editor.error);
+    let changed = f.source();
+    assert_eq!(f.animator().controller, Some(controller));
+    assert_eq!(f.animator().clip, None);
+    assert_eq!(changed.base.version, 11);
+    assert_eq!(changed.instances[0].overrides.len(), 2);
+    assert_eq!(f.editor.document.history_len(), 1);
+    f.editor.document.undo()?;
+    assert_eq!(f.source(), original);
+    f.editor.document.redo()?;
+    assert_eq!(f.source(), changed);
+    f.editor.save(&mut f.assets)?;
+    assert_eq!(Document::load(&f.editor.source)?.shared_source(), changed);
+    f.editor.start(&mut f.assets)?;
+    let output = f.frame(vec![]);
+    assert!(
+        texts(&output)
+            .iter()
+            .any(|(text, _)| text.starts_with("当前状态：idle"))
+    );
+    assert_eq!(f.source(), changed);
+    Ok(())
+}
+
+#[test]
 fn authored_controls_keep_idle_assets_lazy_and_speed_transactions_cancel_undo_and_save()
 -> Result<()> {
     let mut f = Fixture::new()?;
