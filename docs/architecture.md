@@ -460,7 +460,7 @@ Pipeline 的 package.rs 在正式目的地同级创建私有候选，复制后�
 
 项目根 project.json 由 Pipeline 的 ProjectSettings 管理：v2 必须有非空 GameId，图标仍使用 AssetId；旧 v1 和缺失配置只读加载为未分配身份，不能夹带新字段，v2 缺失/null/无效身份和未知版本都拒绝。Editor 的项目准备在资源构建前持项目锁调用 ensure_game_id，保留图标并原子保存一次 v2；之后即使导入或打开失败，身份也保留供重试。初始化写入失败则拒绝候选，不使用临时身份。普通 load 与资产 prepare 不执行迁移。配置只接受常规文件且有 64 KiB 上限，不跟随配置符号链接。候选捕获初始化后的设置，接纳与导出前后均复查；旧面板不能降级或替换 GameId。低层 PackageRequest 必须显式传入 GameId，产品级 CLI pack 通过必填 --game-id 提供，不推测作者项目位置。
 
-Editor 的 project.rs 提供图标设置，选择后持同一项目锁验证资产并原子保存。Pipeline 从本次产品索引加载纹理，验证正方形及 16～1024 像素尺寸，复用现有 Rust image/png 生成窗口 PNG、各尺寸 ICNS 与 Windows 资源；不引入 Python 图像依赖。仅在候选包中写入图标，Windows 更新后读回校验，原始模板不变。图标产品无需进入场景依赖闭包，发布的是已生成的包内图标。
+Editor 的 project.rs 提供图标设置，选择后持同一项目锁验证资产并原子保存。Pipeline 从本次产品索引加载纹理，设置与导出共用正方形及 16～1024 像素校验；编码只读借用产品像素，缩放与输出缓冲归导出任务。复用现有 Rust image/png 生成窗口 PNG、各尺寸 ICNS 与 Windows 资源，不引入 Python 图像依赖。仅在候选包中写入图标，Windows 更新后读回校验，原始模板不变。图标产品无需进入场景依赖闭包，发布的是已生成的包内图标。
 
 macOS `.app` 使用 Contents/MacOS 与 Contents/Resources，在 Info.plist 声明 CFBundleIconFile，完成图标写入后执行 ad-hoc codesign 并校验；普通目录保留 exe 旁的资源布局。App 根据自身路径定位清单、图标和产品，校验图标摘要、协议/构建身份，拒绝选用清单外场景，不依赖 cwd 或作者源。Linux 使用包内 PNG 设置窗口图标，桌面菜单注册仍属后续分发接入。资产 CLI 的低层 pack 仍接受调用方提供的既有二进制，程序配对由调用方承担；日常导出统一走编辑器的模板校验。
 

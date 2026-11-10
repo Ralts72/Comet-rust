@@ -1,9 +1,9 @@
 use anyhow::{Result, ensure};
 use comet_asset::AssetStore;
-use comet_asset_data::product::Product;
+use comet_asset_data::product::{Product, TextureData};
 use comet_core::AssetId;
 use image::{
-    ImageEncoder, RgbaImage,
+    ImageBuffer, ImageEncoder, Rgba,
     imageops::{FilterType, resize},
 };
 
@@ -18,13 +18,14 @@ pub(crate) struct GameIcon {
 }
 impl GameIcon {
     pub fn load(assets: &mut AssetStore, id: AssetId) -> Result<Self> {
-        validate(assets, id)?;
         let product = assets.load(id)?;
-        let Product::Texture(texture) = &product.payload else {
-            anyhow::bail!("游戏图标必须引用纹理资产");
-        };
-        let image =
-            RgbaImage::from_raw(texture.width, texture.height, texture.rgba8.clone()).unwrap();
+        let texture = validated_texture(&product.payload)?;
+        let image = ImageBuffer::<Rgba<u8>, _>::from_raw(
+            texture.width,
+            texture.height,
+            texture.rgba8.as_slice(),
+        )
+        .unwrap();
         let encode = |size| -> Result<Vec<u8>> {
             let scaled = resize(&image, size, size, FilterType::Lanczos3);
             let mut bytes = vec![];
@@ -69,8 +70,11 @@ impl GameIcon {
     }
 }
 pub(crate) fn validate(assets: &mut AssetStore, id: AssetId) -> Result<()> {
-    let product = assets.load(id)?;
-    let Product::Texture(texture) = &product.payload else {
+    validated_texture(&assets.load(id)?.payload)?;
+    Ok(())
+}
+fn validated_texture(product: &Product) -> Result<&TextureData> {
+    let Product::Texture(texture) = product else {
         anyhow::bail!("游戏图标必须引用纹理资产");
     };
     texture.validate()?;
@@ -78,5 +82,5 @@ pub(crate) fn validate(assets: &mut AssetStore, id: AssetId) -> Result<()> {
         texture.width == texture.height && (16..=1024).contains(&texture.width),
         "游戏图标必须为 16～1024 像素的正方形，建议使用 1024 像素 RGBA PNG"
     );
-    Ok(())
+    Ok(texture)
 }

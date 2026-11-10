@@ -144,7 +144,7 @@ cargo run -p comet-assetc --locked -- create-project /path/to/new-project
 
 默认 `cargo build/test` 面向引擎库、编辑文档和资产工具；`--workspace` 包含编辑器、游戏和 GPU 工具，均为按功能组织的当前模块。
 GitHub [CI](.github/workflows/ci.yml) 在 PR、`main/master` 推送及手动触发时在 Linux runner 执行原生 CPU/构建验证及 Windows MSVC 交叉检查，并准备 Release App 模板、验证编辑器导出和构建 Release 资产工具。日志、报告和源码快照保存为 7 天的运行附件；Metal、物理 GPU 与窗口验收使用本地命令，详见[开发与验证](docs/development.md)。
-文档按职责保留三份：[架构与依赖](docs/architecture.md)、[开发与验证](docs/development.md)、[功能迁移清单](docs/migration.md)。
+文档按职责保留三份：[架构与依赖](docs/architecture.md)、[开发与验证](docs/development.md)、[功能迁移清单](docs/migration.md)。测试按改动风险选择，新增与清理标准见[单元测试](docs/development.md#单元测试)。
 仓库协作规范见 [AGENTS.md](AGENTS.md)。
 
 ## Git 与协作配置

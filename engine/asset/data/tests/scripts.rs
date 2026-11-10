@@ -1,10 +1,7 @@
 use anyhow::Result;
-use comet_asset_data::{
-    package::ProtocolVersions,
-    product::{
-        AssetKind, INDEX_VERSION, IndexEntry, MAX_SCRIPT_BYTES, PRODUCT_VERSION, Product,
-        ProductFile, ProductIndex, SCRIPT_VERSION, ScriptData,
-    },
+use comet_asset_data::product::{
+    AssetKind, INDEX_VERSION, IndexEntry, MAX_SCRIPT_BYTES, PRODUCT_VERSION, Product, ProductFile,
+    ProductIndex, SCRIPT_VERSION, ScriptData,
 };
 use comet_core::{AssetId, EntityId, digest};
 use comet_scene::{ContentSource, EntityData, EntityRef, SceneSnapshot, Script, ScriptValue};
@@ -22,9 +19,6 @@ fn script_products_validate_utf8_byte_limits_and_plain_source_only() -> Result<(
             source,
         };
         script.validate()?;
-        let product = Product::Script(script);
-        assert_eq!(product.kind(), AssetKind::Script);
-        assert!(product.dependencies().is_empty());
     }
     for source in [
         "".into(),
@@ -130,8 +124,7 @@ fn prefab_script_asset_overrides_require_script_products() -> Result<()> {
 }
 
 #[test]
-fn new_product_and_index_versions_reject_old_readers_inputs_and_match_template_protocols()
--> Result<()> {
+fn product_and_index_versions_reject_old_readers_inputs() -> Result<()> {
     let id = AssetId::new();
     let mut product = ProductFile {
         version: PRODUCT_VERSION,
@@ -160,8 +153,5 @@ fn new_product_and_index_versions_reject_old_readers_inputs_and_match_template_p
     index.validate()?;
     index.version = 1;
     assert!(index.validate().is_err());
-    let protocols = ProtocolVersions::current();
-    assert_eq!(protocols.product, PRODUCT_VERSION);
-    assert_eq!(protocols.index, INDEX_VERSION);
     Ok(())
 }

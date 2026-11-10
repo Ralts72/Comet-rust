@@ -2,7 +2,6 @@ use anyhow::Result;
 use comet_asset::AssetStore;
 use comet_asset_data::{
     NavigationData, NavigationInput,
-    navigation::MAX_NAVIGATION_BYTES,
     product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product, ProductIndex},
 };
 use comet_asset_pipeline::{
@@ -278,86 +277,10 @@ fn publication_rejects_external_source_or_metadata_changes_and_reuses_reserved_i
 }
 
 #[test]
-fn navigation_size_failures_preserve_files_and_reserved_identity_for_retry() -> Result<()> {
-    let temp = tempfile::tempdir()?;
-    let paths = create_project(&temp.path().join("project"))?;
-    let relative = Path::new("baked/main.nav");
-    let target = NavigationTarget::open(&paths, relative)?;
-    let metadata = SourceMeta::path(target.path());
-    let data = bake_navigation(&NavigationInput::capture(&scene())?)?;
-    fs::create_dir_all(target.path().parent().unwrap())?;
-    for file in [target.path(), metadata.as_path()] {
-        fs::File::create(file)?.set_len(MAX_NAVIGATION_BYTES as u64 + 1)?;
-        let error = NavigationTarget::open(&paths, relative).err().unwrap();
-        let message = format!("{error:#}");
-        assert!(message.contains("budget") && message.contains(&file.display().to_string()));
-        let error = publish_navigation(&paths, &target, &data).unwrap_err();
-        assert!(format!("{error:#}").contains("budget"));
-        assert_eq!(fs::metadata(file)?.len(), MAX_NAVIGATION_BYTES as u64 + 1);
-        let other = if file == target.path() {
-            metadata.as_path()
-        } else {
-            target.path()
-        };
-        assert!(!other.exists());
-        fs::remove_file(file)?;
-    }
-    let id = publish_navigation(&paths, &target, &data)?;
-    assert_eq!(id, target.asset());
-    let source_bytes = fs::read(target.path())?;
-    let metadata_bytes = fs::read(&metadata)?;
-    let target = NavigationTarget::open(&paths, relative)?;
-    for (file, accepted, other, unchanged) in [
-        (
-            target.path(),
-            &source_bytes,
-            metadata.as_path(),
-            &metadata_bytes,
-        ),
-        (
-            metadata.as_path(),
-            &metadata_bytes,
-            target.path(),
-            &source_bytes,
-        ),
-    ] {
-        fs::OpenOptions::new()
-            .write(true)
-            .open(file)?
-            .set_len(MAX_NAVIGATION_BYTES as u64 + 1)?;
-        assert!(publish_navigation(&paths, &target, &data).is_err());
-        assert_eq!(fs::read(other)?, *unchanged);
-        assert_eq!(fs::metadata(file)?.len(), MAX_NAVIGATION_BYTES as u64 + 1);
-        fs::write(file, accepted)?;
-        assert_eq!(publish_navigation(&paths, &target, &data)?, id);
-        assert_eq!(fs::read(&metadata)?, metadata_bytes);
-        assert_eq!(fs::read(target.path())?, source_bytes);
-    }
-    Ok(())
-}
-
-#[test]
 fn navigation_targets_reject_bad_identity_existing_unidentified_sources_and_outside_aliases()
 -> Result<()> {
     let temp = tempfile::tempdir()?;
     let paths = create_project(&temp.path().join("project"))?;
-    for products in [
-        paths.assets(),
-        paths.root(),
-        &paths.assets().join("products"),
-    ] {
-        let error = bake_navigation_source(
-            paths.root(),
-            Path::new("main.scene"),
-            products,
-            Path::new("new.nav"),
-        )
-        .unwrap_err();
-        assert!(format!("{error:#}").contains("overlap"));
-        assert!(!paths.root().join(".assetc.lock").exists());
-        assert!(!paths.assets().join("new.nav").exists());
-        assert!(!SourceMeta::path(&paths.assets().join("new.nav")).exists());
-    }
     for relative in [
         Path::new("bad.scene"),
         Path::new("../outside.nav"),

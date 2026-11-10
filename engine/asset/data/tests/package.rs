@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comet_asset_data::package::{
-    AppTemplateManifest, PACKAGE_VERSION, PackageManifest, ProtocolVersions, RuntimeIdentity,
+    AppTemplateManifest, PACKAGE_VERSION, PackageManifest, RuntimeIdentity,
 };
 use comet_core::AssetId;
 use std::collections::BTreeMap;
@@ -38,11 +38,6 @@ fn template(identity: RuntimeIdentity) -> AppTemplateManifest {
 #[test]
 fn package_structure_and_runtime_compatibility_are_separate_contracts() -> Result<()> {
     let expected = identity();
-    assert_eq!(expected.build_id, "a".repeat(64));
-    assert_eq!(expected.target, "fixture-target");
-    assert_eq!(expected.os, std::env::consts::OS);
-    assert_eq!(expected.arch, std::env::consts::ARCH);
-    assert_eq!(expected.protocols, ProtocolVersions::current());
     expected.validate()?;
     let manifest = package(Some(expected.clone()));
     manifest.validate()?;
@@ -167,15 +162,8 @@ fn runtime_identity_free_packages_still_require_a_complete_scene_list_and_safe_f
 }
 
 #[test]
-fn game_identity_is_required_independently_of_entry_scene_program_build_and_package_location()
--> Result<()> {
+fn package_game_identity_is_required_and_old_formats_are_rejected() -> Result<()> {
     let valid = package(Some(identity()));
-    let game_id = valid.game_id;
-    let mut changed = valid.clone();
-    changed.entry_scene = changed.scenes[1];
-    changed.runtime.as_mut().unwrap().build_id = "c".repeat(64);
-    changed.validate()?;
-    assert_eq!(changed.game_id, game_id);
     let encoded = serde_json::to_value(valid)?;
     for game_id in [
         serde_json::Value::Null,

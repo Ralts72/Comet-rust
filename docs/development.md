@@ -42,6 +42,14 @@ python3 tools/verify/check_boundaries.py
 `cargo tree` 展示解析后的依赖和版本；平台条件决定实际选用的后端。审计结果写入 `target/verification/dependencies/`。
 依赖审计拒绝 cc/cmake、相关 C/C++ 构建封装与非正式图形路线，并检查 Objective-C 异常 shim 未启用。
 模块门禁还拒绝 Core 以外的正式包直接依赖 glam；模块边界约束：Scene 不依赖产品或 Store，Render 只依赖资产数据，App 不依赖编辑器、导入器和通用源图像解码库；Application 仅解码内置或包内 PNG 图标；Kira/CPAL 只允许在 Audio 输出包使用，Hound WAV 导入归 Pipeline，Runtime 只消费中立声音帧与 PCM 产品。
+## 单元测试
+
+- 不要过度编写单元测试。简单的调用接线、配置修改、类型透传、常量调整、薄适配层或直接字段映射，默认不新增单测。
+- 仅当改动包含真正复杂的逻辑、重要分支或状态流转、高风险回归面，或用户明确要求时，才新增或更新单测。
+- 对简单改动，优先使用类型检查、构建或定向命令/人工检查等与风险匹配的验证方式。
+
+清理已有测试也遵循这一标准：删减重复接线、字段映射和自证断言，保留协议兼容、事务发布、失败恢复、身份稳定与资源生命周期等关键行为覆盖；不以测试数量作为目标。
+
 测试采用 Rust 常见的混合布局，参见 [Rust 官方测试组织说明](https://doc.rust-lang.org/book/ch11-03-test-organization.html)：私有单元测试放在 `src/` 的所属模块内，较大测试模块拆到相邻的 `模块名/tests.rs`，通过 `#[cfg(test)] mod tests;` 按默认模块路径接入。库公共 API 的集成测试放在各包 `tests/`，由 Cargo 发现入口；集成测试共用辅助模块时使用 `tests/common/mod.rs` 等子模块。包内共享准备代码可使用受 `#[cfg(test)]` 保护的 `test_support` 模块；不为测试扩大正式 API。模块门禁检查依赖与职责边界，不强制所有测试使用同一种物理布局。
 
 ## GitHub CI
@@ -56,11 +64,11 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 
 ## 内容、编辑与资产
 
-测试沿用 Rust 的模块边界：私有单元测试由所属模块接入，公共 API 回归位于各包 tests，真实程序及产品搬移由完整验收编排。共用准备代码复用已有 test_support 与 tests/fixtures，不为测试扩大正式接口；完整清单以实际测试输出为准。
+按改动风险选择下列现有回归与流程验证。共用准备代码复用已有 test_support 与 tests/fixtures，不为测试扩大正式接口；完整清单以实际测试输出为准。
 
 | 验证边界 | 主要覆盖 | 入口 |
 | --- | --- | --- |
-| 文件读取预算 | 超限元数据在读取前拒绝、精确上限、读取中增长、I/O 失败和预算溢出；源格式在导入前执行既有上限 | [Core 公共接口测试](../engine/core/tests/storage.rs)、[Core 读取单元测试](../engine/core/src/storage.rs)、[源读取测试](../engine/asset/pipeline/src/import.rs) |
+| 文件读取预算 | 超限元数据在读取前拒绝、精确上限、读取中增长、I/O 失败和预算溢出 | [Core 公共接口测试](../engine/core/tests/storage.rs)、[Core 读取单元测试](../engine/core/src/storage.rs) |
 | 文件摘要与模板 | 文件摘要与字节协议一致、短读/中断/I/O 失败；模板输入变化与复制结果不符时拒绝发布 | [Core 摘要测试](../engine/core/tests/storage.rs)、[Core 流式测试](../engine/core/src/storage.rs)、[模板测试](../engine/asset/pipeline/src/template/tests.rs)、[打包测试](../engine/asset/pipeline/tests/package.rs) |
 | 场景与引用协议 | 旧格式读取、新组件最低版本、实例词法作用域、复制重映射、删除清理、候选失败保持 | [Scene 测试](../engine/scene/tests/)、[文档协议回归](../editor/core/tests/protocols.rs) |
 | 作者文档与历史 | 组件及字段共用候选校验；多选、层级、Prefab、保存点与 undo/redo；失败保留当前预览 | [Editor Core 测试](../editor/core/tests/) |
@@ -124,7 +132,7 @@ cargo test --locked -p comet-asset-data -p comet-asset-pipeline
 
 作者文件与输出 `.nav` 路径相对项目 assets 解析；产品目录相对调用目录解析。命令发布或更新 `.nav` 及其稳定 `.meta`，完成产品准备并打印 AssetId，**不自动修改 Scene/Prefab 的 data 绑定**；回到编辑器刷新资源后选择导航数据并保存。编辑器的烘焙操作则在完成候选验证后以单个事务更新绑定，有变化时形成一条历史。文件已发布而后续准备或接纳失败时会保留完整资产，修复后可重试，不自动删除或回滚作者文件。
 
-Scene/Core 回归检查 v6 与旧格式、可空资产依赖、目标复制/删除/Prefab 重映射、区域根约束和候选失败保持。Runtime 回归用真实 Rapier 胶囊验证脚底采样、绕墙到达、速度单位、无路、玩家隔离、暂停/单步/R/换关，以及脚本和公开命令对固定姿态的原子拒绝。Data/Pipeline 回归覆盖真实 rerecast 烘焙、SDK 绕序归一化、输入摘要、资源预算、稳定 metadata、CLI 不改绑定、目录重叠预检及源/metadata 超限时的发布保持与修复重试；Core 回归另以确定性读取检查大小增长时的实际字节上限。编辑器回归覆盖两阶段守卫、候选 Store 与临时文档预检、历史保留及空闲缓存。
+Scene/Core 回归检查 v6 与旧格式、可空资产依赖、目标复制/删除/Prefab 重映射、区域根约束和候选失败保持。Runtime 回归用真实 Rapier 胶囊验证脚底采样、绕墙到达、速度单位、无路、玩家隔离、暂停/单步/R/换关，以及脚本和公开命令对固定姿态的原子拒绝。Data/Pipeline 回归覆盖真实 rerecast 烘焙、SDK 绕序归一化、输入摘要、资源预算、稳定 metadata、CLI 不改绑定，以及外部修改、身份冲突时的发布保持与修复重试；通用读取边界由 Core 回归集中检查大小、读取中增长、I/O 失败和预算溢出。编辑器回归覆盖两阶段守卫、候选 Store 与临时文档预检、历史保留及空闲缓存。
 
 运行命令回归另检查 Point/Entity 目标、父级目标的世界位置、真实蹲伏脚底、Stop 持续抑制作者目标、五态与离网格零速、同回调及同固定步的状态快照、R/候选切换重置，以及坏目标使字段、物理、导航、普通日志和换关请求整批失败。真实示例长步测试覆盖巡逻折返、接近追逐、离开返回、移走目标后的不可达、暂停/单步及重开；玩法回归与单独的静态几何绕墙测试分别维护。
 
