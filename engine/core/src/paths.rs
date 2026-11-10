@@ -1,4 +1,4 @@
-//! Project authoring paths share one canonical boundary for reads and writes.
+//! Project authoring, product and export paths share one canonical boundary.
 use anyhow::{Context, Result, ensure};
 use std::{
     fs,
@@ -42,6 +42,17 @@ impl ProjectPaths {
             path.display()
         );
         Ok(resolved)
+    }
+    /// Product caches must neither contain nor be contained by author assets.
+    pub fn products_destination(&self, output: impl AsRef<Path>) -> Result<PathBuf> {
+        self.check_assets_directory()?;
+        let output = resolve_destination(output.as_ref())?;
+        ensure!(
+            !output.starts_with(&self.assets) && !self.assets.starts_with(&output),
+            "product directory overlaps project assets: {}",
+            output.display()
+        );
+        Ok(output)
     }
     pub fn export_destination(&self, output: impl AsRef<Path>, products: &Path) -> Result<PathBuf> {
         self.check_assets_directory()?;

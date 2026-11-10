@@ -7,7 +7,7 @@ use comet_asset_data::product::{
     AssetKind, EditorProvenance, INDEX_VERSION, IndexEntry, PRODUCT_VERSION, Product, ProductFile,
     ProductIndex,
 };
-use comet_core::{AssetId, atomic_write, digest};
+use comet_core::{AssetId, ProjectPaths, atomic_write, digest};
 use comet_scene::{ContentSource, PrefabResolver};
 use serde::Serialize;
 use std::{
@@ -50,17 +50,16 @@ pub(super) fn lock(path: &Path, description: &str) -> Result<fs::File> {
     Ok(file)
 }
 pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
-    let _project_lock = lock(&project.join(".assetc.lock"), "project")?;
+    let project = ProjectPaths::open(project)?;
+    let requested_output = output;
+    let output = project.products_destination(requested_output)?;
+    let output = output.as_path();
+    let _project_lock = lock(&project.root().join(".assetc.lock"), "project")?;
     fs::create_dir_all(output)?;
     let _output_lock = lock(&output.join(".build.lock"), "output")?;
-    let assets = project.join("assets");
-    ensure!(
-        assets.is_dir(),
-        "missing source directory {}",
-        assets.display()
-    );
+    let assets = project.assets();
     let mut paths = vec![];
-    scan(&assets, &mut paths)?;
+    scan(assets, &mut paths)?;
     paths.sort();
     ensure!(
         !paths.is_empty(),
@@ -100,7 +99,7 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
         }
         let source_digest = digest(&fingerprint);
         let source_label = path
-            .strip_prefix(&assets)?
+            .strip_prefix(assets)?
             .components()
             .map(|component| component.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
@@ -229,7 +228,11 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
         }
     }
     index.validate()?;
-    verify_snapshot(&assets, &paths, &inputs)?;
+    verify_snapshot(assets, &paths, &inputs)?;
+    ensure!(
+        project.products_destination(requested_output)? == output,
+        "product directory changed during build; retry"
+    );
     let bytes = serde_json::to_vec_pretty(&index)?;
     let changed = index
         .products

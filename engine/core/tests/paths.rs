@@ -29,6 +29,14 @@ fn project_paths_check_existing_and_new_destinations_by_canonical_components() -
             .is_err()
     );
     let products = project.join("cache/products");
+    assert_eq!(
+        paths.products_destination(&products)?,
+        project.canonicalize()?.join("cache/products")
+    );
+    for output in [&assets, &assets.join("cache"), &project] {
+        assert!(paths.products_destination(output).is_err());
+    }
+    assert!(!products.exists());
     assert!(
         paths
             .export_destination(assets.join("game"), &products)
@@ -73,6 +81,12 @@ fn symlink_escape_is_rechecked_for_reads_and_saves() -> Result<()> {
     assert_eq!(
         paths.resolve_asset_path("internal.scene")?,
         assets.join("main.scene").canonicalize()?
+    );
+    symlink(&assets, project.join("asset-alias"))?;
+    assert!(
+        paths
+            .products_destination(project.join("asset-alias/new-cache"))
+            .is_err()
     );
     Ok(())
 }
@@ -120,6 +134,11 @@ fn project_and_internal_assets_aliases_work_but_retargeted_assets_are_rejected()
     symlink(&outside, project.join("assets"))?;
     assert!(paths.resolve_asset_path("main.scene").is_err());
     assert!(paths.resolve_asset_path(saved).is_err());
+    assert!(
+        paths
+            .products_destination(project.join("products"))
+            .is_err()
+    );
     assert!(
         paths
             .export_destination(temp.path().join("export"), &project.join("products"))

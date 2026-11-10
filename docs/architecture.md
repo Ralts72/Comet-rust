@@ -400,7 +400,7 @@ Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常�
 
 1. Pipeline 扫描项目 `assets/`，导入 `.scene`、`.prefab`、`.mesh`、`.material`、`.nav`、`.rhai`、PCM16 WAV、PNG、静态及蒙皮 glTF/GLB；自有场景、模型及导航格式使用 JSON 内容。
 2. 源旁的 `<文件名>.meta` 保存版本与 AssetId。重命名时随源移动；复制为新资产时分配新身份。目录重构保留现有 metadata 与协议版本。
-3. 构建持有项目与输出锁，读取输入快照，校验内容、引用类型、依赖及展开；发布前复核源集合、字节、metadata 和外部文件。
+3. 构建先通过 Core 的 ProjectPaths 验证项目资源根与产品目的地，再创建目录并持有项目与输出锁；资源根检查失败或目录重叠时不创建锁、缓存或 metadata。读取输入快照，校验内容、引用类型、依赖及展开；发布前复核资源根、产品目的地、源集合、字节、metadata 和外部文件。
 4. 产品写入 `products/<AssetId>/<SHA256>.json`，保存版本、身份、输入摘要及 CPU payload。相同内容复用文件，不就地覆盖旧版本。
 5. 新 metadata 通过 `SourceMeta` 排他预留，不替换已存在的身份；全部预留成功后，才通过同目录临时文件、sync 与 rename 原子发布 `index.json`。某次预留失败保留旧索引，已预留成功的身份供重试复用。当前不自动清理旧产品版本。
 6. AssetStore 只读产品目录。打开与刷新时全量校验候选索引、摘要、协议、依赖及展开，成功后切换；缓存使用 Arc，消费者已持有的旧版本继续有效。`shared_index()` 返回已接纳索引的 `Arc<ProductIndex>`：每次打开都有独立身份；同一 Store 刷新完整验证成功且索引字节 revision 未变时复用原 Arc，revision 改变时发布新 Arc。不同 Store 即使摘要相同也不合并身份；失败不替换旧索引及驻留产品，`evict` 只释放 Store 持有的产品引用。
@@ -450,7 +450,7 @@ Metal 使用 CAMetalLayer；主线程创建的 Surface 按 `raw-window-metal` �
 
 ## 打包与目录稳定性
 
-Core 的 ProjectPaths 统一解析作者路径，使用真实路径和路径组件检查 assets 归属；assets 本身必须位于规范化项目根内部。项目根别名与指向根内子目录的 assets 别名可用，指向项目外或根自身的 assets 被拒绝。解析作者路径和导出位置时重新检查资源根，别名被替换后要求重新打开；新目标解析现有父目录。Editor 在打开和保存时校验，导出复用同一规则并拒绝目的地与作者资产/产品输入相互包含。Document 只负责内容事务与保存，不持有项目路径策略。
+Core 的 ProjectPaths 统一解析作者路径、产品目的地与导出位置，使用真实路径和路径组件检查 assets 归属；assets 本身必须位于规范化项目根内部。项目根别名与指向根内子目录的 assets 别名可用，指向项目外或根自身的 assets 被拒绝。每次解析时重新检查资源根，别名被替换后要求重新打开；新目标解析现有父目录。产品缓存与作者资源不能相互包含，Pipeline 与 Editor 复用 products_destination；Editor 另外保护切换前项目的作者资源，并在创建尚不存在的项目之前预检目录。Editor 在打开和保存时校验作者路径，导出拒绝目的地与作者资产/产品输入相互包含。Document 只负责内容事务与保存，不持有项目路径策略。
 
 `start.sh` 顺序构建 Debug Editor 和 Release App；Editor/App 的共享构建脚本 `tools/launch/build.rs` 在程序编译时注入构建身份与 Cargo 目标三元组，Core 不持有程序身份。启动器对生产源码、Cargo.lock、清单、Shader、图标和构建配置取指纹，构建前后不一致则拒绝配对。 指纹排除测试目录与独立 tests.rs，包含共享构建脚本。AssetData 只提供显式 RuntimeIdentity 数据构造和格式/协议校验，Editor 传入自己的编译身份校验模板，App 以自身编译身份匹配包；库不读取运行进程的环境。包结构校验与运行程序兼容校验分别维护，无身份的低层 CLI 包继续由调用方负责程序配对。身份变化只使两个程序入口重新构建，未改引擎库可复用，不能把身份放进 Core 扩大失效范围。macOS 同时把 Debug Editor 复制到缓存槽内的独立 App 副本，写入原版编辑器 ICNS 和 Info.plist，签名并验证；以签名后的实际程序摘要与 App 配对，日常仍由 start.sh 传入项目与模板参数。Windows 原生终端通过 `python tools/launch/launch.py` 调用同一流程，各平台启动器等待编辑器退出并保留返回码；启动器将 Windows Cargo 产物复制到同槽候选，通过 `tools/launch/windows_icon.py` 写入并读回原版 ICO 的各尺寸及现有语言资源，以写入后的程序摘要完成配对。模板清单版本为 4（App 命名；旧模板需重新运行启动器准备），校验 App/Editor、游戏 ICNS 与附带许可文件的摘要。Editor、App 和模板按完整套件保存于 `target/launch/slot-*/programs/`；启动器与验收进程持有槽位文件锁，POSIX 编辑器继承该锁，使用中的套件不被后续构建覆盖。空闲槽按编号复用，相同输入直接复用，变化或损坏时校验候选后成套替换；失败保留旧套件，发布中断可恢复。槽数量取决于同时使用量，旧 hash 快照不再新增，也不自动清理。模板失配提示重新运行启动器。
 Editor 的 export.rs 持有导出配置、后台任务和子进程管理；UI 提供启动场景、额外场景、目的地和导出后运行。先停止 Play、提交并保存作者内容，再由后台线程调用 Pipeline 构建，检查保存版本未改变，收集所选场景的依赖并集。任务使用已保存输入并显示阶段与有界日志，期间禁用修改操作；没有导出时编译 Rust 的路径。

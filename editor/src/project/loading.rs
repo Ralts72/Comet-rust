@@ -38,9 +38,7 @@ impl ProductLocations {
     }
 
     pub fn for_project(&self, paths: &ProjectPaths) -> Result<PathBuf> {
-        let products = self.for_root(paths.root())?;
-        ensure_disjoint(&products, paths.assets())?;
-        Ok(products)
+        checked_products(paths, &self.for_root(paths.root())?)
     }
 
     pub fn for_root(&self, root: &Path) -> Result<PathBuf> {
@@ -68,9 +66,9 @@ fn ensure_disjoint(products: &Path, assets: &Path) -> Result<()> {
 }
 
 fn checked_products(paths: &ProjectPaths, products: &Path) -> Result<PathBuf> {
-    let products = resolve_destination(products)?;
-    ensure_disjoint(&products, paths.assets())?;
-    Ok(products)
+    paths
+        .products_destination(products)
+        .context("产品缓存目录无效")
 }
 
 fn protect_assets(products: &Path, protected_assets: Option<&Path>) -> Result<()> {

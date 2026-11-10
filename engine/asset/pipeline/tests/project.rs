@@ -14,6 +14,114 @@ const CONTENT_CREATORS: [(&str, ContentCreator); 2] =
     [("scene", create_scene), ("prefab", create_prefab)];
 
 #[test]
+fn asset_build_rejects_missing_assets_before_creating_products_or_locks() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    fs::create_dir(&project)?;
+    let output = temp.path().join("products");
+    assert!(prepare(&project, &output).is_err());
+    assert!(!output.exists());
+    assert!(fs::read_dir(&project)?.next().is_none());
+    Ok(())
+}
+
+#[test]
+fn asset_build_rejects_overlapping_outputs_before_any_writes() -> Result<()> {
+    for relative in ["project/assets", "project/assets/cache", "project", "."] {
+        let temp = tempfile::tempdir()?;
+        let project = temp.path().join("project");
+        let assets = project.join("assets");
+        fs::create_dir_all(&assets)?;
+        let source = assets.join("main.scene");
+        let bytes = comet_scene::ContentSource::default().to_json()?;
+        fs::write(&source, &bytes)?;
+        let output = temp.path().join(relative);
+        assert!(prepare(&project, &output).is_err(), "{relative}");
+        assert_eq!(fs::read(&source)?, bytes);
+        assert!(!SourceMeta::path(&source).exists());
+        assert!(!project.join(".assetc.lock").exists());
+        assert!(!output.join(".build.lock").exists());
+        assert!(!output.join("index.json").exists());
+        assert_eq!(fs::read_dir(&assets)?.count(), 1);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn asset_build_rejects_escaping_assets_and_aliased_output_overlap_before_any_writes() -> Result<()>
+{
+    use std::os::unix::fs::symlink;
+    for escaped_assets in [false, true] {
+        let temp = tempfile::tempdir()?;
+        let project = temp.path().join("project");
+        let sources = if escaped_assets {
+            temp.path().join("outside")
+        } else {
+            project.join("assets")
+        };
+        fs::create_dir_all(&project)?;
+        fs::create_dir_all(&sources)?;
+        let source = sources.join("main.scene");
+        let bytes = comet_scene::ContentSource::default().to_json()?;
+        fs::write(&source, &bytes)?;
+        let output = temp.path().join("products");
+        if escaped_assets {
+            symlink(&sources, project.join("assets"))?;
+        } else {
+            symlink(&sources, &output)?;
+        }
+        assert!(prepare(&project, &output).is_err());
+        assert_eq!(fs::read(&source)?, bytes);
+        assert!(!SourceMeta::path(&source).exists());
+        assert!(!project.join(".assetc.lock").exists());
+        assert!(!output.join(".build.lock").exists());
+        assert!(!output.join("index.json").exists());
+        assert_eq!(fs::read_dir(&sources)?.count(), 1);
+        if escaped_assets {
+            assert!(!output.exists());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn asset_build_preserves_identity_and_labels_through_internal_directory_aliases() -> Result<()> {
+    use std::os::unix::fs::symlink;
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    let sources = project.join("source-data");
+    fs::create_dir_all(&sources)?;
+    symlink(&sources, project.join("assets"))?;
+    let alias = temp.path().join("project-alias");
+    symlink(&project, &alias)?;
+    let cache = temp.path().join("cache");
+    fs::create_dir(&cache)?;
+    let cache_alias = temp.path().join("cache-alias");
+    symlink(&cache, &cache_alias)?;
+    let source = sources.join("main.scene");
+    let bytes = comet_scene::ContentSource::default().to_json()?;
+    fs::write(&source, &bytes)?;
+    let first = prepare(&alias, &cache_alias.join("products"))?;
+    let metadata = fs::read(SourceMeta::path(&source))?;
+    let id = SourceMeta::load(&source)?.id;
+    let products = cache.join("products");
+    let mut store = comet_asset::AssetStore::open(&products)?;
+    assert_eq!(store.expand_scene(id)?.entities.len(), 0);
+    let origin = store.index().products[&id].editor.as_ref().unwrap();
+    assert_eq!(origin.source, id);
+    assert_eq!(origin.label, "main.scene");
+    let rebuilt = prepare(&project, &products)?;
+    assert_eq!(rebuilt.changed, 0);
+    assert_eq!(rebuilt.reused, 1);
+    assert_eq!(rebuilt.index_digest, first.index_digest);
+    assert_eq!(fs::read(SourceMeta::path(&source))?, metadata);
+    assert_eq!(fs::read(&source)?, bytes);
+    Ok(())
+}
+
+#[test]
 fn new_projects_publish_only_authoring_files_and_keep_the_entry_identity_on_rebuild() -> Result<()>
 {
     let temp = tempfile::tempdir()?;
