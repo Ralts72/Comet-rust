@@ -153,3 +153,30 @@ fn png(bytes: &[u8]) -> Result<TextureData> {
     value.validate()?;
     Ok(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_formats_apply_their_declared_budget_before_import_or_allocation() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        for (extension, limit) in [
+            ("rhai", MAX_SCRIPT_BYTES),
+            ("nav", comet_asset_data::navigation::MAX_NAVIGATION_BYTES),
+            ("gltf", comet_asset_data::MAX_ANIMATION_BYTES),
+            ("glb", comet_asset_data::MAX_ANIMATION_BYTES),
+            ("wav", crate::audio::MAX_WAV_BYTES),
+        ] {
+            let path = temp.path().join(format!("oversized.{extension}"));
+            std::fs::File::create(&path)?.set_len(limit as u64 + 1)?;
+            let error = read(&path).unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("budget") && message.contains(extension),
+                "{message}"
+            );
+        }
+        Ok(())
+    }
+}
