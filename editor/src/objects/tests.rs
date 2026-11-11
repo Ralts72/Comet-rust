@@ -67,7 +67,7 @@ fn placing_a_resource_preserves_its_instance_and_undoes_as_one_edit() -> Result<
         .clone();
     let before = editor.document.source();
     let count = editor.snapshot(&mut assets)?.entities.len();
-    editor.place_resource(choice.id, "showcase", &mut assets)?;
+    editor.place_resource(choice.id, "showcase", [0.; 3], &mut assets)?;
     let container = editor.selection.active().unwrap();
     let placed = editor.document.source();
     assert_eq!(placed.instances.len(), before.instances.len() + 1);
@@ -99,7 +99,7 @@ fn placing_a_resource_preserves_its_instance_and_undoes_as_one_edit() -> Result<
     let history = editor.document.history_len();
     assert!(
         editor
-            .place_resource(comet_core::AssetId::new(), "missing", &mut assets)
+            .place_resource(comet_core::AssetId::new(), "missing", [0.; 3], &mut assets)
             .is_err()
     );
     assert_eq!(editor.document.source(), placed);
@@ -107,7 +107,7 @@ fn placing_a_resource_preserves_its_instance_and_undoes_as_one_edit() -> Result<
     editor.start(&mut assets)?;
     assert!(
         editor
-            .place_resource(choice.id, "showcase", &mut assets)
+            .place_resource(choice.id, "showcase", [0.; 3], &mut assets)
             .is_err()
     );
     Ok(())
@@ -259,7 +259,7 @@ fn mixed_author_and_same_instance_roots_duplicate_once_and_keep_either_clicked_a
         let prefab = physical_source(&editor, &mut assets, entities)?;
         let roots = assets.prefab(prefab)?.prefab_roots(&mut assets)?;
         let base_count = editor.document.shared_source().base.entities.len();
-        editor.place_resource(prefab, "physical roots", &mut assets)?;
+        editor.place_resource(prefab, "physical roots", [0.; 3], &mut assets)?;
         assert_eq!(
             editor.document.shared_source().base.entities.len(),
             base_count
@@ -358,7 +358,7 @@ fn a_conflicting_player_prefab_cannot_publish_an_instance_or_change_selection_an
     let history = editor.document.history_len();
     assert!(
         editor
-            .place_resource(prefab, "conflicting player", &mut assets)
+            .place_resource(prefab, "conflicting player", [0.; 3], &mut assets)
             .is_err()
     );
     assert!(Arc::ptr_eq(&source, &editor.document.shared_source()));

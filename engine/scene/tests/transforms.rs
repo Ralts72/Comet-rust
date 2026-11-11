@@ -231,6 +231,7 @@ fn prefab_attachment_rejects_world_overflow_without_changing_sources() -> Result
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: comet_core::InstanceId::new(),
             prefab: comet_core::AssetId::new(),
             parent: Some(parent_id),
@@ -282,6 +283,7 @@ fn prefab_overrides_validate_the_complete_candidate_independent_of_field_order()
     let instance = comet_core::InstanceId::new();
     let mut source = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: comet_core::AssetId::new(),
             parent: None,

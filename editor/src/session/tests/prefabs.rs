@@ -34,6 +34,7 @@ fn prefab(editor: &Editor) -> Result<(AssetId, EntityId)> {
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab: imported,
             parent: Some(root_id),
@@ -57,6 +58,7 @@ fn source_edits_keep_identities_and_reach_instances_only_after_build_acceptance(
     let instance = InstanceId::new();
     let scene = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: source_id,
             parent: None,
@@ -205,19 +207,20 @@ fn prefab_root_cycles_are_rejected_for_current_edits_and_retained_history_refres
     let original = editor.document.shared_source();
     assert!(
         editor
-            .place_resource(source_id, "self", &mut assets)
+            .place_resource(source_id, "self", [0.; 3], &mut assets)
             .is_err()
     );
     assert!(Arc::ptr_eq(&original, &editor.document.shared_source()));
     assert_eq!(editor.document.history_len(), 0);
 
-    editor.place_resource(other, "history only", &mut assets)?;
+    editor.place_resource(other, "history only", [0.; 3], &mut assets)?;
     let retained = editor.document.shared_source();
     editor.document.undo()?;
     let accepted = assets.shared_index();
     let source = editor.document.shared_source();
     let back_reference = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab: source_id,
             parent: None,

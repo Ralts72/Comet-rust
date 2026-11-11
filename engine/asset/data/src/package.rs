@@ -18,7 +18,7 @@ impl ProtocolVersions {
         Self {
             product: crate::product::PRODUCT_VERSION,
             index: crate::product::INDEX_VERSION,
-            content: 1,
+            content: comet_scene::prefab::CONTENT_VERSION,
             scene: comet_scene::scene::SCENE_VERSION,
         }
     }

@@ -90,6 +90,7 @@ fn invalid_script_component_candidates_keep_the_last_preview_and_reject_prefab_s
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: library.0,
             parent: None,

@@ -140,6 +140,7 @@ fn a_nested_member_rejects_the_whole_group_before_opening_a_transaction() -> Res
     assets.refresh()?;
     let outer = InstanceId::new();
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: outer,
         prefab: SourceMeta::load(&nested_path)?.id,
         parent: None,
@@ -187,6 +188,7 @@ fn returning_all_group_values_to_their_baselines_preserves_existing_pins_and_inh
         });
     let second = comet_core::InstanceId::new();
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: second,
         prefab: first.prefab,
         parent: None,
@@ -239,6 +241,7 @@ fn reference_routes_share_one_cache_and_keep_instance_and_animator_source_identi
         instances: [first, second]
             .into_iter()
             .map(|id| PrefabInstance {
+                translation: [0.; 3],
                 id,
                 prefab,
                 parent: None,

@@ -144,6 +144,7 @@ fn authored_joint_picker_connects_to_one_direct_instance_with_atomic_anchor_and_
     source.instances = [first, second]
         .into_iter()
         .map(|id| comet_scene::PrefabInstance {
+            translation: [0.; 3],
             id,
             prefab: asset,
             parent: None,
@@ -384,6 +385,7 @@ fn prefab_joint_widgets_only_write_existing_field_overrides() -> Result<()> {
     let instance = comet_core::InstanceId::new();
     editor.document = Document::open_source(comet_scene::ContentSource {
         instances: vec![comet_scene::PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: asset,
             parent: None,
@@ -507,6 +509,7 @@ fn prefab_connection_selection_stores_source_identity_and_remaps_on_save_and_exp
             ..Default::default()
         },
         instances: vec![comet_scene::PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: asset,
             parent: None,

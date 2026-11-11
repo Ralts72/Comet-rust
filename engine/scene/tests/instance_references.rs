@@ -31,6 +31,7 @@ fn content(
 }
 fn instance(id: InstanceId, prefab: AssetId) -> PrefabInstance {
     PrefabInstance {
+        translation: [0.; 3],
         id,
         prefab,
         parent: None,

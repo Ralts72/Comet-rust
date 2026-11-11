@@ -60,6 +60,7 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     )?;
     let content = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab,
             parent: None,

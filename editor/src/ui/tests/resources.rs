@@ -186,6 +186,7 @@ impl Case {
                 &wrapper,
                 ContentSource {
                     instances: vec![PrefabInstance {
+                        translation: [0.; 3],
                         id,
                         prefab: comet_asset_pipeline::SourceMeta::load(&direct)?.id,
                         parent: None,
@@ -612,7 +613,7 @@ fn model_detach_rejects_author_containers_before_committing_and_preserves_expand
         .unwrap()
         .clone();
     c.editor
-        .place_resource(choice.id, "模型容器", &mut c.assets)?;
+        .place_resource(choice.id, "模型容器", [0.; 3], &mut c.assets)?;
     let container = c.editor.selection.active().unwrap();
     c.editor.rename_object(container, "名称预览".into())?;
     let accepted = c.editor.document.shared_source();
@@ -657,7 +658,7 @@ fn placement_window_cancels_without_editing_and_places_model_groups_in_one_undo_
         .unwrap()
         .clone();
     c.editor
-        .place_resource(choice.id, "放置模型", &mut c.assets)?;
+        .place_resource(choice.id, "放置模型", [0.; 3], &mut c.assets)?;
     let root = c.editor.selection.active().unwrap();
     c.editor.rename_object(root, "字段预览".into())?;
     let preview = c.editor.document.shared_source();
@@ -793,7 +794,7 @@ fn save_prefab_browser_retries_without_touching_the_document_and_rebuilt_product
         .unwrap()
         .clone();
     c.editor
-        .place_resource(choice.id, "保存模型", &mut c.assets)?;
+        .place_resource(choice.id, "保存模型", [0.; 3], &mut c.assets)?;
     let root = c.editor.selection.active().unwrap();
     let before = c.editor.document.shared_source();
     let state = (

@@ -97,18 +97,32 @@ impl Editor {
         &mut self,
         prefab: AssetId,
         name: &str,
+        translation: [f32; 3],
         assets: &mut AssetStore,
     ) -> Result<()> {
         self.ensure_structural_editable()?;
         let source = assets.prefab(prefab)?;
         let roots = source.prefab_roots(assets)?;
         let unparented = roots.iter().any(PrefabRoot::requires_scene_root);
-        let entity = (!unparented).then(|| EntityData::new(name));
+        ensure!(
+            translation.iter().all(|v| v.is_finite()),
+            "资源位置超出有效范围"
+        );
+        let entity = (!unparented).then(|| {
+            let mut entity = EntityData::new(name);
+            entity.transform.translation = translation;
+            entity
+        });
         let id = entity.as_ref().map(|entity| entity.id);
         self.structural_edit()?;
         let instance = self
             .document
-            .insert_prefab(entity, prefab, assets)
+            .insert_prefab(
+                entity,
+                prefab,
+                if unparented { translation } else { [0.; 3] },
+                assets,
+            )
             .context("无法将资源添加到场景")?;
         if unparented {
             self.selection

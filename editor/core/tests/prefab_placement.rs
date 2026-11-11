@@ -33,6 +33,7 @@ fn body(name: &str, motion: BodyMotion) -> EntityData {
 fn nested(prefab: AssetId) -> ContentSource {
     ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab,
             parent: None,
@@ -71,7 +72,7 @@ fn unparented_single_multiple_and_nested_physics_roots_form_one_reversible_inser
         let descriptors = library.prefab(prefab)?.prefab_roots(&mut library)?;
         assert_eq!(descriptors.len(), count);
         assert!(descriptors.iter().all(|root| root.requires_scene_root()));
-        let instance = document.insert_prefab(None, prefab, &mut library)?;
+        let instance = document.insert_prefab(None, prefab, [0.; 3], &mut library)?;
         let inserted = document.shared_source();
         assert_eq!(inserted.base, baseline.base);
         assert_eq!(inserted.instances.len(), 1);
@@ -120,7 +121,7 @@ fn authored_container_keeps_nonphysical_multi_roots_in_one_insertion() -> Result
     let mut document = Document::open_source(ContentSource::default())?;
     let container = EntityData::new("container");
     let container_id = container.id;
-    let instance = document.insert_prefab(Some(container), prefab, &mut library)?;
+    let instance = document.insert_prefab(Some(container), prefab, [0.; 3], &mut library)?;
     let inserted = document.shared_source();
     assert_eq!(inserted.base.entities.len(), 1);
     assert_eq!(inserted.instances[0].id, instance);
@@ -175,7 +176,7 @@ fn rejected_placement_preserves_savepoint_redo_and_an_active_preview() -> Result
     ] {
         assert!(
             document
-                .insert_prefab(container, target, &mut library)
+                .insert_prefab(container, target, [0.; 3], &mut library)
                 .is_err()
         );
         assert!(Arc::ptr_eq(&before, &document.shared_source()));
@@ -191,7 +192,11 @@ fn rejected_placement_preserves_savepoint_redo_and_an_active_preview() -> Result
     document.preview_name(id, "accepted preview".into())?;
     let preview = document.shared_source();
     let preview_revision = document.revision();
-    assert!(document.insert_prefab(None, prefab, &mut library).is_err());
+    assert!(
+        document
+            .insert_prefab(None, prefab, [0.; 3], &mut library)
+            .is_err()
+    );
     assert!(document.is_editing());
     assert!(Arc::ptr_eq(&preview, &document.shared_source()));
     assert_eq!(document.revision(), preview_revision);
@@ -200,5 +205,75 @@ fn rejected_placement_preserves_savepoint_redo_and_an_active_preview() -> Result
     assert!(Arc::ptr_eq(&before, &document.shared_source()));
     document.redo()?;
     assert!(Arc::ptr_eq(&redo, &document.shared_source()));
+    Ok(())
+}
+
+#[test]
+fn translated_physical_instances_roundtrip_copy_and_reject_failed_candidates_atomically()
+-> Result<()> {
+    let leaf = AssetId::new();
+    let branch = AssetId::new();
+    let mut first = body("first", BodyMotion::Fixed);
+    first.transform.translation = [1., 5., 0.];
+    let mut second = body("second", BodyMotion::Dynamic);
+    second.transform.translation = [-1., 5., 0.];
+    let mut library = Library(BTreeMap::from([
+        (leaf, content(vec![first, second])),
+        (branch, nested(leaf)),
+    ]));
+    let mut document = Document::open(Default::default())?;
+    let initial = document.shared_source();
+    let id = document.insert_prefab(None, branch, [10., 2., 3.], &mut library)?;
+    let placed = document.shared_source();
+    assert_eq!(placed.version, 2);
+    assert!(placed.base.entities.is_empty());
+    assert_eq!(placed.instances[0].translation, [10., 2., 3.]);
+    let expanded = document.expand(&mut library)?;
+    assert!(
+        expanded
+            .entities
+            .iter()
+            .all(|e| e.parent.is_none() && e.transform.translation[1] == 7.)
+    );
+    assert_eq!(document.history_len(), 1);
+    let copy = document.duplicate_instance(id, &mut library)?;
+    assert_ne!(copy, id);
+    assert_eq!(
+        document
+            .shared_source()
+            .instances
+            .iter()
+            .find(|i| i.id == copy)
+            .unwrap()
+            .translation,
+        [10., 2., 3.]
+    );
+    document.undo()?;
+    assert_eq!(document.shared_source(), placed);
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("translated.scene");
+    document.save(&path)?;
+    assert_eq!(Document::load(&path)?.expand(&mut library)?, expanded);
+    document.undo()?;
+    assert_eq!(document.shared_source(), initial);
+    for translation in [[f32::NAN, 0., 0.], [f32::MAX, f32::MAX, f32::MAX]] {
+        // A missing product and a non-finite offset both preserve the redo branch.
+        let prefab = if translation[0].is_finite() {
+            AssetId::new()
+        } else {
+            branch
+        };
+        assert!(
+            document
+                .insert_prefab(None, prefab, translation, &mut library)
+                .is_err()
+        );
+        assert!(Arc::ptr_eq(&initial, &document.shared_source()));
+        assert_eq!(document.history_len(), 0);
+    }
+    document.redo()?;
+    assert_eq!(document.shared_source(), placed);
+    document.detach_instance(id, &mut library)?;
+    assert_eq!(document.expand(&mut library)?, expanded);
     Ok(())
 }

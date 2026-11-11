@@ -302,6 +302,7 @@ fn direct_prefab_clip_choices_keep_source_identity_and_remain_read_only_in_play(
     f.editor.document = Document::open_source(ContentSource {
         instances: instances
             .map(|id| PrefabInstance {
+                translation: [0.; 3],
                 id,
                 prefab: clips.prefab,
                 parent: None,
@@ -361,6 +362,7 @@ fn headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged() 
             .iter()
             .enumerate()
             .map(|(index, &id)| PrefabInstance {
+                translation: [0.; 3],
                 id,
                 prefab: clips.prefab,
                 parent: None,

@@ -174,6 +174,7 @@ fn prefab_navigation_overrides_keep_source_references_and_root_constraints() -> 
     let id = InstanceId::new();
     let mut source = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id,
             prefab,
             parent: None,

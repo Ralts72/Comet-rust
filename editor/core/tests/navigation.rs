@@ -106,6 +106,7 @@ fn prefab_navigation_fields_keep_optional_asset_overrides_and_noop_round_trips()
             entities: vec![],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab,
             parent: None,

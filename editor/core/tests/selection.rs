@@ -364,12 +364,14 @@ fn fixture() -> Result<Fixture> {
         },
     ];
     let attached = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: library.asset,
         parent: Some(child.id),
         overrides: vec![],
     };
     let direct = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: library.asset,
         parent: None,
@@ -503,6 +505,7 @@ fn mixed_remove_is_one_undo_step_and_clears_deleted_author_and_instance_links() 
     source.base.version = 10;
     let spare = InstanceId::new();
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: spare,
         prefab: f.library.asset,
         parent: None,

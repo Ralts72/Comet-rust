@@ -34,6 +34,7 @@ fn place(
             .file_stem()
             .unwrap_or_default()
             .to_string_lossy(),
+        [0.; 3],
         assets,
     )
 }

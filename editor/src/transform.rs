@@ -202,7 +202,7 @@ impl Editor {
         let mut edits = Vec::new();
         let mut runtime_edits = Vec::new();
         for target in &drag.targets {
-            for (field, value) in fields(target, drag.anchor)? {
+            for (field, mut value) in fields(target, drag.anchor)? {
                 match target.destination {
                     Destination::Document(destination) => {
                         if transform_fields(&target.local)
@@ -211,6 +211,7 @@ impl Editor {
                         {
                             continue;
                         }
+                        self.source_translation_value(destination, field, &mut value, assets)?;
                         edits.push(FieldEdit {
                             target: destination,
                             field,

@@ -32,6 +32,7 @@ fn fixture(owner: EntityData) -> Result<(Document, Library, EntityId, InstanceId
             entities: vec![owner],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: asset,
             parent: None,

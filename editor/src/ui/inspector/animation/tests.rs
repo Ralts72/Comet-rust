@@ -194,6 +194,7 @@ fn controller_picker_switches_atomically_and_preserves_prefab_overrides_undo_and
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: f.prefab,
             parent: None,
@@ -387,6 +388,7 @@ fn editing_a_direct_prefab_binding_preserves_existing_child_refs_without_offerin
     let child = comet_core::InstanceId::new();
     parent.base.version = 10;
     parent.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: child,
         prefab: child_asset,
         parent: Some(controller),
@@ -417,6 +419,7 @@ fn editing_a_direct_prefab_binding_preserves_existing_child_refs_without_offerin
     let outer = comet_core::InstanceId::new();
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: outer,
             prefab: parent_asset,
             parent: None,
@@ -489,6 +492,7 @@ fn binding_repair_and_direct_prefab_fields_keep_source_ids_and_readonly_boundari
     let source_controller = f.selected;
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: f.prefab,
             parent: None,
@@ -749,6 +753,7 @@ fn skin_controller_choices_keep_prefab_reference_scope_and_nested_instances_read
     let instance = comet_core::InstanceId::new();
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: f.prefab,
             parent: None,
@@ -807,6 +812,7 @@ fn skin_controller_choices_keep_prefab_reference_scope_and_nested_instances_read
     f.assets.refresh()?;
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: comet_core::InstanceId::new(),
             prefab: comet_asset_pipeline::SourceMeta::load(&nested_path)?.id,
             parent: None,

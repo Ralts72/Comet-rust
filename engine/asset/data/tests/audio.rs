@@ -121,6 +121,7 @@ fn authored_and_prefab_override_audio_dependencies_require_audio_products() -> R
     let prefab = AssetId::new();
     let overridden = Product::Scene(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab,
             parent: None,

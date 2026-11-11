@@ -25,6 +25,31 @@ impl Default for Camera {
     }
 }
 impl Camera {
+    /// Map viewport UV to the plane through the camera target, perpendicular to the view.
+    pub fn focus_plane_point(self, uv: [f32; 2], aspect: f32) -> Option<Vec3> {
+        if !aspect.is_finite()
+            || aspect <= 0.
+            || !uv
+                .into_iter()
+                .all(|v| v.is_finite() && (0. ..=1.).contains(&v))
+        {
+            return None;
+        }
+        let projection = self.view_projection(aspect);
+        let target = projection * self.target.extend(1.);
+        if !target.is_finite() || target.w <= 0. || target.z < 0. || target.z > target.w {
+            return None;
+        }
+        let point = projection.inverse()
+            * comet_core::math::Vec4::new(
+                uv[0] * 2. - 1.,
+                1. - uv[1] * 2.,
+                target.z / target.w,
+                1.,
+            );
+        let result = point.truncate() / point.w;
+        result.is_finite().then_some(result)
+    }
     pub fn view_projection(self, aspect: f32) -> Mat4 {
         comet_core::math::perspective(45_f32.to_radians(), aspect.max(0.01), 0.05, 200.)
             * comet_core::math::look_at(self.eye, self.target, Vec3::Y)

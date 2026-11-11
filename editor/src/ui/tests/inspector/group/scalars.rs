@@ -173,6 +173,7 @@ fn authored_and_direct_prefab_roughness_use_one_transaction_and_keep_source_iden
     let mut source = f.editor.document.source();
     source.base.entities.retain(|entity| entity.id == f.ids[0]);
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: instance,
         prefab: SourceMeta::load(&path)?.id,
         parent: None,

@@ -219,6 +219,7 @@ fn prefab_clip_overrides_package_their_dependencies_and_load_without_any_authori
                 ..Default::default()
             },
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: InstanceId::new(),
                 prefab,
                 parent: None,

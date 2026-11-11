@@ -406,6 +406,7 @@ fn direct_prefab_target_widgets_store_source_uuids_and_nested_or_background_cont
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab,
             parent: None,
@@ -480,6 +481,7 @@ fn direct_prefab_target_widgets_store_source_uuids_and_nested_or_background_cont
         &wrapper_path,
         ContentSource {
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: inner,
                 prefab,
                 parent: None,

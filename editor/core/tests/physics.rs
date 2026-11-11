@@ -166,6 +166,7 @@ fn invalid_component_candidates_preserve_last_preview_and_reject_prefab_ownershi
         .unwrap()
         .character = None;
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: instance_id,
         prefab: prefab_id,
         parent: None,
@@ -252,6 +253,7 @@ fn crouch_fields_upgrade_authored_and_prefab_versions_with_undo_and_save() -> Re
             entities: vec![],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab,
             parent: None,

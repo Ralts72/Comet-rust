@@ -14,7 +14,7 @@ fn button(pos: Pos2, pressed: bool) -> egui::Event {
 fn begin_drag(c: &mut Case) -> Pos2 {
     let (view, output) = c.frame_result(vec![]);
     let from = position(&output, c.resource, resources());
-    let to = view.viewport.center();
+    let to = view.viewport.lerp_inside(egui::vec2(0.7, 0.4));
     c.frame(vec![egui::Event::PointerMoved(from), button(from, true)]);
     c.frame(vec![egui::Event::PointerMoved(from + Vec2::new(8., -8.))]);
     assert!(egui::DragAndDrop::has_payload_of_type::<ResourceDrag>(
@@ -33,6 +33,15 @@ fn project_resource_drag_places_real_roots_once_and_rejects_changed_contexts() -
     assert!(view.pick.is_none());
     assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
     let placed = c.editor.document.shared_source();
+    let expected = c
+        .editor
+        .camera
+        .focus_plane_point([0.7, 0.4], view.viewport.aspect_ratio())
+        .unwrap();
+    assert!(
+        comet_core::math::Vec3::from(placed.instances[0].translation).distance(expected) < 1e-3
+    );
+    assert_eq!(placed.version, 2);
     assert_eq!(placed.instances.len(), 1);
     assert!(placed.base.entities.is_empty());
     assert_eq!(c.editor.document.history_len(), 1);
@@ -208,5 +217,103 @@ fn project_tree_filters_paths_and_derived_assets_and_refreshes_without_editing()
     position(&c.frame(vec![]), "没有匹配的资源。", Rect::EVERYTHING);
     assert!(Arc::ptr_eq(&authoring, &c.editor.document.shared_source()));
     assert_eq!(c.editor.document.history_len(), 0);
+    Ok(())
+}
+
+#[test]
+fn translated_root_fields_and_gizmo_use_source_overrides_without_reapplying_placement() -> Result<()>
+{
+    use comet_scene::{schema, schema::FieldValue};
+    let mut c = Case::new(false)?;
+    let prefab = c
+        .editor
+        .sources
+        .of_kind(AssetKind::Prefab)
+        .find(|s| s.source == std::path::Path::new(c.resource))
+        .unwrap()
+        .id;
+    let offset = [8., 2., -3.];
+    c.editor
+        .place_resource(prefab, "placed", offset, &mut c.assets)?;
+    let id = c.editor.selection.active().unwrap();
+    let entity = c
+        .editor
+        .snapshot(&mut c.assets)?
+        .entities
+        .iter()
+        .find(|e| e.id == id)
+        .unwrap()
+        .clone();
+    let placed = c.editor.document.shared_source();
+    c.editor.edit(
+        id,
+        schema::TRANSLATION,
+        FieldValue::Vec3(entity.transform.translation),
+        &mut c.assets,
+    )?;
+    c.editor.commit()?;
+    assert_eq!(c.editor.document.shared_source(), placed);
+    c.editor.begin_translation(&mut c.assets)?;
+    c.editor
+        .preview_translation(comet_core::math::Vec3::new(2., 0., 0.), &mut c.assets)?;
+    let translated = c.editor.snapshot(&mut c.assets)?;
+    assert!(
+        translated
+            .entities
+            .iter()
+            .all(|e| e.transform.translation[0] >= 8.)
+    );
+    assert_eq!(
+        c.editor.document.shared_source().instances[0].translation,
+        offset
+    );
+    assert_eq!(
+        c.editor.document.shared_source().instances[0]
+            .overrides
+            .len(),
+        2
+    );
+    c.editor
+        .preview_translation(comet_core::math::Vec3::ZERO, &mut c.assets)?;
+    assert_eq!(c.editor.document.shared_source(), placed);
+    c.editor.commit()?;
+    assert_eq!(c.editor.document.history_len(), 1);
+    let mut value = entity.transform.translation;
+    value[1] += 3.;
+    c.editor.edit(
+        id,
+        schema::TRANSLATION,
+        FieldValue::Vec3(value),
+        &mut c.assets,
+    )?;
+    c.editor.commit()?;
+    assert_eq!(
+        c.editor
+            .snapshot(&mut c.assets)?
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .unwrap()
+            .transform
+            .translation,
+        value
+    );
+    c.editor
+        .revert_prefab_fields(&[id], Some(&[schema::TRANSLATION]), &mut c.assets)?;
+    assert_eq!(c.editor.document.shared_source(), placed);
+    assert_eq!(
+        c.editor
+            .snapshot(&mut c.assets)?
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .unwrap()
+            .transform
+            .translation,
+        entity.transform.translation
+    );
+    for (path, bytes) in c.sources {
+        assert_eq!(fs::read(path)?, bytes);
+    }
     Ok(())
 }

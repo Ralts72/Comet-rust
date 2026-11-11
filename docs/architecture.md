@@ -174,7 +174,7 @@ Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links�
 | 14 SkinBinding | 1–2 | skin / animator | Skin 资产与可选动画实体引用；与 Model 共存，要求 Scene9 |
 | 15 CharacterAnimation | 1–2 | character / animator | 视觉容器绑定父角色与后代动画实体，要求 Scene11 |
 
-场景快照当前版本为 11；仍读取版本 1–10。版本 11 增加 Animator.controller 与 CharacterAnimation；缺失字段不补写，旧场景保持原版本。版本 10 增加 InInstance 实体引用，旧版本不能夹带该引用；文档按具体字段值显式升级，旧 Local/External 引用不因此升级。版本 9 增加可选 Animator 与 SkinBinding；旧版本不能夹带这些组件，缺失字段不补写。版本 8 增加 AudioSource 空间配置，缺少字段时默认 spatial=false、近距 1 米、远距 30 米；默认值不写入旧 2D 格式，普通 Scene7 打开、保存和构建保留版本。空间启用或非默认距离要求版本 8，新 Schema 字段覆盖同样要求版本 8。版本 7 增加可选 `audio_source`，版本 6 增加可选 `navigation_region`、`navigation_agent`，版本 5 增加三种可选关节，版本 4 增加可选 Script；缺少这些组件的旧场景保留原协议。版本 2 支持可选 `physics`、`character`，版本 3 增加可配置蹲伏速度和高度比例。旧场景缺少蹲伏字段时使用默认值（2、0.6），默认字段不额外写入旧格式；版本 1 不允许物理组件，版本 2 不允许非默认蹲伏配置。最低协议由 Scene 的 EntityData 按实际组件配置及引用值统一计算，Scene 校验和 Document 组件/插入候选复用同一规则；字段与覆盖同时考虑字段版本和具体值。只打开和保存旧场景保留版本与 UUID，显式编辑才升级，撤销可恢复旧版本。Prefab 新字段覆盖也升级作者 base，展开时只升级被覆写候选并合成最高版本，不修改源 Prefab。ContentSource 外层版本仍为 1；产品需随协议实现重新构建，metadata 身份不变。
+场景快照当前版本为 12；仍读取版本 1–11。版本 12 增加脚本数据资产参数。版本 11 增加 Animator.controller 与 CharacterAnimation；缺失字段不补写，旧场景保持原版本。版本 10 增加 InInstance 实体引用，旧版本不能夹带该引用；文档按具体字段值显式升级，旧 Local/External 引用不因此升级。版本 9 增加可选 Animator 与 SkinBinding；旧版本不能夹带这些组件，缺失字段不补写。版本 8 增加 AudioSource 空间配置，缺少字段时默认 spatial=false、近距 1 米、远距 30 米；默认值不写入旧 2D 格式，普通 Scene7 打开、保存和构建保留版本。空间启用或非默认距离要求版本 8，新 Schema 字段覆盖同样要求版本 8。版本 7 增加可选 `audio_source`，版本 6 增加可选 `navigation_region`、`navigation_agent`，版本 5 增加三种可选关节，版本 4 增加可选 Script；缺少这些组件的旧场景保留原协议。版本 2 支持可选 `physics`、`character`，版本 3 增加可配置蹲伏速度和高度比例。旧场景缺少蹲伏字段时使用默认值（2、0.6），默认字段不额外写入旧格式；版本 1 不允许物理组件，版本 2 不允许非默认蹲伏配置。最低协议由 Scene 的 EntityData 按实际组件配置及引用值统一计算，Scene 校验和 Document 组件/插入候选复用同一规则；字段与覆盖同时考虑字段版本和具体值。只打开和保存旧场景保留版本与 UUID，显式编辑才升级，撤销可恢复旧版本。Prefab 新字段覆盖也升级作者 base，展开时只升级被覆写候选并合成最高版本，不修改源 Prefab。ContentSource 外层当前支持版本 1–2；非零实例位移使用版本 2，缺省零位移保持版本 1。产品需随协议实现重新构建，metadata 身份不变。
 Scene 同时检查局部字段和组合后的世界矩阵，有限本地数值不能绕过层级乘积溢出校验。字段候选、场景替换、Prefab 覆盖与姿态写回在成功发布前共用组合规则；Prefab 的同一实例覆盖一次批量校验，不以逐字段的临时状态拒绝合法最终结果。姿态快路径只借用当前 Identity/Transform 和待写姿态，不克隆 EntityData 或脚本参数；变化时重算世界矩阵，组合 O(N log N)、辅助空间 O(N)，无变化沿用早退。结构/引用校验仍有其原有成本，不据此承诺整个 Scene 验证已线性化。
 
 PrefabRoot 是不序列化的派生元数据，由真实展开同步收集源实体、相对嵌套 InstanceId 路径和根层级约束。实例化及复制沿路径逐层组合 scope 后再派生实体 UUID，不能对已展开 UUID 再套一次 instance，也不能按新旧随机 UUID 排序配对。Editor 每条结构命令按 AssetId 缓存这类轻量元数据，同实例多根合并为一次操作并保留各选中根及点击锚点；发布后选择映射不读取资源。内部非根节点仍不提供结构覆盖。
@@ -184,7 +184,7 @@ Schema 的读写、校验、引用分类和重映射供各消费者复用。复�
 
 ## 文档与运行世界
 
-ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Prefab 共用作者格式。实例保存 InstanceId、Prefab AssetId、挂接父实体与字段覆盖。
+ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Prefab 共用作者格式。实例保存 InstanceId、Prefab AssetId、挂接父实体、位移与字段覆盖。`translation` 是挂接父级空间中的整体位移，只施加到实际根；未挂接的嵌套声明累加位移，挂接在实体下面的声明由父级变换继承外层位移，避免重复叠加。物理根与导航区域仍保持场景根，不额外添加父实体。非零位移要求 ContentSource v2，旧 v1 缺省零位移且保存时省略该字段；Document 在放置事务中显式升级，撤销可恢复旧版本。复制保留位移，解除关联将位移分配给提升后的实际根和未挂接嵌套声明，保留展开 UUID、引用及姿态。运行模板的 content 协议上限同步为 2，更新源码后重新准备 App 模板。
 实例实体身份由实例和源实体 UUID 确定性派生，嵌套实例同理；源更新后身份稳定，覆盖重新应用。展开检查循环、缺失依赖、目标及类型，最多 64 层，不创建临时 ECS 世界收集依赖。
 当前覆盖目标是被引用 Prefab 的 base 实体，尚不支持跨层结构覆盖、移除源实体或完整结构编辑 UI。
 
@@ -206,7 +206,7 @@ Editor 的 `session/assets.rs` 是作者资源的统一发布入口。后台刷�
 
 项目资源浏览由 `ui/resources/tree.rs` 投影已接纳的 SourceCatalog 与 ProductIndex 编辑来源：原生路径组织目录，AssetId 标识源与衍生行，显示标签不参与路径回填或身份解析。`browser.rs` 管理目录展开、大小写不敏感的名称/路径/子资产搜索和产品类型筛选；目录名称命中保留后代，子资产命中保留源上下文。树按项目根及索引 Arc 身份缓存，筛选结果只在条件或资源变化时更新；同项目刷新保留条件，切换项目重置。面板不读取文件、加载产品或执行导入，空目录与未构建文件暂不显示。
 
-`ui/resources/drag.rs` 只传递源身份和 ResourceVersion，释放时复查文档、已接纳索引、宿主目标、Edit 状态与模态边界，再调用会话已有的 `place_resource`。仅模型/Prefab 源可拖到可见场景画布；放置保留源坐标及多根/物理根语义，形成一个历史事务，不按鼠标位置新建偏移协议。拖拽期间抑制 Gizmo、相机和拾取，布局变化、失活、Escape、资源或文档切换取消载荷；场景打开仍通过统一文档请求处理未保存内容。
+`ui/resources/drag.rs` 只传递源身份和 ResourceVersion，释放时复查文档、已接纳索引、宿主目标、Edit 状态与模态边界，再调用会话已有的 `place_resource`。仅模型/Prefab 源可拖到可见场景画布；拖入画布时通过 Camera 的实际投影逆映射到相机目标焦平面，资源原点落在鼠标位置；无效相机拒绝放置。普通模型使用作者容器位移，物理/导航资源使用实例位移，共用一个插入事务。双击与添加按钮保留源坐标。直接 Prefab 根的属性和 Gizmo 将展开位置转换回源覆盖坐标，未改变值保留原有声明，避免二次叠加位移。拖拽期间抑制 Gizmo、相机和拾取，布局变化、失活、Escape、资源或文档切换取消载荷；场景打开仍通过统一文档请求处理未保存内容。
 
 `DocumentVersion` 统一作者文档世界、revision 和 Prefab 作用域；`ResourceVersion` 在此基础上持有已接纳索引 Arc 身份。展开快照、字段引用、导航输入/状态、实例覆盖及动画实体目标缓存复用这些键，骨架节点只绑定索引 Arc。独立打开的 Store 即使索引摘要相同也重新计算这些加载结果；同一 Store 的未变刷新复用索引 Arc，淘汰驻留产品不使派生缓存失效。失败展开不替换上一次成功缓存。只依赖索引内容的资源菜单和用户草稿继续按内容版本保留，不把临时输入与已加载结果混为同一类缓存。
 

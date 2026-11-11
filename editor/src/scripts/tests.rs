@@ -146,6 +146,7 @@ fn prefab_script_changes_are_atomic_and_preserve_inherited_parameter_identity() 
     let instance = comet_core::InstanceId::new();
     editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: SourceMeta::load(&path)?.id,
             parent: None,

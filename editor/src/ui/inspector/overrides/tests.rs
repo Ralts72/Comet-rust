@@ -63,6 +63,7 @@ fn fixture() -> Result<Fixture> {
     editor.document = Document::open_source(ContentSource {
         instances: vec![
             PrefabInstance {
+                translation: [0.; 3],
                 id: instance,
                 prefab,
                 parent: None,
@@ -89,6 +90,7 @@ fn fixture() -> Result<Fixture> {
                 ],
             },
             PrefabInstance {
+                translation: [0.; 3],
                 id: second,
                 prefab,
                 parent: None,
@@ -416,6 +418,7 @@ fn authored_and_nested_entities_do_not_offer_direct_instance_restore_actions() -
     let inner = InstanceId::new();
     let nested = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: inner,
             prefab: f.prefab,
             parent: None,
@@ -430,6 +433,7 @@ fn authored_and_nested_entities_do_not_offer_direct_instance_restore_actions() -
     let outer = InstanceId::new();
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: outer,
             prefab: comet_asset_pipeline::SourceMeta::load(&path)?.id,
             parent: None,

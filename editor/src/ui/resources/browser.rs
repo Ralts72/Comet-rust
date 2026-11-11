@@ -232,7 +232,7 @@ fn draw_entry(
             ));
             ui.label(entry.id.to_string());
             if draggable {
-                ui.small("双击或拖到场景以添加，保留源坐标。");
+                ui.small("双击保留源坐标；拖到场景将资源原点放在鼠标对应的相机焦平面上。");
             }
             if entry.derived {
                 ui.small("由源资源生成；刷新资源后同步更新。");
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires a native offscreen GPU; tools/verify/verify.py --gpu runs this test"]
-    fn headless_project_tree_draws_filtered_subassets_without_editing() -> anyhow::Result<()> {
+    fn headless_project_tree_draws_translated_prefab_and_filtered_material() -> anyhow::Result<()> {
         let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;
         let directory = editor.project_root().join("assets/模型 集");
         fs::create_dir(&directory)?;
@@ -298,12 +298,46 @@ mod tests {
                 directory.join(name),
             )?;
         }
+        let model = comet_asset_pipeline::SourceMeta::load(&directory.join("showcase.gltf"))?.id;
+        let mut body = comet_scene::EntityData::new("放置实例");
+        body.physics = Some(comet_scene::PhysicsBody {
+            motion: comet_scene::BodyMotion::Fixed,
+            ..Default::default()
+        });
+        let attached = body.id;
+        let physical = editor.project_root().join("assets/placed.prefab");
+        fs::write(
+            &physical,
+            comet_scene::ContentSource {
+                base: comet_scene::SceneSnapshot {
+                    entities: vec![body],
+                    ..Default::default()
+                },
+                instances: vec![comet_scene::PrefabInstance {
+                    id: comet_core::InstanceId::new(),
+                    prefab: model,
+                    parent: Some(attached),
+                    translation: [0.; 3],
+                    overrides: vec![],
+                }],
+                ..Default::default()
+            }
+            .to_json()?,
+        )?;
         comet_asset_pipeline::prepare(editor.project_root(), &editor.products)?;
         assets.refresh()?;
         editor.sources = comet_asset_pipeline::SourceCatalog::read(
             &comet_core::ProjectPaths::open(editor.project_root())?,
             assets.index(),
         )?;
+        let id = comet_asset_pipeline::SourceMeta::load(&physical)?.id;
+        let position = editor
+            .camera
+            .focus_plane_point([0.75, 0.4], 780. / 520.)
+            .unwrap();
+        editor.place_resource(id, "放置实例", position.to_array(), &mut assets)?;
+        assert_eq!(editor.document.shared_source().version, 2);
+        let physical_bytes = fs::read(&physical)?;
         for (_, tile) in editor.workspace.tree.tiles.iter_mut() {
             if let egui_tiles::Tile::Container(egui_tiles::Container::Linear(split)) = tile
                 && split.dir == egui_tiles::LinearDir::Vertical
@@ -325,10 +359,18 @@ mod tests {
         options.report = Some(out.join("editor-resource-tree.json"));
         comet_application::run(options, assets, Capture(editor))?;
         assert_eq!(fs::read(source)?, bytes);
+        assert_eq!(fs::read(physical)?, physical_bytes);
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(out.join("editor-resource-tree.json"))?)?;
-        assert_eq!(report["application"]["dirty"], false);
-        assert_eq!(report["application"]["history"], 0);
+        assert_eq!(report["application"]["dirty"], true);
+        assert_eq!(report["application"]["history"], 1);
+        assert!(
+            report["frames"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|frame| frame["draw_count"] == 10)
+        );
         assert!(report["application"]["error"].is_null());
         assert_eq!(report["submitted_frames"], 8);
         Ok(())

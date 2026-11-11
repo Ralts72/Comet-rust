@@ -124,7 +124,7 @@ fn refresh_rejects_products_needed_only_by_undo_or_redo() -> Result<()> {
         editor.refresh_resources()?;
         wait(&mut editor, &mut assets)?;
         let prefab = SourceMeta::load(&file)?.id;
-        editor.place_resource(prefab, "history", &mut assets)?;
+        editor.place_resource(prefab, "history", [0.; 3], &mut assets)?;
         let placed = editor.document.shared_source();
         if redo {
             editor.document.undo()?;

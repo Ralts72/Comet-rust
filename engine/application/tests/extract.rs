@@ -112,6 +112,7 @@ fn selection_highlights_each_selected_subtree_including_author_containers_and_pr
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: AssetId::new(),
             parent: Some(container.id),

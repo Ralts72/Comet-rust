@@ -320,6 +320,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
     let instance = comet_core::InstanceId::new();
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: prefab_id,
             parent: None,
@@ -381,6 +382,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
         &nested_path,
         ContentSource {
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: comet_core::InstanceId::new(),
                 prefab: prefab_id,
                 parent: None,
@@ -394,6 +396,7 @@ fn direct_prefab_controls_only_override_changed_fields_and_play_buttons_keep_aut
     f.assets.refresh()?;
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: comet_core::InstanceId::new(),
             prefab: comet_asset_pipeline::SourceMeta::load(&nested_path)?.id,
             parent: None,

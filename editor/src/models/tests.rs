@@ -314,6 +314,7 @@ fn mesh_replacement_rejects_incompatible_skins_for_authored_and_grouped_prefab_t
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab,
             parent: None,

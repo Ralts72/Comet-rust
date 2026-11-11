@@ -57,34 +57,42 @@ fn id(n: u32) -> AssetId {
 
 #[test]
 fn products_are_deterministic_and_load_without_authoring_sources() -> Result<()> {
-    let f = Fixture::new()?;
-    let first = f.prepare()?;
-    assert_eq!(first.changed, 6);
-    let next = f.prepare()?;
-    assert_eq!(next.changed, 0);
-    assert_eq!(next.reused, 6);
-    assert_eq!(first.index_digest, next.index_digest);
-    let mut store = AssetStore::open(&f.output)?;
-    assert_eq!(store.resident_count(), 0);
-    assert_eq!(store.dependency_closure(id(1))?.len(), 6);
-    let scene = store.expand_scene(id(1))?;
-    assert_eq!(scene.entities.len(), 7);
-    assert_eq!(
-        scene.entities.iter().filter(|e| e.model.is_some()).count(),
-        2
-    );
-    for e in scene.entities.iter().filter(|e| e.model.is_some()) {
-        assert_eq!(e.model.as_ref().unwrap().surface.roughness, 0.25);
-    }
-    match &store.load(id(6))?.payload {
-        Product::Texture(t) => {
-            assert_eq!((t.width, t.height), (2, 1));
-            assert_eq!(t.rgba8.len(), 8);
+    for translated in [false, true] {
+        let f = Fixture::new()?;
+        if translated {
+            let mut source = f.read("main.scene")?;
+            source["version"] = 2.into();
+            source["instances"][0]["translation"] = serde_json::json!([10., 2., -3.]);
+            f.write("main.scene", &source)?;
         }
-        _ => panic!("wrong texture product"),
+        let first = f.prepare()?;
+        assert_eq!(first.changed, 6);
+        let next = f.prepare()?;
+        assert_eq!(next.changed, 0);
+        assert_eq!(next.reused, 6);
+        assert_eq!(first.index_digest, next.index_digest);
+        let mut store = AssetStore::open(&f.output)?;
+        assert_eq!(store.resident_count(), 0);
+        assert_eq!(store.dependency_closure(id(1))?.len(), 6);
+        let scene = store.expand_scene(id(1))?;
+        assert_eq!(scene.entities.len(), 7);
+        assert_eq!(
+            scene.entities.iter().filter(|e| e.model.is_some()).count(),
+            2
+        );
+        for e in scene.entities.iter().filter(|e| e.model.is_some()) {
+            assert_eq!(e.model.as_ref().unwrap().surface.roughness, 0.25);
+        }
+        match &store.load(id(6))?.payload {
+            Product::Texture(t) => {
+                assert_eq!((t.width, t.height), (2, 1));
+                assert_eq!(t.rgba8.len(), 8);
+            }
+            _ => panic!("wrong texture product"),
+        }
+        fs::remove_dir_all(&f.project)?;
+        assert_eq!(AssetStore::open(&f.output)?.expand_scene(id(1))?, scene);
     }
-    fs::remove_dir_all(&f.project)?;
-    assert_eq!(AssetStore::open(&f.output)?.expand_scene(id(1))?, scene);
     Ok(())
 }
 #[test]

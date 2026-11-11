@@ -228,6 +228,7 @@ fn common_prefab_assets_keep_source_ids_existing_pins_and_undo_savepoints() -> R
         value: FieldValue::Scalar(0.8),
     };
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: instance,
         prefab: SourceMeta::load(&path)?.id,
         parent: None,
@@ -315,6 +316,7 @@ fn a_nested_model_rejects_the_whole_replacement_even_when_its_asset_is_unchanged
         &outer,
         ContentSource {
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: child,
                 prefab: SourceMeta::load(&inner)?.id,
                 parent: None,
@@ -330,6 +332,7 @@ fn a_nested_model_rejects_the_whole_replacement_even_when_its_asset_is_unchanged
     let mut source = f.editor.document.source();
     source.base.entities.retain(|entity| entity.id == f.ids[0]);
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: instance,
         prefab: SourceMeta::load(&outer)?.id,
         parent: None,

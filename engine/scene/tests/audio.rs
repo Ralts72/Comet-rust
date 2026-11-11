@@ -35,6 +35,7 @@ fn audio_protocol_requires_scene_seven_and_preserves_required_clip_identity_and_
         ..Default::default()
     };
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: comet_core::InstanceId::new(),
         prefab: AssetId::new(),
         parent: None,
@@ -166,6 +167,7 @@ fn spatial_audio_preserves_compact_v7_sources_and_uses_v8_only_for_explicit_spat
             entities: vec![],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: comet_core::InstanceId::new(),
             prefab: AssetId::new(),
             parent: None,

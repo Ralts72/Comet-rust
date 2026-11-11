@@ -101,6 +101,7 @@ fn prefab_script_asset_overrides_require_script_products() -> Result<()> {
     let script = AssetId::new();
     let product = Product::Scene(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab,
             parent: None,

@@ -105,6 +105,7 @@ fn structural_edits_preserve_prefab_declarations_and_history() -> Result<()> {
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance_id,
             prefab: prefab_id,
             parent: Some(root_id),

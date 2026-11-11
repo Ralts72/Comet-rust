@@ -16,6 +16,7 @@ impl PrefabResolver for Library {
 }
 fn instance(prefab: AssetId) -> PrefabInstance {
     PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab,
         parent: None,
@@ -74,7 +75,7 @@ fn root_scoped_structural_failures_preserve_source_history_savepoint_and_redo() 
         scene.expand(&mut library)?;
         for container in [None, Some(EntityData::new("candidate container"))] {
             let error = document
-                .insert_prefab(container, target, &mut library)
+                .insert_prefab(container, target, [0.; 3], &mut library)
                 .unwrap_err();
             assert!(format!("{error:#}").contains("cycle"));
             assert!(Arc::ptr_eq(&before, &document.shared_source()));
@@ -117,7 +118,12 @@ fn every_resolved_preview_keeps_its_accepted_candidate_when_the_root_would_recur
         (branch, ContentSource::default()),
     ]));
     let mut document = Document::open_prefab(root, initial, &mut library)?;
-    document.insert_prefab(Some(EntityData::new("child mount")), branch, &mut library)?;
+    document.insert_prefab(
+        Some(EntityData::new("child mount")),
+        branch,
+        [0.; 3],
+        &mut library,
+    )?;
     let committed = document.shared_source();
     document.begin()?;
     document.preview_name(id, "accepted preview".into())?;
@@ -242,6 +248,7 @@ fn multiple_root_prefab_documents_save_and_reopen_without_remapping_source_ident
             entities: vec![first, second],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             parent: Some(first_id),
             overrides: vec![FieldOverride {
                 entity: nested_id,
@@ -392,6 +399,7 @@ fn detaching_preserves_expanded_identity_overrides_and_nested_source_scopes_in_o
     let promoted = nested.id.in_instance(outer);
     let mut collision = authoring.clone();
     collision.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: promoted,
         prefab: empty_asset,
         parent: None,

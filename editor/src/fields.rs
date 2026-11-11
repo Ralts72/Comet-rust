@@ -243,6 +243,67 @@ impl Editor {
         Ok(())
     }
 
+    /// Expanded roots include instance placement; overrides remain in the prefab's source space.
+    pub(crate) fn source_translation_value(
+        &self,
+        target: FieldTarget,
+        field: FieldKey,
+        value: &mut FieldValue,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        if field != schema::TRANSLATION {
+            return Ok(());
+        }
+        let FieldTarget::Prefab { instance, entity } = target else {
+            return Ok(());
+        };
+        let source = self.document.shared_source();
+        let declaration = source
+            .instances
+            .iter()
+            .find(|i| i.id == instance)
+            .context("Prefab 实例已不存在")?;
+        if declaration.translation == [0.; 3] {
+            return Ok(());
+        }
+        let product = assets.load(declaration.prefab)?;
+        let Product::Prefab(prefab) = &product.payload else {
+            anyhow::bail!("实例资源不是 Prefab")
+        };
+        if let Some(root) = prefab
+            .base
+            .entities
+            .iter()
+            .find(|e| e.id == entity && e.parent.is_none())
+        {
+            let FieldValue::Vec3(position) = value else {
+                anyhow::bail!("无效的位移字段")
+            };
+            let initial = match declaration
+                .overrides
+                .iter()
+                .find(|o| o.entity == entity && o.field == field)
+                .map(|o| &o.value)
+            {
+                Some(FieldValue::Vec3(value)) => *value,
+                None => root.transform.translation,
+                Some(_) => anyhow::bail!("无效的位移覆盖"),
+            };
+            let expanded =
+                std::array::from_fn(|axis| initial[axis] + declaration.translation[axis]);
+            *position = if *position == expanded {
+                initial
+            } else {
+                std::array::from_fn(|axis| position[axis] - declaration.translation[axis])
+            };
+            ensure!(
+                position.iter().all(|v| v.is_finite()),
+                "资源位置超出有效范围"
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn resolve_field_target(
         &self,
         id: EntityId,
@@ -307,6 +368,7 @@ impl Editor {
                     .with_context(|| format!("无法编辑实体 {} 的字段", update.entity))?;
                 let mut value = update.value.clone();
                 self.source_field_value(target, &mut value, assets)?;
+                self.source_translation_value(target, update.field, &mut value, assets)?;
                 Ok(comet_editor_core::FieldEdit {
                     target,
                     field: update.field,
@@ -365,6 +427,7 @@ impl Editor {
             if initial != value {
                 let mut source_value = value.clone();
                 self.source_field_value(target, &mut source_value, assets)?;
+                self.source_translation_value(target, field, &mut source_value, assets)?;
                 edits.push(comet_editor_core::FieldEdit {
                     target,
                     field,

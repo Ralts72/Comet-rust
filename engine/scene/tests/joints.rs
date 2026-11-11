@@ -581,6 +581,7 @@ fn prefab_joint_overrides_keep_scoped_connections_and_inherit_unmodified_fields(
     let mut library = Library(BTreeMap::from([(asset, prefab)]));
     let mut source = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: asset,
             parent: None,

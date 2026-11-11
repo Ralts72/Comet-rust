@@ -576,6 +576,7 @@ fn populated_prefab_creation_validates_final_identity_and_dependency_kinds_befor
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: comet_core::InstanceId::new(),
             prefab: asset,
             parent: Some(entity.id),
@@ -617,6 +618,7 @@ fn populated_prefab_creation_validates_final_identity_and_dependency_kinds_befor
     let reserved_meta = fs::read(SourceMeta::path(&reserved))?;
     let transitive = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: comet_core::InstanceId::new(),
             prefab: wrapper_id,
             parent: None,

@@ -36,6 +36,7 @@ fn capture_keeps_local_root_pose_identity_nested_scopes_and_current_preview_with
     leaf.links.target = Some(EntityRef::local(leaf.id));
     let asset = AssetId::new();
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: asset,
         parent: Some(child.id),
@@ -139,6 +140,7 @@ fn capture_rejects_outgoing_local_instance_external_and_current_root_cycles_with
     let leaf = EntityData::new("outside instance leaf");
     let asset = AssetId::new();
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: asset,
         parent: None,
@@ -195,6 +197,7 @@ fn capture_rejects_outgoing_local_instance_external_and_current_root_cycles_with
         .unwrap()
         .instances
         .push(PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab: root_asset,
             parent: None,

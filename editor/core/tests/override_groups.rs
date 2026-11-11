@@ -53,6 +53,7 @@ impl Fixture {
                 .iter()
                 .enumerate()
                 .map(|(index, &instance)| PrefabInstance {
+                    translation: [0.; 3],
                     id: instance,
                     prefab: id,
                     parent: None,

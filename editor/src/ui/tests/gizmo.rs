@@ -534,6 +534,7 @@ fn a_nested_prefab_target_rejects_the_whole_group_before_opening_a_preview() -> 
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: inner,
             prefab: choice.id,
             parent: Some(anchor.id),
@@ -555,6 +556,7 @@ fn a_nested_prefab_target_rejects_the_whole_group_before_opening_a_preview() -> 
             ..Default::default()
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: outer,
             prefab: comet_asset_pipeline::SourceMeta::load(&path)?.id,
             parent: None,

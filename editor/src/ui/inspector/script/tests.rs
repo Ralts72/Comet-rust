@@ -129,6 +129,7 @@ fn authored_entity_picker_persists_one_instance_and_runtime_controls_only_that_r
     source.instances = [first, second]
         .into_iter()
         .map(|id| PrefabInstance {
+            translation: [0.; 3],
             id,
             prefab,
             parent: None,

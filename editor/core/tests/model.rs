@@ -131,6 +131,7 @@ fn invalid_model_candidates_preserve_the_last_preview_and_prefab_component_struc
             entities: vec![author],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: library.asset,
             parent: None,

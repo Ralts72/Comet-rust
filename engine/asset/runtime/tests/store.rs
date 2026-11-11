@@ -325,6 +325,7 @@ fn rejected_refreshes_revalidate_even_unchanged_indices_and_preserve_accepted_st
             source_digest: digest(b"self-referencing prefab"),
             payload: Product::Prefab(ContentSource {
                 instances: vec![PrefabInstance {
+                    translation: [0.; 3],
                     id: InstanceId::new(),
                     prefab,
                     parent: None,

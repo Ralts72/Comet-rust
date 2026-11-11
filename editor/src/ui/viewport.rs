@@ -253,10 +253,16 @@ pub(super) fn show(
         ui.painter().text(
             viewport.center_top() + Vec2::new(0., 18.),
             egui::Align2::CENTER_TOP,
-            "松开以添加资源（保留源坐标）",
+            "松开以放置资源（相机焦平面）",
             egui::FontId::proportional(14.),
             Color32::WHITE,
         );
+        if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+            let painter = ui.painter().with_clip_rect(viewport);
+            let stroke = egui::Stroke::new(1.5, Color32::from_rgb(97, 174, 241));
+            painter.line_segment([pointer - Vec2::X * 8., pointer + Vec2::X * 8.], stroke);
+            painter.line_segment([pointer - Vec2::Y * 8., pointer + Vec2::Y * 8.], stroke);
+        }
     }
     if let Some(PointerGesture::Selection { context, .. }) = &gesture
         && (!context.valid(editor, assets, viewport, enabled)

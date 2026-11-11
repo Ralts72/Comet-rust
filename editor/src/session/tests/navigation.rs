@@ -79,6 +79,7 @@ impl Case {
                 ..Default::default()
             },
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: instance,
                 prefab: asset,
                 parent: None,

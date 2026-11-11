@@ -45,6 +45,7 @@ impl Group {
                 .iter()
                 .enumerate()
                 .map(|(index, &id)| PrefabInstance {
+                    translation: [0.; 3],
                     id,
                     prefab: SourceMeta::load(&path).unwrap().id,
                     parent: None,

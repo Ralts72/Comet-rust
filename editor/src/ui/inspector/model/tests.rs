@@ -509,6 +509,7 @@ fn prefab_asset_choices_only_override_changed_fields_and_play_or_nested_models_a
     let inner = comet_core::InstanceId::new();
     let nested = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: inner,
             prefab: root,
             parent: None,
@@ -523,6 +524,7 @@ fn prefab_asset_choices_only_override_changed_fields_and_play_or_nested_models_a
     let outer = comet_core::InstanceId::new();
     f.editor.document = Document::open_source(ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: outer,
             prefab: comet_asset_pipeline::SourceMeta::load(&path)?.id,
             parent: None,

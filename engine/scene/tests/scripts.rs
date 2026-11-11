@@ -255,6 +255,7 @@ fn prefab_script_overrides_remap_parameters_and_keep_explicit_external_dependenc
     ]);
     let mut source = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: library.0,
             parent: None,

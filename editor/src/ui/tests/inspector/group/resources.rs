@@ -153,6 +153,7 @@ fn common_resource_prefab_overrides_preserve_lexical_parameter_references_and_so
     let instance = InstanceId::new();
     source.base.entities.retain(|entity| entity.id == f.ids[0]);
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: instance,
         prefab: SourceMeta::load(&path)?.id,
         parent: None,

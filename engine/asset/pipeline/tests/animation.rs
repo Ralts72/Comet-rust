@@ -37,6 +37,7 @@ impl Fixture {
         let scene = SourceMeta::load(&project.join("assets/main.scene"))?.id;
         let content = ContentSource {
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: InstanceId::new(),
                 prefab: model(),
                 parent: None,

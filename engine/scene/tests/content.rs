@@ -182,6 +182,7 @@ fn nested_prefab_overrides_and_source_update_keep_stable_instance_ids() -> Resul
     let inner = InstanceId::new();
     let outer = InstanceId::new();
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: inner,
         prefab: leaf_id,
         parent: Some(anchor_id),
@@ -201,6 +202,7 @@ fn nested_prefab_overrides_and_source_update_keep_stable_instance_ids() -> Resul
     };
     let source = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: outer,
             prefab: branch_id,
             parent: None,
@@ -246,6 +248,7 @@ fn nested_prefab_overrides_and_source_update_keep_stable_instance_ids() -> Resul
 fn prefab_cycles_missing_products_and_stale_overrides_fail() -> Result<()> {
     let id = AssetId::new();
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: id,
         parent: None,
@@ -286,6 +289,7 @@ fn prefab_roots_match_deep_expansion_and_keep_their_anchor_when_sources_are_reor
     let branch_asset = AssetId::new();
     let source_asset = AssetId::new();
     let instance = |prefab, parent| PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab,
         parent,
@@ -346,6 +350,7 @@ fn prefab_roots_match_deep_expansion_and_keep_their_anchor_when_sources_are_reor
     for outer in [InstanceId::new(), InstanceId::new()] {
         let wrapper = ContentSource {
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: outer,
                 prefab: source_asset,
                 parent: None,
@@ -395,6 +400,7 @@ fn prefab_root_discovery_validates_attached_declarations_and_the_existing_depth_
     let anchor = EntityData::new("anchor");
     let mut source = ContentSource {
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab: asset,
             parent: Some(anchor.id),
@@ -424,6 +430,7 @@ fn prefab_root_discovery_validates_attached_declarations_and_the_existing_depth_
         library.0.insert(child, chain);
         chain = ContentSource {
             instances: vec![PrefabInstance {
+                translation: [0.; 3],
                 id: InstanceId::new(),
                 prefab: child,
                 parent: None,
@@ -447,6 +454,7 @@ fn prefab_root_scope_rejects_direct_and_indirect_self_use_hidden_by_an_old_produ
     let mut old = ContentSource::default();
     old.base.entities.push(EntityData::new("old source root"));
     let instance = |prefab| PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab,
         parent: None,
@@ -495,6 +503,7 @@ fn prefab_root_scope_preserves_multiple_roots_and_nested_instance_identity() -> 
             .into_iter()
             .zip([first_id, second_id])
             .map(|(id, parent)| PrefabInstance {
+                translation: [0.; 3],
                 id,
                 prefab: child,
                 parent: Some(parent),
@@ -534,5 +543,113 @@ fn prefab_root_scope_preserves_multiple_roots_and_nested_instance_identity() -> 
         assert_eq!(entity.parent, Some(parent));
     }
     assert_eq!(source.to_json()?, before);
+    Ok(())
+}
+
+#[test]
+fn instance_translation_versions_roots_and_detachment_preserve_scopes() -> Result<()> {
+    let leaf = AssetId::new();
+    let branch = AssetId::new();
+    let mut root = EntityData::new("root");
+    root.transform.translation = [1., 2., 3.];
+    root.transform.scale = [2.; 3];
+    let mut child = EntityData::new("child");
+    child.parent = Some(root.id);
+    child.transform.translation = [1., 0., 0.];
+    child.links.target = Some(EntityRef::local(root.id));
+    let leaf_source = ContentSource {
+        base: SceneSnapshot {
+            entities: vec![root.clone(), child],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let direct = InstanceId::new();
+    let attached = InstanceId::new();
+    let mut mount = EntityData::new("mount");
+    mount.transform.translation = [0., 4., 0.];
+    let branch_source = ContentSource {
+        version: 2,
+        base: SceneSnapshot {
+            entities: vec![mount.clone()],
+            ..Default::default()
+        },
+        instances: vec![
+            PrefabInstance {
+                id: direct,
+                prefab: leaf,
+                parent: None,
+                translation: [2., 0., 0.],
+                overrides: vec![],
+            },
+            PrefabInstance {
+                id: attached,
+                prefab: leaf,
+                parent: Some(mount.id),
+                translation: [0., 1., 0.],
+                overrides: vec![],
+            },
+        ],
+    };
+    let mut library = Library(BTreeMap::from([
+        (leaf, leaf_source),
+        (branch, branch_source),
+    ]));
+    let outer = InstanceId::new();
+    let source = ContentSource {
+        version: 2,
+        instances: vec![PrefabInstance {
+            id: outer,
+            prefab: branch,
+            parent: None,
+            translation: [10., 20., 30.],
+            overrides: vec![],
+        }],
+        ..Default::default()
+    };
+    let expanded = source.expand(&mut library)?;
+    let worlds = comet_scene::world_transforms(&expanded)?;
+    let direct_root = root.id.in_instance(direct.in_instance(outer));
+    let attached_root = root.id.in_instance(attached.in_instance(outer));
+    assert_eq!(
+        worlds[&direct_root].w_axis.truncate().to_array(),
+        [13., 22., 33.]
+    );
+    assert_eq!(
+        worlds[&attached_root].w_axis.truncate().to_array(),
+        [11., 27., 33.]
+    );
+    let mut detached = source.clone();
+    detached.detach_instance(outer, None, &mut library)?;
+    assert_eq!(detached.expand(&mut library)?, expanded);
+    for instance in detached.instances.iter().map(|i| i.id).collect::<Vec<_>>() {
+        detached.detach_instance(instance, None, &mut library)?;
+        assert_eq!(detached.expand(&mut library)?, expanded);
+    }
+    assert!(detached.instances.is_empty());
+    let bytes = source.to_json()?;
+    assert_eq!(ContentSource::from_json(&bytes)?, source);
+    let mut legacy = source.clone();
+    legacy.version = 1;
+    assert!(legacy.validate().is_err());
+    legacy.instances[0].translation = [0.; 3];
+    let legacy_bytes = legacy.to_json()?;
+    assert!(!std::str::from_utf8(&legacy_bytes)?.contains("translation"));
+    assert_eq!(
+        ContentSource::from_json(&legacy_bytes)?.instances[0].translation,
+        [0.; 3]
+    );
+    legacy.version = 2;
+    for offset in [[f32::NAN, 0., 0.], [f32::INFINITY, 0., 0.]] {
+        legacy.instances[0].translation = offset;
+        assert!(legacy.validate().is_err());
+    }
+    let mut overflow = source;
+    overflow.instances[0].translation = [f32::MAX, 0., 0.];
+    library.0.get_mut(&branch).unwrap().instances[0].translation = [f32::MAX, 0., 0.];
+    assert!(overflow.expand(&mut library).is_err());
+    let before = overflow.clone();
+    assert!(overflow.detach_instance(outer, None, &mut library).is_err());
+    assert_eq!(overflow, before);
     Ok(())
 }

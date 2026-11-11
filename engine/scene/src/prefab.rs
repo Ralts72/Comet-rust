@@ -7,6 +7,25 @@ use comet_core::{AssetId, EntityId, InstanceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub const CONTENT_VERSION: u32 = 2;
+
+fn zero_translation(value: &[f32; 3]) -> bool {
+    *value == [0.; 3]
+}
+
+fn translated(value: [f32; 3], offset: [f32; 3]) -> Result<[f32; 3]> {
+    let result = if zero_translation(&offset) {
+        value
+    } else {
+        std::array::from_fn(|axis| value[axis] + offset[axis])
+    };
+    ensure!(
+        result.iter().all(|v| v.is_finite()),
+        "prefab translation overflow"
+    );
+    Ok(result)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldOverride {
@@ -21,6 +40,9 @@ pub struct PrefabInstance {
     pub prefab: AssetId,
     /// Attachment in this source's base scene; None attaches at the source root.
     pub parent: Option<EntityId>,
+    /// Local to the attachment: offsets all actual roots without adding a parent entity.
+    #[serde(default, skip_serializing_if = "zero_translation")]
+    pub translation: [f32; 3],
     pub overrides: Vec<FieldOverride>,
 }
 impl PrefabInstance {
@@ -132,6 +154,10 @@ impl ContentSource {
             .map(|instance| (instance.id, instance.id.in_instance(id)))
             .collect();
         for entity in &mut content.base.entities {
+            if entity.parent.is_none() {
+                entity.transform.translation =
+                    translated(entity.transform.translation, instance.translation)?;
+            }
             entity.id = entities[&entity.id];
             entity.parent = entity
                 .parent
@@ -141,6 +167,9 @@ impl ContentSource {
             schema::remap_instance_references(entity, &instances)?;
         }
         for nested in &mut content.instances {
+            if nested.parent.is_none() {
+                nested.translation = translated(nested.translation, instance.translation)?;
+            }
             nested.id = instances[&nested.id];
             nested.parent = nested
                 .parent
@@ -160,9 +189,11 @@ impl ContentSource {
             })?;
         }
         candidate.base.version = candidate.base.version.max(content.base.version);
+        candidate.version = candidate.version.max(content.version);
         candidate.base.entities.extend(content.base.entities);
         candidate.instances.retain(|instance| instance.id != id);
         candidate.instances.extend(content.instances);
+        candidate.version = candidate.version.max(candidate.required_version());
         candidate.expand_content(root, resolver, None)?;
         candidate.canonicalize();
         *self = candidate;
@@ -191,13 +222,22 @@ impl ContentSource {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 1,
+            (1..=CONTENT_VERSION).contains(&self.version),
             "unsupported content version {}",
             self.version
+        );
+        ensure!(
+            self.version >= self.required_version(),
+            "prefab translation requires content version 2"
         );
         self.base.validate()?;
         let mut ids = BTreeSet::new();
         for instance in &self.instances {
+            ensure!(
+                instance.translation.iter().all(|v| v.is_finite()),
+                "prefab {} translation must be finite",
+                instance.id
+            );
             ensure!(
                 ids.insert(instance.id),
                 "duplicate prefab instance {}",
@@ -238,6 +278,17 @@ impl ContentSource {
             }
         }
         Ok(())
+    }
+    pub fn required_version(&self) -> u32 {
+        if self
+            .instances
+            .iter()
+            .any(|instance| !zero_translation(&instance.translation))
+        {
+            2
+        } else {
+            1
+        }
     }
     pub fn dependencies(&self) -> BTreeSet<AssetId> {
         let mut deps = self.base.asset_dependencies();
@@ -288,7 +339,7 @@ impl ContentSource {
             path: vec![],
         };
         let mut stack = root.into_iter().collect();
-        expand(self, None, None, resolver, &mut stack, &mut output)?;
+        expand(self, None, None, [0.; 3], resolver, &mut stack, &mut output)?;
         output.scene.validate_expanded()?;
         output.scene.canonicalize();
         Ok(output.scene)
@@ -298,6 +349,7 @@ fn expand(
     source: &ContentSource,
     scope: Option<InstanceId>,
     mount: Option<EntityId>,
+    translation: [f32; 3],
     resolver: &mut impl PrefabResolver,
     stack: &mut Vec<AssetId>,
     output: &mut Expansion<'_>,
@@ -335,6 +387,9 @@ fn expand(
             });
         }
         let mut e = source_entity.clone();
+        if e.parent.is_none() {
+            e.transform.translation = translated(e.transform.translation, translation)?;
+        }
         e.id = map[&e.id];
         e.parent = e.parent.map(|p| map[&p]).or(mount);
         schema::map_entity_references(&mut e, |reference| {
@@ -386,7 +441,12 @@ fn expand(
         if output.roots.is_some() {
             output.path.push(instance.id);
         }
-        expand(&child, Some(id), parent, resolver, stack, output)?;
+        let offset = if instance.parent.is_none() {
+            translated(instance.translation, translation)?
+        } else {
+            instance.translation
+        };
+        expand(&child, Some(id), parent, offset, resolver, stack, output)?;
         if output.roots.is_some() {
             output.path.pop();
         }

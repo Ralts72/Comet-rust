@@ -224,3 +224,47 @@ fn triangle_edges_and_vertices_are_inclusive_without_expanding_outside_the_trian
     outside.validate().unwrap();
     assert_eq!(pick(&outside).unwrap().entities, vec![]);
 }
+
+#[test]
+fn focus_plane_points_reproject_to_viewport_uv_and_reject_invalid_cameras() {
+    for camera in [
+        Camera::default(),
+        Camera {
+            eye: Vec3::new(-9., 8., -4.),
+            target: Vec3::new(2., -1., 5.),
+        },
+    ] {
+        for aspect in [0.5, 1., 2.4] {
+            for uv in [[0.5, 0.5], [0., 0.], [1., 1.], [0.2, 0.8]] {
+                let point = camera.focus_plane_point(uv, aspect).unwrap();
+                let clip = camera.view_projection(aspect).project_point3(point);
+                assert!((clip.x - (uv[0] * 2. - 1.)).abs() < 1e-4);
+                assert!((clip.y - (1. - uv[1] * 2.)).abs() < 1e-4);
+                assert!(
+                    (point - camera.target)
+                        .dot((camera.target - camera.eye).normalize())
+                        .abs()
+                        < 1e-3
+                );
+            }
+        }
+    }
+    let camera = Camera::default();
+    for uv in [[f32::NAN, 0.5], [-0.1, 0.5], [0.5, 1.1]] {
+        assert!(camera.focus_plane_point(uv, 1.).is_none());
+    }
+    for aspect in [0., -1., f32::NAN] {
+        assert!(camera.focus_plane_point([0.5; 2], aspect).is_none());
+    }
+    for eye in [
+        camera.target,
+        camera.target + Vec3::Y,
+        camera.target + Vec3::X * 300.,
+    ] {
+        assert!(
+            Camera { eye, ..camera }
+                .focus_plane_point([0.5; 2], 1.)
+                .is_none()
+        );
+    }
+}

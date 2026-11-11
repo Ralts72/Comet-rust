@@ -169,6 +169,7 @@ fn prefab_joint_fields_use_one_validated_override_candidate_and_do_not_change_st
             entities: vec![],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: asset,
             parent: None,

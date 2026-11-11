@@ -133,6 +133,7 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
             entities: vec![],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: instance,
             prefab: asset,
             parent: None,
@@ -174,6 +175,7 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
             entities: vec![],
         },
         instances: vec![PrefabInstance {
+            translation: [0.; 3],
             id: InstanceId::new(),
             prefab: parent_asset,
             parent: None,

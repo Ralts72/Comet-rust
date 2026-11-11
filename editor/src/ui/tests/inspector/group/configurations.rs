@@ -416,6 +416,7 @@ fn common_prefab_flags_keep_lexical_identity_and_undo_spatial_version_upgrade() 
     let instance = InstanceId::new();
     source.base.entities.retain(|entity| entity.id == f.ids[0]);
     source.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: instance,
         prefab: SourceMeta::load(&prefab)?.id,
         parent: None,

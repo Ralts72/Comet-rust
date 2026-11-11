@@ -78,6 +78,7 @@ fn batch_reparent_moves_top_level_roots_once_and_preserves_their_expanded_worlds
     target.transform.scale = [0.5; 3];
     let (first_id, second_id, child_id, target_id) = (first.id, second.id, child.id, target.id);
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: assets.asset,
         parent: Some(child.id),
@@ -229,6 +230,7 @@ fn reparent_preserves_subtree_prefab_identity_world_pose_and_one_history_item() 
     let selected = child.id;
     let target_id = target.id;
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: assets.asset,
         parent: Some(leaf.id),
@@ -352,6 +354,7 @@ fn prefab_interiors_and_failed_expansion_cannot_change_authored_structure() -> R
     let container = EntityData::new("container");
     let parent = EntityData::new("parent");
     let instance = PrefabInstance {
+        translation: [0.; 3],
         id: InstanceId::new(),
         prefab: assets.asset,
         parent: Some(container.id),

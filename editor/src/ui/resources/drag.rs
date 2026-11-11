@@ -1,5 +1,6 @@
-use super::{can_place, place};
+use super::can_place;
 use crate::{resources::ResourceVersion, session::Editor};
+use anyhow::Context;
 use comet_asset::AssetStore;
 
 #[derive(Clone)]
@@ -48,7 +49,30 @@ pub(in crate::ui) fn finish_drag(
             .dnd_release_payload::<ResourceDrag>()
             .is_some()
     {
-        let result = place(editor, &drag.source, assets);
+        let result = (|| {
+            let pointer = ctx
+                .input(|input| input.pointer.interact_pos())
+                .context("缺少资源放置位置")?;
+            let uv = [
+                (pointer.x - view.viewport.left()) / view.viewport.width(),
+                (pointer.y - view.viewport.top()) / view.viewport.height(),
+            ];
+            let position = editor
+                .camera
+                .focus_plane_point(uv, view.viewport.aspect_ratio())
+                .context("当前相机无法确定资源放置位置")?;
+            editor.place_resource(
+                drag.source.id,
+                &drag
+                    .source
+                    .source
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                position.to_array(),
+                assets,
+            )
+        })();
         editor.notice(result);
     }
 }

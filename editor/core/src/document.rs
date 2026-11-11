@@ -432,6 +432,7 @@ impl Document {
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
         let before = self.current.clone();
+        next.version = next.version.max(next.required_version());
         next.base.version = next
             .base
             .entities
@@ -456,10 +457,12 @@ impl Document {
         })
     }
     /// Insert one instance, optionally below an authored container, as one history state.
+    /// Translation is local to that attachment and does not change the prefab source.
     pub fn insert_prefab(
         &mut self,
         container: Option<EntityData>,
         prefab: AssetId,
+        translation: [f32; 3],
         resolver: &mut impl PrefabResolver,
     ) -> Result<InstanceId> {
         self.change(resolver, |next| {
@@ -470,6 +473,7 @@ impl Document {
             });
             let id = InstanceId::new();
             next.instances.push(PrefabInstance {
+                translation,
                 id,
                 prefab,
                 parent,

@@ -270,6 +270,7 @@ fn source_node_keys_survive_clone_delete_and_two_nested_instance_namespaces() ->
     );
     let mut nested = ContentSource::default();
     nested.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: inner,
         prefab: asset,
         parent: None,
@@ -282,6 +283,7 @@ fn source_node_keys_survive_clone_delete_and_two_nested_instance_namespaces() ->
     assert!(nested.dependencies().contains(&override_scene));
     let mut top = ContentSource::default();
     top.instances.push(PrefabInstance {
+        translation: [0.; 3],
         id: outer,
         prefab: wrapper,
         parent: None,
