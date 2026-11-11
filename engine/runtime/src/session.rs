@@ -54,6 +54,11 @@ pub struct PlaySession {
     discard_next_delta: bool,
 }
 impl PlaySession {
+    fn ensure_running(&self) -> Result<()> {
+        ensure!(!self.stopped, "Play session is stopped");
+        Ok(())
+    }
+
     pub fn start(snapshot: SceneSnapshot) -> Result<Self> {
         Self::start_with_scripts(snapshot, ScriptLibrary::new())
     }
@@ -98,7 +103,7 @@ impl PlaySession {
         resources: SceneResources,
         target: AssetId,
     ) -> Result<Self> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         Self::start_with_progress(snapshot, resources, target, self.progress_snapshot())
     }
     pub fn scene_asset(&self) -> Option<AssetId> {
@@ -183,7 +188,7 @@ impl PlaySession {
     /// Return to this Play session's entry snapshot, preserving pause and host suspension.
     /// A new world invalidates old picks/handles; no simulation or input crosses the boundary.
     pub fn restart(&mut self) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         let candidate = Self::from_baseline(
             self.baseline.clone(),
             self.resources.clone(),
@@ -206,7 +211,7 @@ impl PlaySession {
     }
     /// Accept an initialized, host-validated candidate; failed preconditions keep this world alive.
     pub fn accept_candidate(&mut self, mut candidate: Self) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         ensure!(!candidate.stopped, "candidate Play session is stopped");
         ensure!(
             candidate.world_id() != self.world_id(),
@@ -230,7 +235,7 @@ impl PlaySession {
         self.scene.snapshot()
     }
     pub fn set_paused(&mut self, paused: bool) {
-        if self.paused != paused {
+        if !self.stopped && self.paused != paused {
             self.paused = paused;
             self.reset_frame();
         }
@@ -248,7 +253,7 @@ impl PlaySession {
         self.advance_with_input(dt, ActionInput::default())
     }
     pub fn advance_with_input(&mut self, dt: f64, input: ActionInput) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         validate_delta(dt)?;
         input.validate()?;
         self.physics.begin_frame();
@@ -284,7 +289,7 @@ impl PlaySession {
         Ok(())
     }
     pub fn single_step(&mut self) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         ensure!(self.paused, "pause before single step");
         ensure!(!self.suspended, "cannot step while host is suspended");
         self.physics.begin_frame();
@@ -296,7 +301,7 @@ impl PlaySession {
     }
     /// UI commands are applied after this frame's input authorization, before extraction.
     pub fn request_single_step(&mut self) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         ensure!(self.paused, "pause before single step");
         ensure!(!self.suspended, "cannot step while host is suspended");
         self.step_requested = true;
@@ -308,7 +313,7 @@ impl PlaySession {
     /// Also resynchronize when loss and recovery both happened between two frames.
     pub fn synchronize_host(&mut self, active: bool, activity_changed: bool) {
         let suspended = !active;
-        if self.suspended != suspended || activity_changed {
+        if !self.stopped && (self.suspended != suspended || activity_changed) {
             self.suspended = suspended;
             self.reset_frame();
         }
@@ -416,7 +421,7 @@ impl PlaySession {
         self.navigation_command(NavigationCommand::Stop(entity))
     }
     fn navigation_command(&mut self, command: NavigationCommand) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         let snapshot = self.scene.shared_snapshot();
         let navigation = self
             .navigation
@@ -477,7 +482,7 @@ impl PlaySession {
         name: &str,
         value: comet_asset_data::AnimationParameter,
     ) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         let prepared =
             self.animation
                 .prepare_commands(&[crate::animation::AnimationCommand::Parameter(
@@ -513,19 +518,22 @@ impl PlaySession {
         self.audio_command(AudioCommand::Gain(entity, gain))
     }
     fn audio_command(&mut self, command: AudioCommand) -> Result<()> {
-        ensure!(!self.stopped, "Play session is stopped");
+        self.ensure_running()?;
         self.audio.validate_commands(&[command])?;
         self.audio.apply_commands(&[command]);
         Ok(())
     }
     pub fn set_linear_velocity(&mut self, id: EntityId, velocity: [f32; 3]) -> Result<()> {
+        self.ensure_running()?;
         self.physics.set_velocity(id, velocity)
     }
     pub fn apply_impulse(&mut self, id: EntityId, impulse: [f32; 3]) -> Result<()> {
+        self.ensure_running()?;
         self.physics.apply_impulse(id, impulse)
     }
     /// Explicit discontinuity; resets velocity and character grounding.
     pub fn teleport(&mut self, update: PoseUpdate) -> Result<()> {
+        self.ensure_running()?;
         let mut candidate = self.snapshot();
         let entity = candidate
             .entities
@@ -560,6 +568,7 @@ impl PlaySession {
     }
     /// Validate all editor fields before publishing one runtime scene update.
     pub fn set_fields(&mut self, updates: &[FieldUpdate]) -> Result<()> {
+        self.ensure_running()?;
         self.animation.validate_updates(updates)?;
         for update in updates {
             ensure!(

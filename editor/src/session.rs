@@ -9,7 +9,9 @@ use comet_render::{Camera, FrameFeedback};
 use comet_runtime::PlaySession;
 use comet_scene::{EntityData, SceneSnapshot};
 use std::path::PathBuf;
+mod assets;
 mod checkpoint;
+use assets::SnapshotCache;
 mod navigation;
 mod play;
 mod projects;
@@ -46,7 +48,6 @@ pub struct Editor {
     product_locations: crate::project::ProductLocations,
     project_request: Option<projects::PendingProject>,
     pub(crate) sources: SourceCatalog,
-    source_revision: String,
     pub(crate) resource_selection: Option<AssetId>,
     pub(crate) resource_build: crate::resources::ResourceBuild,
     pub(crate) navigation: crate::navigation::NavigationController,
@@ -76,12 +77,6 @@ impl SnapSettings {
         Ok(())
     }
 }
-struct SnapshotCache {
-    world: WorldId,
-    document_revision: u64,
-    products_revision: String,
-    snapshot: std::sync::Arc<SceneSnapshot>,
-}
 // Editor snapshots come from ContentSource::expand or Scene::shared_snapshot, both UUID-sorted.
 fn contains_entity(snapshot: &SceneSnapshot, id: EntityId) -> bool {
     snapshot
@@ -102,81 +97,6 @@ impl Editor {
             &self.source,
             self.document.prefab_asset(),
         )
-    }
-    pub(crate) fn refresh_resources(&mut self) -> Result<()> {
-        ensure!(!self.is_busy(), "请等待当前后台任务完成");
-        ensure!(self.play.is_none(), "请先停止运行，再刷新资源");
-        ensure!(!self.documents.is_blocking(), "请先完成当前文档操作");
-        self.verify_document_identity()?;
-        self.commit()?;
-        self.resource_build.start(
-            &self.paths,
-            &self.products,
-            self.document.world_id(),
-            self.document.revision(),
-            self.document.retained_sources().collect(),
-            self.document.prefab_asset(),
-        )
-    }
-    fn poll_resources(&mut self, assets: &mut AssetStore) {
-        let Some(result) = self.resource_build.poll() else {
-            return;
-        };
-        let result = result.and_then(|candidate| {
-            self.verify_document_identity()
-                .map_err(|error| format!("{error:#}"))?;
-            if candidate.world != self.document.world_id()
-                || candidate.document_revision != self.document.revision()
-            {
-                return Err("文档在资源刷新期间发生变化，请重新刷新".into());
-            }
-            let snapshot = std::sync::Arc::new(candidate.snapshot);
-            self.selection.retain(|id| contains_entity(&snapshot, id));
-            self.picking.clear();
-            self.sources = candidate.sources;
-            self.export.retain_scenes(&self.sources);
-            self.source_revision = candidate.assets.revision().to_owned();
-            self.resource_selection = None;
-            self.snapshot_cache = Some(SnapshotCache {
-                world: candidate.world,
-                document_revision: candidate.document_revision,
-                products_revision: self.source_revision.clone(),
-                snapshot: snapshot.clone(),
-            });
-            self.last_snapshot = snapshot;
-            *assets = candidate.assets;
-            self.status = "资源刷新完成".into();
-            Ok(())
-        });
-        if let Err(error) = result {
-            self.resource_build.stage = "资源刷新失败".into();
-            self.resource_build.failure = Some(error);
-        }
-    }
-    fn shared_snapshot(
-        &mut self,
-        assets: &mut AssetStore,
-    ) -> Result<std::sync::Arc<SceneSnapshot>> {
-        if let Some(play) = &mut self.play {
-            return Ok(play.shared_snapshot());
-        }
-        let world = self.document.world_id();
-        let revision = self.document.revision();
-        if let Some(cache) = &self.snapshot_cache
-            && cache.world == world
-            && cache.document_revision == revision
-            && cache.products_revision == assets.revision()
-        {
-            return Ok(cache.snapshot.clone());
-        }
-        let snapshot = std::sync::Arc::new(self.document.expand(assets)?);
-        self.snapshot_cache = Some(SnapshotCache {
-            world,
-            document_revision: revision,
-            products_revision: assets.revision().to_owned(),
-            snapshot: snapshot.clone(),
-        });
-        Ok(snapshot)
     }
     pub fn world(&self) -> WorldId {
         self.play
@@ -286,7 +206,7 @@ impl Editor {
             self.document.retained_sources().collect(),
             crate::export::ExportIdentity {
                 game_id,
-                prefab_asset: self.document.prefab_asset(),
+                document: crate::resources::DocumentVersion::capture(&self.document),
             },
         )
     }
@@ -356,19 +276,7 @@ impl Application for Editor {
         self.poll_project_transition(assets);
         self.poll_navigation(assets);
         self.poll_resources(assets);
-        self.export.poll(assets);
-        if self.source_revision != assets.revision() {
-            match SourceCatalog::read(&self.paths, assets.index()) {
-                Ok(sources) => self.sources = sources,
-                Err(error) => {
-                    self.sources = SourceCatalog::default();
-                    self.error = Some(format!("资源目录更新失败：{error:#}"));
-                }
-            }
-            self.export.retain_scenes(&self.sources);
-            self.source_revision = assets.revision().to_owned();
-            self.resource_selection = None;
-        }
+        self.poll_export(assets);
         if self.drag_origin.is_some() && (!input.active || input.activity_changed) {
             self.cancel_transform()?;
         }
@@ -566,10 +474,12 @@ pub(crate) fn open(
         Some(root) => Document::open_prefab(root, candidate.content, &mut candidate.assets)?,
         None => Document::open_source(candidate.content)?,
     };
-    let world = document.world_id();
-    let revision = document.revision();
     let assets = candidate.assets;
-    let source_revision = assets.revision().to_owned();
+    let snapshot_cache = Some(SnapshotCache::new(
+        &document,
+        &assets,
+        candidate.snapshot.clone(),
+    ));
     let mut export = crate::export::ExportController::new(preferred_scene)?;
     export.retain_scenes(&candidate.sources);
     let editor = Editor {
@@ -588,12 +498,7 @@ pub(crate) fn open(
         status: "就绪".into(),
         shadows: true,
         last_snapshot: candidate.snapshot.clone(),
-        snapshot_cache: Some(SnapshotCache {
-            world,
-            document_revision: revision,
-            products_revision: source_revision.clone(),
-            snapshot: candidate.snapshot,
-        }),
+        snapshot_cache,
         paths: candidate.paths,
         target_generation: 0,
         drag_origin: None,
@@ -615,7 +520,6 @@ pub(crate) fn open(
         product_locations,
         project_request: None,
         sources: candidate.sources,
-        source_revision,
         resource_selection: None,
         resource_build: Default::default(),
         navigation: Default::default(),

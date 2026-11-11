@@ -1,5 +1,8 @@
-use super::{Editor, SnapshotCache, contains_entity};
-use crate::navigation::{NavigationGuard, NavigationResult};
+use super::Editor;
+use crate::{
+    navigation::{NavigationGuard, NavigationResult},
+    resources::ResourceVersion,
+};
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_pipeline::SourceCatalog;
@@ -32,13 +35,10 @@ impl Editor {
         let snapshot = self.navigation_snapshot(assets)?;
         let input = self
             .navigation
-            .input(&self.document, &snapshot, assets.revision())
+            .input(&self.document, &snapshot, assets)
             .map_err(anyhow::Error::msg)?;
         let guard = NavigationGuard {
-            world: self.document.world_id(),
-            document_revision: self.document.revision(),
-            index_revision: assets.revision().to_owned(),
-            prefab_asset: self.document.prefab_asset(),
+            version: ResourceVersion::capture(&self.document, assets),
             region: input.region(),
             input_digest: input.digest().to_owned(),
         };
@@ -56,17 +56,14 @@ impl Editor {
             "文档操作使导航候选失效，请重新烘焙"
         );
         ensure!(
-            guard.world == self.document.world_id()
-                && guard.document_revision == self.document.revision()
-                && guard.index_revision == assets.revision()
-                && guard.prefab_asset == self.document.prefab_asset(),
+            guard.version.matches(&self.document, assets),
             "文档或资源在导航烘焙期间发生变化，请重新烘焙"
         );
         self.verify_document_identity()?;
         let snapshot = self.navigation_snapshot(assets)?;
         let input = self
             .navigation
-            .input(&self.document, &snapshot, assets.revision())
+            .input(&self.document, &snapshot, assets)
             .map_err(anyhow::Error::msg)?;
         ensure!(
             input.region() == guard.region && input.digest() == guard.input_digest,
@@ -127,20 +124,7 @@ impl Editor {
                         }
                         self.document.commit()?;
                         let snapshot = Arc::new(snapshot);
-                        self.selection.retain(|id| contains_entity(&snapshot, id));
-                        self.picking.clear();
-                        self.source_revision = candidate.assets.revision().to_owned();
-                        self.sources = sources;
-                        self.export.retain_scenes(&self.sources);
-                        self.resource_selection = None;
-                        self.snapshot_cache = Some(SnapshotCache {
-                            world: self.document.world_id(),
-                            document_revision: self.document.revision(),
-                            products_revision: self.source_revision.clone(),
-                            snapshot: snapshot.clone(),
-                        });
-                        self.last_snapshot = snapshot;
-                        *assets = candidate.assets;
+                        self.publish_resources(candidate.assets, sources, snapshot, assets);
                         self.navigation.accepted();
                         self.status = format!("导航已烘焙：{}", output.display());
                         Ok(())

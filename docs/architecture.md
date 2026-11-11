@@ -202,18 +202,22 @@ Document 的可选 Prefab AssetId 是不序列化的文档作用域，构造后�
 
 原生 Prefab 保存、后台构建及结果接纳通过同一项目入口复查路径和 metadata 身份；外部更换身份后要求重新打开，不能继续使用旧根作用域。若游戏包已发布、最终身份复查才失败，导出保留完整包并明确报告资源未接纳，不替换当前 Store 或启动游戏；已发布包与编辑器接纳各有独立结果。
 
+Editor 的 `session/assets.rs` 是作者资源的统一发布入口。后台刷新和导出返回同一 `ResourceCandidate`，携带文档版本、Store、SourceCatalog 和不可变展开快照；会话复查来源、作者身份、文档世界/revision/Prefab 作用域，以及活动预览和 Play 状态，成功后一次更新 Store、目录、快照缓存、选择、拾取和导出场景列表。导航在完成自己的两阶段校验与文档事务后、项目切换在完成新文档构造后，也复用该不可失败的发布步骤。资源目录与 Store 在同一边界接纳，不再由帧循环按摘要变化扫描作者目录、追赶 Store 或在失败时清空当前目录。CLI 等待导出同样经过会话；导出控制器只记录发布结果，并在会话接纳成功后按配置启动游戏。拒绝结果不删除已发布包，错误同时说明包已生成及当前资源未切换。
+
+`DocumentVersion` 统一作者文档世界、revision 和 Prefab 作用域；`ResourceVersion` 在此基础上持有已接纳索引 Arc 身份。展开快照、字段引用、导航输入/状态、实例覆盖及动画实体目标缓存复用这些键，骨架节点只绑定索引 Arc。独立打开的 Store 即使索引摘要相同也重新计算这些加载结果；同一 Store 的未变刷新复用索引 Arc，淘汰驻留产品不使派生缓存失效。失败展开不替换上一次成功缓存。只依赖索引内容的资源菜单和用户草稿继续按内容版本保留，不把临时输入与已加载结果混为同一类缓存。
+
 Editor 按状态所有权组织模块；UI 沿用旧版的功能目标与中文术语，交互结合 egui 和当前工作流设计。领域规则不依赖控件生命周期。
 
 | 所有者 | 职责与边界 |
 | --- | --- |
-| `session.rs`、`session/play.rs`、`session/projects.rs` | 协调文档、已接纳产品、帧请求及 Play/项目候选接纳；入口 `main.rs` 准备宿主与普通 GUI 的本机记录 |
+| `session.rs`、`session/assets.rs`、`session/play.rs`、`session/projects.rs` | 协调文档、已接纳产品、帧请求及 Play/项目候选接纳；入口 `main.rs` 准备宿主与普通 GUI 的本机记录 |
 | `documents.rs`、`project/` | 未保存确认、作者文件/项目候选、目录浏览与最近项目；`project.rs` 管理项目设置 |
 | `objects.rs`、`selection.rs`、`picking.rs`、`transform.rs` | 结构命令、选择身份、在途拾取和成组变换基线；选择本身不进入作者历史 |
 | `fields.rs` | 作者/直接 Prefab 字段定位、引用的词法身份转换、整批候选和预览事务守卫；单选与多选共用入口 |
 | `models.rs`、`audio.rs`、`scripts.rs`、`animation.rs` 等组件命令 | 校验产品种类、组件间兼容性与编辑权限，再请求文档发布；不把产品规则放到 UI 或 Editor Core |
 | `validation.rs` | 共享作者内容与保留历史的预检；借用输入，写入和接纳归调用方 |
-| `resources.rs`、`export.rs` | 构建/导出候选、接纳策略及导出子进程 |
-| `jobs.rs` | 工作线程、进度通道和唯一结果的所有权与回收；候选接纳由各控制器决定 |
+| `resources.rs`、`export.rs` | 文档/资源版本、后台构建与导出候选、导出结果和子进程；不替换当前会话的 Store |
+| `jobs.rs` | 工作线程、进度通道和唯一结果的所有权与回收；候选接纳由会话协调，不由通用任务或导出控制器改写文档和 Store |
 | `ui/workspace.rs`、`ui/workspace/storage.rs`、`ui/theme.rs` | 停靠拓扑、面板尺寸/可见性、本机布局与编辑器样式；不拥有作者内容或运行状态 |
 | `preferences.rs` | 最近项目与布局共用的三平台用户目录和文件边界 |
 | `ui/inspector/` | 面板组合、输入与派生显示缓存；`properties.rs` 管理数值手势，`assets.rs` 管理共享元数据目录和资源菜单 |
@@ -406,6 +410,8 @@ Scene 的 Script 只保存资源 UUID、启用状态和带类型参数，不保�
 
 Pipeline 将 UTF-8 `.rhai` 构建为 ScriptData（版本 1，源码上限 64 KiB，拒绝空白/NUL），与 metadata 一起维护身份。产品及索引的当前版本与缓存重建规则见资产生产与消费。禁用的绑定也保留脚本资产依赖与类型校验，包内不依赖作者文件。AssetStore 返回启用脚本的去重源码库，Runtime 不依赖 AssetStore 或 Pipeline。
 
+PlaySession 的停止是运行世界的终止边界。宿主的批量字段、速度、冲量、瞬移、导航、声音和动画命令，以及推进、单步、重开和候选接纳共用运行状态守卫；停止后拒绝世界修改，暂停与宿主活动同步保持终止时状态。只读查询保留最后快照及诊断，重复停止不再次执行退出回调；此边界不改变 on_stop 阶段已有的只读规则。
+
 Runtime 私有 Rhai 引擎按资源 UUID 与内容摘要编译并复用 AST，各绑定按 EntityId 顺序执行，独立持有 Scope 和 `this`。启动先验证快照、所有启用脚本的语法及回调签名；此校验不运行作者代码，资源刷新与导出复用同一 Validator。初始化阶段超过总执行预算会拒绝整个候选，避免接纳尚未初始化的绑定。进入 Play 后每绑定执行一次顶层初始化及 `on_start(ctx)`，每固定步先执行 `on_fixed_update(ctx, dt)`、更新导航期望速度、再推进物理，最后对传感器拥有者派发 `on_trigger(ctx, other, entered)`，再派发已成功采样的动画事件。停止时对未隔离且阶段预算内的绑定执行一次 `on_stop(ctx)`，此时场景命令只读。暂停/宿主冻结不调用固定步；单步、App 与 Editor 共用路径。重开从启动快照和同一源码库新建状态，不重新读取磁盘。
 
 `ctx.entity()` 返回当前世界的实体引用，`ctx.param(name)` / `has_param(name)` 读取显式参数。`position(entity)` / `rotation(entity)` / `scale(entity)` 返回回调入口的父级局部 XYZ / xyzw / XYZ 数组；`set_position` / `translate_local` / `set_rotation` / `rotate_local` / `set_scale` 修改非物理实体，`teleport` 重置物理体位置与速度，`set_velocity` / `impulse` 按运动类型验证，`set_roughness` 写模型覆盖。向量命令接收 `(entity, x, y, z)`。`set_rotation(entity,x,y,z,w)` 要求有限近单位四元数，接受范围内的微小误差归一化；`rotate_local(entity,axis_x,axis_y,axis_z,radians)` 要求近单位局部轴，按暂存的最新旋转后乘增量，弧度 0 保留原值。`set_scale` 为允许零/负的绝对本地值，受完整 Scene 世界矩阵校验约束。物理体可查询旋转/缩放，写入仍只通过其物理接口。`time()` 为固定步游戏时间，`move_x/y()` 与 `held/pressed/released("jump/run/crouch/interact/primary")` 读取已授权动作，补步不重复按下边沿；`log(text)` 写有界诊断。外部场景引用不会自动加载世界，不能用于本地命令。
@@ -529,7 +535,7 @@ Metal 使用 CAMetalLayer；主线程创建的 Surface 按 `raw-window-metal` �
 Core 的 ProjectPaths 统一解析作者路径、产品目的地与导出位置，使用真实路径和路径组件检查 assets 归属；assets 本身必须位于规范化项目根内部。项目根别名与指向根内子目录的 assets 别名可用，指向项目外或根自身的 assets 被拒绝。每次解析时重新检查资源根，别名被替换后要求重新打开；新目标解析现有父目录。产品缓存与作者资源不能相互包含，Pipeline 与 Editor 复用 products_destination；Editor 另外保护切换前项目的作者资源，并在创建尚不存在的项目之前预检目录。Editor 在打开和保存时校验作者路径，导出拒绝目的地与作者资产/产品输入相互包含。Document 只负责内容事务与保存，不持有项目路径策略。
 
 `start.sh` 顺序构建 Debug Editor 和 Release App；Editor/App 的共享构建脚本 `tools/launch/build.rs` 在程序编译时注入构建身份与 Cargo 目标三元组，Core 不持有程序身份。启动器对生产源码、Cargo.lock、清单、Shader、图标和构建配置取指纹，构建前后不一致则拒绝配对。 指纹排除测试目录与独立 tests.rs，包含共享构建脚本。AssetData 只提供显式 RuntimeIdentity 数据构造和格式/协议校验，Editor 传入自己的编译身份校验模板，App 以自身编译身份匹配包；库不读取运行进程的环境。包结构校验与运行程序兼容校验分别维护，无身份的低层 CLI 包继续由调用方负责程序配对。身份变化只使两个程序入口重新构建，未改引擎库可复用，不能把身份放进 Core 扩大失效范围。macOS 同时把 Debug Editor 复制到缓存槽内的独立 App 副本，写入原版编辑器 ICNS 和 Info.plist，签名并验证；以签名后的实际程序摘要与 App 配对，日常仍由 start.sh 传入项目与模板参数。Windows 原生终端通过 `python tools/launch/launch.py` 调用同一流程，各平台启动器等待编辑器退出并保留返回码；启动器将 Windows Cargo 产物复制到同槽候选，通过 `tools/launch/windows_icon.py` 写入并读回原版 ICO 的各尺寸及现有语言资源，以写入后的程序摘要完成配对。模板清单版本为 4（App 命名；旧模板需重新运行启动器准备），校验 App/Editor、游戏 ICNS 与附带许可文件的摘要。Editor、App 和模板按完整套件保存于 `target/launch/slot-*/programs/`；启动器与验收进程持有槽位文件锁，POSIX 编辑器继承该锁，使用中的套件不被后续构建覆盖。空闲槽按编号复用，相同输入直接复用，变化或损坏时校验候选后成套替换；失败保留旧套件，发布中断可恢复。槽数量取决于同时使用量，旧 hash 快照不再新增，也不自动清理。模板失配提示重新运行启动器。
-Editor 的 export.rs 持有导出配置、后台任务和子进程管理；UI 提供启动场景、额外场景、目的地和导出后运行。先停止 Play、提交并保存作者内容，再由后台线程调用 Pipeline 构建，检查保存版本未改变，收集所选场景的依赖并集。任务使用已保存输入并显示阶段与有界日志，期间禁用修改操作；没有导出时编译 Rust 的路径。
+Editor 的 export.rs 持有导出配置、后台任务、完成候选及子进程管理；资源接纳交给 session/assets.rs，UI 提供启动场景、额外场景、目的地和导出后运行。先停止 Play、提交并保存作者内容，再由后台线程调用 Pipeline 构建，检查保存版本未改变，收集所选场景的依赖并集。任务使用已保存输入并显示阶段与有界日志，期间禁用修改操作；没有导出时编译 Rust 的路径。
 Pipeline 的 package.rs 在正式目的地同级创建私有候选，复制后校验产品索引、所选场景、程序摘要及许可文件摘要。模板、包清单和打包写入共用 Asset Data 的单文件名规则；许可文件在候选内排他创建，重名或文件系统认定的名字别名拒绝打包，不覆盖前一项。复制保留源权限并复核摘要，签名/封装完成后使用不覆盖目标的目录重命名发布。普通错误仅清理本次候选，进程中断可能留下临时候选，正式名称不提前出现。
 
 包清单版本为 4，必需的 GameId 与启动场景、包含场景、运行程序及可选项目 PNG 摘要一起保存；旧版包需重新导出。GameId 不从路径、入口场景或程序 BuildId 派生，macOS BundleIdentifier 也使用这份身份。编辑器导出另记录匹配模板的 RuntimeIdentity；模板不持游戏身份，同一模板可服务不同项目。

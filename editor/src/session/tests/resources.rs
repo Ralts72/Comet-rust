@@ -3,6 +3,7 @@ use comet_asset_data::product::AssetKind;
 use comet_asset_pipeline::SourceMeta;
 use std::{
     fs,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -307,5 +308,34 @@ fn closing_waits_for_refresh_and_stale_document_candidates_are_rejected() -> Res
     assert_eq!(assets.revision(), revision);
     assert_eq!(editor.document.shared_source(), authored);
     assert!(!editor.documents.approved);
+    Ok(())
+}
+
+#[test]
+fn a_new_store_cannot_reuse_a_different_stores_snapshot_or_replace_its_cache_on_failure()
+-> Result<()> {
+    let (_temp, mut editor, mut assets) = fixture()?;
+    let accepted = editor.shared_snapshot(&mut assets)?;
+    let authored = editor.document.shared_source();
+    let prefab = authored.instances[0].prefab;
+    let mut candidate = AssetStore::open(&editor.products)?;
+    assert_eq!(assets.revision(), candidate.revision());
+    let path = editor
+        .products
+        .join("products")
+        .join(prefab.to_string())
+        .join(format!("{}.json", assets.index().products[&prefab].digest));
+    let bytes = fs::read(&path)?;
+    fs::write(&path, b"corrupt after opening the independent store")?;
+    assert!(editor.shared_snapshot(&mut candidate).is_err());
+    assert!(Arc::ptr_eq(
+        &accepted,
+        &editor.shared_snapshot(&mut assets)?
+    ));
+    assert!(Arc::ptr_eq(&authored, &editor.document.shared_source()));
+    fs::write(&path, bytes)?;
+    let loaded = editor.shared_snapshot(&mut candidate)?;
+    assert!(!Arc::ptr_eq(&accepted, &loaded));
+    assert_eq!(accepted, loaded);
     Ok(())
 }

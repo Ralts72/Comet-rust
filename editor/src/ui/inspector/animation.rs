@@ -1,6 +1,8 @@
+use crate::resources::ResourceVersion;
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
+use comet_asset_data::product::ProductIndex;
 use comet_core::{AssetId, EntityId, WorldId};
 use comet_editor_core::FieldTarget;
 use comet_scene::{Animator, EntityData, EntityRef, SkinBinding};
@@ -10,9 +12,7 @@ use super::assets::{Catalog as Choices, catalog as choices};
 
 #[derive(Clone)]
 struct Targets {
-    world: WorldId,
-    revision: u64,
-    index: String,
+    version: ResourceVersion,
     owner: EntityId,
     nodes: Arc<Vec<(EntityId, String)>>,
     animators: Arc<Vec<(EntityId, String, AssetId)>>,
@@ -26,12 +26,7 @@ fn targets(
     let key = egui::Id::unique("animation-entity-targets");
     if let Some(value) = ui
         .data(|data| data.get_temp::<Targets>(key))
-        .filter(|value| {
-            value.world == editor.document.world_id()
-                && value.revision == editor.document.revision()
-                && value.index == assets.revision()
-                && value.owner == owner.id
-        })
+        .filter(|value| value.version.matches(&editor.document, assets) && value.owner == owner.id)
     {
         return value;
     }
@@ -55,9 +50,7 @@ fn targets(
         })
         .collect();
     let value = Targets {
-        world: editor.document.world_id(),
-        revision: editor.document.revision(),
-        index: assets.revision().into(),
+        version: ResourceVersion::capture(&editor.document, assets),
         owner: owner.id,
         nodes: Arc::new(nodes),
         animators: Arc::new(animators),
@@ -68,7 +61,7 @@ fn targets(
 
 #[derive(Clone)]
 struct Nodes {
-    revision: String,
+    index: Arc<ProductIndex>,
     skeleton: AssetId,
     values: Arc<Vec<(EntityId, String)>>,
 }
@@ -78,10 +71,9 @@ fn skeleton_nodes(
     skeleton: AssetId,
 ) -> anyhow::Result<Arc<Vec<(EntityId, String)>>> {
     let key = egui::Id::unique("animation-skeleton-nodes");
-    if let Some(value) = ui
-        .data(|data| data.get_temp::<Nodes>(key))
-        .filter(|value| value.revision == assets.revision() && value.skeleton == skeleton)
-    {
+    if let Some(value) = ui.data(|data| data.get_temp::<Nodes>(key)).filter(|value| {
+        Arc::ptr_eq(&value.index, &assets.shared_index()) && value.skeleton == skeleton
+    }) {
         return Ok(value.values);
     }
     let product = assets.load(skeleton)?;
@@ -99,7 +91,7 @@ fn skeleton_nodes(
         data.insert_temp(
             key,
             Nodes {
-                revision: assets.revision().into(),
+                index: assets.shared_index(),
                 skeleton,
                 values: values.clone(),
             },

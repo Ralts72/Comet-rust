@@ -1,14 +1,13 @@
+use crate::resources::ResourceVersion;
 use crate::session::Editor;
 use comet_asset::AssetStore;
-use comet_core::{EntityId, WorldId};
+use comet_core::EntityId;
 use comet_editor_core::FieldTarget;
 use comet_scene::schema::{self, FieldKey};
 use std::sync::Arc;
 
 struct OverrideCache {
-    world: WorldId,
-    document_revision: u64,
-    products_revision: String,
+    version: ResourceVersion,
     selected: EntityId,
     target: Result<FieldTarget, String>,
     fields: Vec<FieldKey>,
@@ -16,10 +15,7 @@ struct OverrideCache {
 
 impl OverrideCache {
     fn matches(&self, editor: &Editor, assets: &AssetStore, selected: EntityId) -> bool {
-        self.world == editor.document.world_id()
-            && self.document_revision == editor.document.revision()
-            && self.products_revision == assets.revision()
-            && self.selected == selected
+        self.version.matches(&editor.document, assets) && self.selected == selected
     }
 
     fn read(editor: &Editor, assets: &mut AssetStore, selected: EntityId) -> Self {
@@ -42,9 +38,7 @@ impl OverrideCache {
             vec![]
         };
         Self {
-            world: editor.document.world_id(),
-            document_revision: editor.document.revision(),
-            products_revision: assets.revision().to_owned(),
+            version: ResourceVersion::capture(&editor.document, assets),
             selected,
             target,
             fields,
@@ -204,9 +198,7 @@ fn field_label(field: FieldKey) -> &'static str {
 }
 
 struct GroupCache {
-    world: WorldId,
-    revision: u64,
-    products: String,
+    version: ResourceVersion,
     selection: u64,
     ids: Option<Vec<EntityId>>,
     fields: Vec<(FieldKey, usize)>,
@@ -225,9 +217,7 @@ pub(super) fn draw_group(
     let cache = ui
         .data(|data| data.get_temp::<Arc<GroupCache>>(cache_id))
         .filter(|cache| {
-            cache.world == editor.document.world_id()
-                && cache.revision == editor.document.revision()
-                && cache.products == assets.revision()
+            cache.version.matches(&editor.document, assets)
                 && cache.selection == editor.selection.generation()
         })
         .unwrap_or_else(|| {
@@ -263,9 +253,7 @@ pub(super) fn draw_group(
                 }
             }
             let cache = Arc::new(GroupCache {
-                world: editor.document.world_id(),
-                revision: editor.document.revision(),
-                products: assets.revision().into(),
+                version: ResourceVersion::capture(&editor.document, assets),
                 selection: editor.selection.generation(),
                 ids: eligible.then_some(ids),
                 fields: fields

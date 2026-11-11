@@ -1,9 +1,10 @@
 //! Shared field targeting and authoring commands; transforms and component panels use the same route.
+use crate::resources::ResourceVersion;
 use crate::session::Editor;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
-use comet_core::{EntityId, WorldId};
+use comet_core::EntityId;
 use comet_editor_core::{Document, FieldTarget};
 use comet_scene::{
     Character, EntityRef, FieldUpdate, PhysicsBody,
@@ -48,9 +49,7 @@ impl FieldReferences {
 }
 
 struct ReferenceCache {
-    world: WorldId,
-    revision: u64,
-    index: String,
+    version: ResourceVersion,
     owner: EntityId,
     value: std::result::Result<Arc<FieldReferences>, String>,
 }
@@ -214,12 +213,7 @@ impl Editor {
         let key = egui::Id::unique("inspector-field-reference-targets");
         let cached = ctx
             .data(|data| data.get_temp::<Arc<ReferenceCache>>(key))
-            .filter(|cache| {
-                cache.world == self.document.world_id()
-                    && cache.revision == self.document.revision()
-                    && cache.index == assets.revision()
-                    && cache.owner == owner
-            });
+            .filter(|cache| cache.version.matches(&self.document, assets) && cache.owner == owner);
         let cache = cached.unwrap_or_else(|| {
             let value = self
                 .resolve_field_target(owner, assets)
@@ -227,9 +221,7 @@ impl Editor {
                 .map(Arc::new)
                 .map_err(|error| format!("{error:#}"));
             let cache = Arc::new(ReferenceCache {
-                world: self.document.world_id(),
-                revision: self.document.revision(),
-                index: assets.revision().to_owned(),
+                version: ResourceVersion::capture(&self.document, assets),
                 owner,
                 value,
             });

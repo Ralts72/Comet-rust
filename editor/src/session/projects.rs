@@ -1,4 +1,4 @@
-use super::{Editor, SnapshotCache};
+use super::Editor;
 use crate::{documents::DocumentAction, project::ProjectCandidate};
 use anyhow::{Result, ensure};
 use comet_asset::AssetStore;
@@ -161,7 +161,6 @@ impl Editor {
         } else if preferred_scene.is_some() {
             self.export.select_scene(preferred_scene);
         }
-        self.export.retain_scenes(&candidate.sources);
         self.stop();
         if changed {
             self.console.reset();
@@ -171,23 +170,18 @@ impl Editor {
         self.products = candidate.products;
         self.source = candidate.source;
         self.project = candidate.panel;
-        self.sources = candidate.sources;
-        self.source_revision = candidate.assets.revision().to_owned();
-        self.resource_selection = None;
         self.resource_build = Default::default();
         self.navigation = Default::default();
-        self.snapshot_cache = Some(SnapshotCache {
-            world: document.world_id(),
-            document_revision: document.revision(),
-            products_revision: self.source_revision.clone(),
-            snapshot: candidate.snapshot.clone(),
-        });
         self.document = document;
-        self.last_snapshot = candidate.snapshot;
+        self.publish_resources(
+            candidate.assets,
+            candidate.sources,
+            candidate.snapshot,
+            assets,
+        );
         self.camera = Default::default();
         self.error = None;
         self.status = status;
-        *assets = candidate.assets;
         // Preferences cannot roll back an already accepted project or report it as a load failure.
         self.record_current_project();
         Ok(())

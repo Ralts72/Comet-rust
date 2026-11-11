@@ -62,7 +62,9 @@ def audit(target=None):
         if name == "comet-audio":
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "comet-asset", "comet-asset-pipeline", "comet-runtime", "comet-editor-core"}
         if name == "comet-runtime":
-            forbidden |= {"winit", "ash", "objc2-metal", "egui", "comet-asset-pipeline", "comet-editor-core"}
+            forbidden |= {"winit", "ash", "objc2-metal", "egui", "comet-asset", "comet-asset-pipeline", "comet-editor-core"}
+        if name == "comet-application":
+            forbidden |= {"comet-runtime", "comet-asset-pipeline", "comet-editor-core", "comet-editor"}
         if name == "comet-render":
             forbidden |= {"winit", "comet-asset", "comet-asset-pipeline", "comet-editor-core", "comet-runtime", "comet-application"}
         if name == "comet-app":

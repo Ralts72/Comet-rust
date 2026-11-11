@@ -105,7 +105,7 @@ fn bad_selected_or_dependency_scene_scripts_cannot_publish_and_corrected_sources
         assert!(!output.exists());
         assert_eq!(assets.revision(), revision);
     }
-    // Candidate validation compiles callback bodies but never executes them during export.
+    // ResourceCandidate validation compiles callback bodies but never executes them during export.
     fs::write(
         &script_path,
         "fn on_start(ctx) { throw \"only runtime executes callbacks\"; }",
@@ -202,84 +202,120 @@ fn export_selection_tracks_scenes_independently_of_prefab_authoring() -> Result<
 }
 
 #[test]
-fn a_published_package_survives_when_a_changed_prefab_identity_prevents_store_acceptance()
+fn a_published_package_survives_rejected_document_candidates_without_partial_store_or_ui_updates()
 -> Result<()> {
+    use crate::resources::{DocumentVersion, ResourceCandidate};
     use std::{
         sync::Arc,
         time::{Duration, Instant},
     };
-    let (_temp, editor, mut accepted) = crate::test_support::fixture()?;
-    let root = AssetId::new();
-    let source = editor.project_root().join("assets/export-source.prefab");
-    write_source(&source, root, vec![])?;
-    comet_asset_pipeline::prepare(editor.project_root(), &editor.products)?;
-    accepted.refresh()?;
-    let original_index = accepted.shared_index();
-    let candidate = AssetStore::open(&editor.products)?;
-    let published = editor.products.parent().unwrap().join("published-game");
-    fs::create_dir(&published)?;
-    fs::write(published.join("completed"), b"complete package")?;
-    let output = PackageOutput {
-        executable: published.join("app"),
-        products: published.join("products"),
-        root: published.clone(),
-    };
-    let mut export = ExportController::new(editor.export.entry_scene())?;
-    let paths = ProjectPaths::open(editor.project_root())?;
-    fs::write(
-        SourceMeta::path(&source),
-        serde_json::to_vec(&SourceMeta {
-            version: 1,
-            id: AssetId::new(),
-        })?,
-    )?;
-    let (ready, started) = std::sync::mpsc::channel();
-    let (release, resume) = std::sync::mpsc::channel();
-    let task = Job::spawn("completed-prefab-export", move |sender| {
-        sender.send("游戏包已发布，等待接纳".into())?;
-        ready.send(())?;
-        resume.recv()?;
-        Ok((output, candidate))
-    })?;
-    export.job = Some(ExportJob {
-        task,
-        run: true,
-        paths,
-        source,
-        prefab_asset: Some(root),
-    });
-    let ready = started.recv_timeout(Duration::from_secs(5));
-    export.poll(&mut accepted);
-    let running = export.is_running();
-    let progress = export.stage.clone();
-    let released = release.send(());
-    ready?;
-    released?;
-    assert!(
-        running,
-        "progress must retain the pending export and its acceptance identity"
-    );
-    assert_eq!(progress, "游戏包已发布，等待接纳");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while export.is_running() {
-        export.poll(&mut accepted);
-        ensure!(Instant::now() < deadline, "export completion timed out");
-        std::thread::sleep(Duration::from_millis(2));
+    for rejection in ["identity", "document", "origin"] {
+        let (_temp, mut editor, mut accepted) = crate::test_support::fixture()?;
+        let root = AssetId::new();
+        let source = editor.project_root().join("assets/export-source.prefab");
+        write_source(&source, root, vec![])?;
+        editor.switch_document(source.clone(), &mut accepted)?;
+        let original_index = accepted.shared_index();
+        let original_snapshot = editor.snapshot(&mut accepted)?;
+        let candidate = ResourceCandidate {
+            document: DocumentVersion::capture(&editor.document),
+            assets: AssetStore::open(&editor.products)?,
+            sources: SourceCatalog::read(
+                &ProjectPaths::open(editor.project_root())?,
+                accepted.index(),
+            )?,
+            snapshot: Arc::new(original_snapshot.clone()),
+        };
+        let published = editor.products.parent().unwrap().join("published-game");
+        fs::create_dir(&published)?;
+        fs::write(published.join("completed"), b"complete package")?;
+        let output = PackageOutput {
+            executable: published.join("app"),
+            products: published.join("products"),
+            root: published.clone(),
+        };
+        let paths = ProjectPaths::open(editor.project_root())?;
+        let mut origin = source.clone();
+        match rejection {
+            "identity" => fs::write(
+                SourceMeta::path(&source),
+                serde_json::to_vec(&SourceMeta {
+                    version: 1,
+                    id: AssetId::new(),
+                })?,
+            )?,
+            "document" => {
+                editor
+                    .document
+                    .insert_entity(EntityData::new("changed after export"), &mut accepted)?;
+            }
+            "origin" => {
+                origin = editor.project_root().join("assets/another.prefab");
+            }
+            _ => unreachable!(),
+        }
+        let authored = editor.document.shared_source();
+        let snapshot = editor.snapshot(&mut accepted)?;
+        let choices = editor
+            .sources
+            .of_kind(AssetKind::Prefab)
+            .map(|source| source.id)
+            .collect::<Vec<_>>();
+        let (ready, started) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        let task = Job::spawn("completed-export", move |sender| {
+            sender.send("prepared".into())?;
+            ready.send(())?;
+            resume.recv()?;
+            Ok((output, candidate))
+        })?;
+        editor.export.job = Some(ExportJob {
+            task,
+            run: true,
+            paths,
+            source: origin,
+        });
+        let ready = started.recv_timeout(Duration::from_secs(5));
+        editor.poll_export(&mut accepted);
+        let running = editor.export.is_running();
+        let progress = editor.export.stage.clone();
+        let released = release.send(());
+        ready?;
+        released?;
+        assert!(running);
+        assert_eq!(progress, "prepared");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while editor.export.is_running() {
+            editor.poll_export(&mut accepted);
+            ensure!(Instant::now() < deadline, "export completion timed out");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(Arc::ptr_eq(&original_index, &accepted.shared_index()));
+        assert!(Arc::ptr_eq(&authored, &editor.document.shared_source()));
+        assert_eq!(editor.snapshot(&mut accepted)?, snapshot);
+        assert_eq!(
+            editor
+                .sources
+                .of_kind(AssetKind::Prefab)
+                .map(|source| source.id)
+                .collect::<Vec<_>>(),
+            choices
+        );
+        assert_eq!(editor.export.last_output.as_ref().unwrap().root, published);
+        assert_eq!(fs::read(published.join("completed"))?, b"complete package");
+        assert_eq!(editor.export.stage, "导出完成，资源未接纳");
+        assert!(
+            editor
+                .export
+                .failure
+                .as_ref()
+                .is_some_and(|error| error.contains("游戏包已生成"))
+        );
+        assert!(editor.export.children.is_empty());
+        let logs = editor.export.logs.clone();
+        editor.poll_export(&mut accepted);
+        assert_eq!(editor.export.logs, logs);
     }
-    assert!(Arc::ptr_eq(&original_index, &accepted.shared_index()));
-    assert_eq!(export.last_output.as_ref().unwrap().root, published);
-    assert_eq!(fs::read(published.join("completed"))?, b"complete package");
-    assert_eq!(export.stage, "导出完成，资源未接纳");
-    assert!(
-        export
-            .failure
-            .as_ref()
-            .is_some_and(|error| error.contains("游戏包已生成") && error.contains("作者身份变化"))
-    );
-    assert!(export.children.is_empty());
-    let logs = export.logs.clone();
-    export.poll(&mut accepted);
-    assert_eq!(export.logs, logs, "completion must not be delivered twice");
     Ok(())
 }
 

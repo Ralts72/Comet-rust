@@ -127,7 +127,7 @@ macOS 默认导出 `.app`，资源放在 `Contents/Resources`，发布前完成�
 | `engine/application` | 窗口、输入采样与授权、宿主活动策略、egui、帧提取与声音输出生命周期 |
 | `engine/render` | 提取后的帧协议、渲染线程、共享 Shader 和原生 Metal/Vulkan 后端；不直接依赖 Scene 或 Store |
 | `editor/core` | 编辑文档、事务、历史与保存点 |
-| `editor/src` | 编辑器入口、会话、导出后台任务与各功能面板 |
+| `editor/src` | 编辑器入口、作者会话与资源候选接纳、导出后台任务和功能面板 |
 | `app` | 独立游戏入口与会话、暂停菜单和包外存储，包内资源相对可执行文件定位 |
 | `tools/asset` | `comet-assetc` 命令行入口 |
 | `tools/gpu` | 原生 GPU 能力检查；Metal 多队列、显存别名与硬件光追，Vulkan 设备/队列检查 |

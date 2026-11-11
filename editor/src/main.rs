@@ -101,7 +101,7 @@ fn main() -> Result<()> {
                 run: false,
             },
         )?;
-        let output = editor.export.wait(&mut assets)?;
+        let output = editor.wait_export(&mut assets)?;
         let report = serde_json::json!({"status":"passed","root":output.root,"executable":output.executable,"products":output.products});
         if let Some(path) = options.report {
             comet_core::atomic_write(&path, &serde_json::to_vec_pretty(&report)?)?;

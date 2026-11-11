@@ -1,4 +1,4 @@
-use crate::{jobs::Job, session::Editor};
+use crate::{jobs::Job, resources::ResourceVersion, session::Editor};
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
 use comet_asset_data::{
@@ -6,7 +6,7 @@ use comet_asset_data::{
     product::Product,
 };
 use comet_asset_pipeline::NavigationTarget;
-use comet_core::{AssetId, EntityId, ProjectPaths, WorldId};
+use comet_core::{AssetId, EntityId, ProjectPaths};
 use comet_editor_core::{Document, FieldEdit};
 use comet_scene::{
     ContentSource, EntityData, NavigationAgent, NavigationRegion, SceneSnapshot,
@@ -32,12 +32,9 @@ pub(crate) const AGENT_FIELDS: &[FieldKey] = &[
     schema::NAVIGATION_ARRIVAL_DISTANCE,
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct NavigationGuard {
-    pub world: WorldId,
-    pub document_revision: u64,
-    pub index_revision: String,
-    pub prefab_asset: Option<AssetId>,
+    pub version: ResourceVersion,
     pub region: EntityId,
     pub input_digest: String,
 }
@@ -58,15 +55,8 @@ pub(crate) enum NavigationResult {
     Prepared(NavigationCandidate),
 }
 
-#[derive(PartialEq, Eq)]
-struct CacheKey {
-    world: WorldId,
-    revision: u64,
-    index: String,
-    prefab: Option<AssetId>,
-}
 struct CachedNavigation {
-    key: CacheKey,
+    version: ResourceVersion,
     region: Option<EntityId>,
     input: Option<std::result::Result<Arc<NavigationInput>, String>>,
     status: Option<std::result::Result<(), String>>,
@@ -89,22 +79,15 @@ impl NavigationController {
         &mut self,
         document: &Document,
         snapshot: &SceneSnapshot,
-        index: &str,
+        assets: &AssetStore,
     ) -> &mut CachedNavigation {
-        let matches = self.cache.as_ref().is_some_and(|cache| {
-            cache.key.world == document.world_id()
-                && cache.key.revision == document.revision()
-                && cache.key.index == index
-                && cache.key.prefab == document.prefab_asset()
-        });
+        let matches = self
+            .cache
+            .as_ref()
+            .is_some_and(|cache| cache.version.matches(document, assets));
         if !matches {
             self.cache = Some(CachedNavigation {
-                key: CacheKey {
-                    world: document.world_id(),
-                    revision: document.revision(),
-                    index: index.to_owned(),
-                    prefab: document.prefab_asset(),
-                },
+                version: ResourceVersion::capture(document, assets),
                 region: snapshot
                     .entities
                     .iter()
@@ -121,18 +104,18 @@ impl NavigationController {
         &mut self,
         document: &Document,
         snapshot: &SceneSnapshot,
-        index: &str,
+        assets: &AssetStore,
     ) -> Option<EntityId> {
-        self.cached(document, snapshot, index).region
+        self.cached(document, snapshot, assets).region
     }
 
     pub fn input(
         &mut self,
         document: &Document,
         snapshot: &SceneSnapshot,
-        index: &str,
+        assets: &AssetStore,
     ) -> std::result::Result<Arc<NavigationInput>, String> {
-        self.cached(document, snapshot, index)
+        self.cached(document, snapshot, assets)
             .input
             .get_or_insert_with(|| {
                 NavigationInput::capture(snapshot)
@@ -148,8 +131,8 @@ impl NavigationController {
         snapshot: &SceneSnapshot,
         assets: &mut AssetStore,
     ) -> std::result::Result<(), String> {
-        let input = self.input(document, snapshot, assets.revision());
-        let cache = self.cached(document, snapshot, assets.revision());
+        let input = self.input(document, snapshot, assets);
+        let cache = self.cached(document, snapshot, assets);
         cache
             .status
             .get_or_insert_with(|| {
@@ -222,7 +205,7 @@ impl NavigationController {
                 crate::validation::validate_sources(
                     retained.iter().map(|source| source.as_ref()),
                     &mut assets,
-                    baked.guard.prefab_asset,
+                    baked.guard.version.document.prefab_asset,
                 )?;
                 Ok(assets)
             })();

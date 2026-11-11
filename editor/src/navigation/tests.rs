@@ -31,10 +31,7 @@ fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore, EntityId)> {
 }
 fn guard(editor: &Editor, assets: &AssetStore, input: &NavigationInput) -> NavigationGuard {
     NavigationGuard {
-        world: editor.document.world_id(),
-        document_revision: editor.document.revision(),
-        index_revision: assets.revision().to_owned(),
-        prefab_asset: editor.document.prefab_asset(),
+        version: ResourceVersion::capture(&editor.document, assets),
         region: input.region(),
         input_digest: input.digest().to_owned(),
     }
@@ -53,7 +50,7 @@ fn bake(editor: &mut Editor, assets: &mut AssetStore, path: &str) -> Result<Bake
     let snapshot = editor.document.expand(assets)?;
     let input = editor
         .navigation
-        .input(&editor.document, &snapshot, assets.revision())
+        .input(&editor.document, &snapshot, assets)
         .map_err(anyhow::Error::msg)?;
     let guard = guard(editor, assets, &input);
     editor.navigation.start(
@@ -177,7 +174,7 @@ fn idle_navigation_status_reuses_input_and_does_not_reload_an_evicted_product() 
     let snapshot = editor.document.expand(&mut assets)?;
     let input = editor
         .navigation
-        .input(&editor.document, &snapshot, assets.revision())
+        .input(&editor.document, &snapshot, &assets)
         .map_err(anyhow::Error::msg)?;
     editor
         .navigation
@@ -190,7 +187,7 @@ fn idle_navigation_status_reuses_input_and_does_not_reload_an_evicted_product() 
             &input,
             &editor
                 .navigation
-                .input(&editor.document, &snapshot, assets.revision())
+                .input(&editor.document, &snapshot, &assets)
                 .map_err(anyhow::Error::msg)?
         ));
         editor
@@ -205,7 +202,7 @@ fn idle_navigation_status_reuses_input_and_does_not_reload_an_evicted_product() 
     let snapshot = editor.document.expand(&mut assets)?;
     let changed = editor
         .navigation
-        .input(&editor.document, &snapshot, assets.revision())
+        .input(&editor.document, &snapshot, &assets)
         .map_err(anyhow::Error::msg)?;
     assert!(!Arc::ptr_eq(&input, &changed));
     assert_ne!(input.digest(), changed.digest());

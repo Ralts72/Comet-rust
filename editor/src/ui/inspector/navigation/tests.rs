@@ -451,14 +451,9 @@ fn direct_prefab_target_widgets_store_source_uuids_and_nested_or_background_cont
     );
 
     let paths = comet_core::ProjectPaths::open(c.editor.project_root())?;
-    c.editor.resource_build.start(
-        &paths,
-        &c.editor.products,
-        c.editor.document.world_id(),
-        c.editor.document.revision(),
-        c.editor.document.retained_sources().collect(),
-        c.editor.document.prefab_asset(),
-    )?;
+    c.editor
+        .resource_build
+        .start(&paths, &c.editor.products, &c.editor.document)?;
     c.press("启用导航代理");
     c.drag("到达距离");
     assert!(Arc::ptr_eq(&current, &c.editor.document.shared_source()));

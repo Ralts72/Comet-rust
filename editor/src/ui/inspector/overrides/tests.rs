@@ -309,14 +309,9 @@ fn play_hides_author_overrides_and_background_work_disables_the_restore_buttons(
     assert!(Arc::ptr_eq(&source, &f.editor.document.shared_source()));
     f.editor.stop();
     let paths = comet_core::ProjectPaths::open(f.editor.project_root())?;
-    f.editor.resource_build.start(
-        &paths,
-        &f.editor.products,
-        f.editor.document.world_id(),
-        f.editor.document.revision(),
-        f.editor.document.retained_sources().collect(),
-        f.editor.document.prefab_asset(),
-    )?;
+    f.editor
+        .resource_build
+        .start(&paths, &f.editor.products, &f.editor.document)?;
     assert!(f.editor.is_busy());
     let output = frame(&ctx, &mut f, vec![]);
     assert!(!labels(&output, "恢复全部继承").is_empty());

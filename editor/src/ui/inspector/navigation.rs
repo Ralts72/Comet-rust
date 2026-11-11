@@ -123,7 +123,7 @@ pub(super) fn draw(
                 .and_then(|snapshot| {
                     editor
                         .navigation
-                        .region(&editor.document, &snapshot, assets.revision())
+                        .region(&editor.document, &snapshot, assets)
                 })
         } else {
             None
@@ -325,9 +325,7 @@ fn bake(
             return;
         }
     };
-    let input = editor
-        .navigation
-        .input(&editor.document, &snapshot, assets.revision());
+    let input = editor.navigation.input(&editor.document, &snapshot, assets);
     match editor
         .navigation
         .status(&editor.document, &snapshot, assets)

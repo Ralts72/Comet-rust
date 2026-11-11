@@ -100,7 +100,7 @@ Inspector 回归按行为边界组织，共同测试的场景准备归 `group/fi
 
 内容与运行规则见[架构约定](architecture.md)，具体操作见 [README](../README.md)，尚未迁移的完整能力见[迁移清单](migration.md)。导航、动画、声音、脚本和检查点的专项验证在下文维护。
 
-场景进入 App、Play、换关或正式导出时，统一通过 `AssetStore::scene_resources` 准备完整只读资源；作者保存、历史和导航工作流使用对应按需入口。新增资源类型时同步维护 Asset Data 的 `SceneResources`、Asset Runtime 的加载规则与 Runtime 消费，导出不能另写一套资源拼装。验证优先沿这些已有行为入口覆盖失败与候选接纳，不为集合字段映射新增单测。
+场景进入 App、Play、换关或正式导出时，统一通过 `AssetStore::scene_resources` 准备完整只读资源；作者保存、历史和导航工作流使用对应按需入口。新增资源类型时同步维护 Asset Data 的 `SceneResources`、Asset Runtime 的加载规则与 Runtime 消费，导出不能另写一套资源拼装。Editor 侧资源切换统一走 `session/assets.rs`：后台任务不直接改主线程 Store；异步结果需匹配文档版本，缓存加载结果需匹配索引 Arc 身份。导出已发布与编辑器已接纳分别记录，拒绝接纳时保留包且不自动运行。验证优先沿这些已有行为入口覆盖失败与候选接纳，不为集合字段映射新增单测。
 
 ## 项目浏览与本机记录
 

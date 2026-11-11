@@ -58,19 +58,7 @@ fn data_preview_keeps_authoring_private_and_follows_atomic_refresh() -> Result<(
     let revision = c.assets.revision().to_owned();
     fs::write(&schema, b"broken")?;
     c.editor.refresh_resources()?;
-    let wait = |c: &mut Case| -> Result<()> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while c.editor.resource_build.is_running() {
-            c.frame(vec![]);
-            anyhow::ensure!(
-                std::time::Instant::now() < deadline,
-                "resource refresh timed out"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-        Ok(())
-    };
-    wait(&mut c)?;
+    c.wait_resources()?;
     assert!(c.editor.resource_build.failure.is_some());
     assert_eq!(c.assets.revision(), revision);
     assert_eq!(c.editor.resource_selection, Some(id));
@@ -80,7 +68,7 @@ fn data_preview_keeps_authoring_private_and_follows_atomic_refresh() -> Result<(
     let bytes = fs::read_to_string(&path)?.replace("hero,7,", "hero,11,");
     fs::write(&path, &bytes)?;
     c.editor.refresh_resources()?;
-    wait(&mut c)?;
+    c.wait_resources()?;
     assert!(
         c.editor.resource_build.failure.is_none(),
         "{:?}",
@@ -137,6 +125,18 @@ fn headless_data_preview_draws_typed_records_without_editing_authoring() -> Resu
 }
 
 impl Case {
+    fn wait_resources(&mut self) -> Result<()> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while self.editor.resource_build.is_running() {
+            self.frame(vec![]);
+            anyhow::ensure!(
+                std::time::Instant::now() < deadline,
+                "resource refresh timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        Ok(())
+    }
     fn new(nested: bool) -> Result<Self> {
         let (temp, mut editor, mut assets) = crate::test_support::fixture()?;
         let model = editor
@@ -874,9 +874,13 @@ fn save_prefab_browser_retries_without_touching_the_document_and_rebuilt_product
     assert!(Arc::ptr_eq(&changed, &c.editor.document.shared_source()));
     assert!(!c.editor.project_root().join("assets/stale.prefab").exists());
 
-    comet_asset_pipeline::prepare(c.editor.project_root(), &c.editor.products)?;
-    c.assets = AssetStore::open(&c.editor.products)?;
-    c.frame(vec![]);
+    c.editor.refresh_resources()?;
+    c.wait_resources()?;
+    assert!(
+        c.editor.resource_build.failure.is_none(),
+        "{:?}",
+        c.editor.resource_build.failure
+    );
     assert!(
         c.editor
             .sources

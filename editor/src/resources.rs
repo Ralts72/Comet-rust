@@ -1,21 +1,58 @@
 use crate::jobs::Job;
 use anyhow::{Context, Result, ensure};
 use comet_asset::AssetStore;
+use comet_asset_data::product::ProductIndex;
 use comet_asset_pipeline::SourceCatalog;
 use comet_core::{AssetId, ProjectPaths, WorldId};
-use comet_scene::{ContentSource, SceneSnapshot};
+use comet_editor_core::Document;
+use comet_scene::SceneSnapshot;
 use std::{path::Path, sync::Arc};
 
-pub(crate) struct Candidate {
-    pub world: WorldId,
-    pub document_revision: u64,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DocumentVersion {
+    world: WorldId,
+    revision: u64,
+    pub prefab_asset: Option<AssetId>,
+}
+impl DocumentVersion {
+    pub fn capture(document: &Document) -> Self {
+        Self {
+            world: document.world_id(),
+            revision: document.revision(),
+            prefab_asset: document.prefab_asset(),
+        }
+    }
+    pub fn matches(self, document: &Document) -> bool {
+        self.world == document.world_id()
+            && self.revision == document.revision()
+            && self.prefab_asset == document.prefab_asset()
+    }
+}
+#[derive(Clone, Debug)]
+pub(crate) struct ResourceVersion {
+    pub document: DocumentVersion,
+    index: Arc<ProductIndex>,
+}
+impl ResourceVersion {
+    pub fn capture(document: &Document, assets: &AssetStore) -> Self {
+        Self {
+            document: DocumentVersion::capture(document),
+            index: assets.shared_index(),
+        }
+    }
+    pub fn matches(&self, document: &Document, assets: &AssetStore) -> bool {
+        self.document.matches(document) && Arc::ptr_eq(&self.index, &assets.shared_index())
+    }
+}
+pub(crate) struct ResourceCandidate {
+    pub document: DocumentVersion,
     pub assets: AssetStore,
     pub sources: SourceCatalog,
-    pub snapshot: SceneSnapshot,
+    pub snapshot: Arc<SceneSnapshot>,
 }
 #[derive(Default)]
 pub(crate) struct ResourceBuild {
-    job: Option<Job<Candidate>>,
+    job: Option<Job<ResourceCandidate>>,
     pub stage: String,
     pub failure: Option<String>,
 }
@@ -27,12 +64,11 @@ impl ResourceBuild {
         &mut self,
         paths: &ProjectPaths,
         products: &Path,
-        world: WorldId,
-        document_revision: u64,
-        retained: Vec<Arc<ContentSource>>,
-        prefab_asset: Option<AssetId>,
+        document: &Document,
     ) -> Result<()> {
         ensure!(!self.is_running(), "资源刷新已在进行");
+        let version = DocumentVersion::capture(document);
+        let retained: Vec<_> = document.retained_sources().collect();
         let paths = paths.clone();
         let products = products.to_owned();
         let job = Job::spawn("comet-resource-build", move |sender| {
@@ -44,19 +80,18 @@ impl ResourceBuild {
             let snapshot = crate::validation::validate_sources(
                 retained.iter().map(|source| source.as_ref()),
                 &mut assets,
-                prefab_asset,
+                version.prefab_asset,
             )?;
             let sources = SourceCatalog::read(&paths, assets.index())?;
             let _ = sender.send(format!(
                 "资源已准备：{} 个更新，{} 个复用",
                 report.changed, report.reused
             ));
-            Ok(Candidate {
-                world,
-                document_revision,
+            Ok(ResourceCandidate {
+                document: version,
                 assets,
                 sources,
-                snapshot,
+                snapshot: Arc::new(snapshot),
             })
         })?;
         self.job = Some(job);
@@ -64,7 +99,7 @@ impl ResourceBuild {
         self.failure = None;
         Ok(())
     }
-    pub fn poll(&mut self) -> Option<std::result::Result<Candidate, String>> {
+    pub fn poll(&mut self) -> Option<std::result::Result<ResourceCandidate, String>> {
         let result = self.job.as_mut()?.poll(|stage| self.stage = stage)?;
         self.job.take();
         Some(result)

@@ -116,3 +116,67 @@ fn unresolved_author_references_cannot_enter_or_be_injected_into_a_running_world
     }
     Ok(())
 }
+
+#[test]
+fn stopped_world_rejects_host_mutations_and_keeps_its_last_snapshot() -> Result<()> {
+    use comet_scene::{BodyMotion, PoseUpdate};
+    let visual = EntityData::new("visual");
+    let visual_id = visual.id;
+    let mut body = EntityData::new("dynamic body");
+    body.physics = Some(PhysicsBody {
+        motion: BodyMotion::Dynamic,
+        ..Default::default()
+    });
+    let body_id = body.id;
+    let pose = || PoseUpdate {
+        entity: body_id,
+        translation: [1., 2., 3.],
+        rotation: [0., 0., 0., 1.],
+    };
+    let mut play = PlaySession::start(SceneSnapshot {
+        entities: vec![visual, body],
+        ..Default::default()
+    })?;
+    play.set_linear_velocity(body_id, [1., 0., 0.])?;
+    play.apply_impulse(body_id, [0., 1., 0.])?;
+    play.teleport(pose())?;
+    play.set_field(&[visual_id], schema::TRANSLATION, FieldValue::Vec3([2.; 3]))?;
+    play.advance(comet_runtime::FIXED_DELTA)?;
+    play.stop();
+    let accepted = play.shared_snapshot();
+    let world = play.world_id();
+    let steps = play.steps();
+    let paused = play.is_paused();
+    let suspended = play.is_suspended();
+    play.set_paused(!paused);
+    play.set_suspended(!suspended);
+    play.synchronize_host(false, true);
+    assert_eq!(play.is_paused(), paused);
+    assert_eq!(play.is_suspended(), suspended);
+    for result in [
+        play.set_linear_velocity(body_id, [1., 0., 0.]),
+        play.apply_impulse(body_id, [0., 1., 0.]),
+        play.teleport(pose()),
+        play.set_fields(&[update(
+            visual_id,
+            schema::TRANSLATION,
+            FieldValue::Vec3([9.; 3]),
+        )]),
+        play.set_fields(&[]),
+        play.restart(),
+        play.advance(comet_runtime::FIXED_DELTA),
+    ] {
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Play session is stopped")
+        );
+        assert!(Arc::ptr_eq(&accepted, &play.shared_snapshot()));
+    }
+    play.stop();
+    assert_eq!(play.world_id(), world);
+    assert_eq!(play.steps(), steps);
+    assert!(Arc::ptr_eq(&accepted, &play.shared_snapshot()));
+    Ok(())
+}
