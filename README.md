@@ -108,7 +108,7 @@ macOS 默认导出 `.app`，资源放在 `Contents/Resources`，发布前完成�
 测试继承开发配置；配置统一在根 `Cargo.toml`，选项含义见 [Cargo Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)。`target/` 包含缓存、测试和验证输出，不作为发布包。定期检查并清理过期缓存和旧程序快照，保留正在使用的产物；具体规则见[构建缓存维护](docs/development.md#构建缓存维护)。
 
 作者资产及其 `.meta` 身份文件需要一起入库，包括 glTF 配套的 `.bin`、纹理和测试数据；`Cargo.lock` 也保留在版本控制中。
-自有作者格式使用 `.scene`、`.prefab`、`.mesh`、`.material`、`.ani`，只读游戏数据表使用 `*.data.json`（`fields` / `rows`），烘焙导航保存为 `.nav`，内容均为 JSON；`.nav` 与其 `.meta` 一起保留，重烘焙更新同一资产。默认场景为 `demo/assets/main.scene`；metadata 在完整源文件名后追加 `.meta`，例如 `main.scene.meta`、`showcase.gltf.meta`，重命名时随源文件一起移动并保留 UUID。
+自有作者格式使用 `.scene`、`.prefab`、`.mesh`、`.material`、`.ani`，烘焙导航保存为 `.nav`，内容均为 JSON；`.nav` 与其 `.meta` 一起保留，重烘焙更新同一资产。只读游戏数据表支持 `*.data.json`（`fields` / `rows`）或 `.csv` 配套 `<name>.csv.schema.json`（`fields`）。在“项目”面板选择“数据”资源可查看记录与字段；修改源文件后刷新资源，再重新进入 Play。CSV schema 随源一起维护，不单独生成资产身份，导出只包含规范化产品。默认场景为 `demo/assets/main.scene`；metadata 在完整源文件名后追加 `.meta`，例如 `main.scene.meta`、`stats.csv.meta`，重命名时随源和配套文件一起移动并保留 UUID。
 可再生产品、截图、报告与诊断输出放在 `target/`，导出包可放在 `target/packages/` 或根 `dist/`。根 `target/`、`products/`、`dist/`，以及构建锁、原子写入临时文件、GPU 捕获包和 Python 缓存由 `.gitignore` 排除；运行证据保存在 `target/` 或 CI 附件，不放进文档目录或版本控制。
 
 ## 源码归属

@@ -370,7 +370,11 @@ fn product_label(kind: &str, index: usize, name: Option<&str>, count: usize) -> 
         None => format!("{kind} {index}"),
     }
 }
-fn read_uri(base: &Path, uri: &str, files: &mut BTreeMap<PathBuf, String>) -> Result<Vec<u8>> {
+fn read_uri(
+    base: &Path,
+    uri: &str,
+    files: &mut BTreeMap<PathBuf, crate::import::SourceFile>,
+) -> Result<Vec<u8>> {
     if let Some(data) = uri.strip_prefix("data:") {
         let (header, data) = data.split_once(',').context("invalid data URI")?;
         ensure!(
@@ -393,7 +397,13 @@ fn read_uri(base: &Path, uri: &str, files: &mut BTreeMap<PathBuf, String>) -> Re
         "glTF resource escapes its source directory"
     );
     let data = crate::import::read_bounded(&path, comet_asset_data::MAX_ANIMATION_BYTES)?;
-    files.insert(path, digest(&data));
+    files.insert(
+        path,
+        crate::import::SourceFile {
+            digest: digest(&data),
+            byte_limit: comet_asset_data::MAX_ANIMATION_BYTES,
+        },
+    );
     Ok(data)
 }
 fn generate_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {

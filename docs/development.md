@@ -261,11 +261,15 @@ fn on_stop(ctx) { ctx.log("运行结束"); }
 
 换关回归分别覆盖 Runtime 请求事务及旧请求拒绝、Editor 原文档/历史隔离和 App 包场景名单。`travel.scene` / `travel_second.scene` 复用已有模型，`next_scene` 是 UUID 文本参数，导出时需明确包含两关；`auto_after` 默认 0，只在验收临时副本设为正数。完整验收移走作者目录和构建缓存后，从导出包启动第一关，离屏运行实际进入第二关，核对新 WorldId、入关时间、生命周期日志和绘制结果。同步加载可能停顿，真实按键与目标平台窗口交互继续单独验收。
 
-### JSON 游戏数据表
+### 游戏数据表
 
 将 `*.data.json` 与 `.meta` 一起保留在 assets，使用旧版 `fields` / `rows` JSON 结构；刷新资源后，在脚本参数里选择“数据”并绑定数据源。`ctx.data_get(ctx.param("stats"), "player")` 读取独立记录，`ctx.data_ids(...)` 列出排序 ID；缺失记录为空值，未设置数据、缺失/错类型引用或查询超限会明确失败，不能以默认数值掩盖。修改副本仅改变自己的脚本状态，当前属性、Buff、冷却及存档仍由项目规则管理。格式、限制、Scene12 及引用语义见[游戏数据表](architecture.md#游戏数据表)。
 
-修改 demo 的 `data/combat.data.json` 中 player/guard 的 health、damage、range 或 cooldown，刷新资源并重新运行战斗，观察血量上限和实际命中；R 重开复用当前世界接纳的基础表，Stop 不修改数据源。自动回归覆盖严格协议、重复键/ID、预算、类型闭包、Prefab 覆盖、失败发布、搬移包、独立查询副本及真实战斗数值变化；完整验收检查无作者源包中的规范化表、Scene12 参数、实际 HUD 和窗口。CSV、资源表格预览及完整旧数据消费者尚待迁移。
+CSV 可保存为 `stats.csv`，例如 `id,health` 表头和 `player,120` 记录；同目录的 `stats.csv.schema.json` 写入 `{"fields":{"health":{"type":"integer","min":1}}}`。表头需要 id 和全部声明字段；字符串保留空白，嵌套 JSON 按 CSV 双引号转义，CSV 与 schema 各限 256 KiB。schema 随源提交，身份仅由 `stats.csv.meta` 保存；重命名时三者一起移动。普通 JSON 和 schema 文件不单独作为数据源扫描。格式和严格失败规则见架构说明，不接受旧 64 位资产 ID 的隐式转换。
+
+在“项目”面板选择“数据”资源，查看“记录”“字段”、ID 与各列，只读窗口支持横纵滚动和长值悬停。修改源文件或 schema 后停止 Play 并“刷新资源”；失败保留旧预览，成功后重新选择读取新版本。预览不生成场景撤销项，也不把源文件中的临时内容提前显示为已接纳产品。
+
+修改 demo 的 `data/combat.data.json` 中 player/guard 的 health、damage、range 或 cooldown，刷新资源并重新运行战斗，观察血量上限和实际命中；R 重开复用当前世界接纳的基础表，Stop 不修改数据源。自动回归覆盖严格协议、CSV 引号/多行/类型与预算、重复键/ID、类型闭包、Prefab 覆盖、schema 指纹/失败发布、搬移包、独立查询副本、真实战斗数值变化及预览刷新隔离。完整验收检查无作者源包中的规范化表、Scene12 参数、实际 HUD 和窗口，并显式运行数据表预览的 GPU 回归。完整旧数据消费者仍待迁移，人工交互与各平台 GPU 分别验收。
 
 ### 运行实体销毁
 

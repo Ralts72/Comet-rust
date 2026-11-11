@@ -3,6 +3,8 @@ use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_asset_data::product::AssetKind;
 
+mod data;
+
 enum ResourceAction {
     Place(comet_asset_pipeline::SourceAsset),
     EditSource(std::path::PathBuf),
@@ -130,7 +132,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                         .as_ref()
                         .map(|source| ResourceAction::EditSource(source.source.clone()));
                 }
-                ui.weak("模型与 Prefab");
+                ui.weak("模型、Prefab 与数据");
             });
             if editor.resource_build.is_running() {
                 ui.horizontal(|ui| {
@@ -159,12 +161,18 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
             egui::ScrollArea::vertical()
                 .id_salt("resources-list")
                 .show(ui, |ui| {
-                    for choice in editor.sources.of_kind(AssetKind::Prefab) {
+                    for choice in editor
+                        .sources
+                        .of_kind(AssetKind::Prefab)
+                        .chain(editor.sources.of_kind(AssetKind::Data))
+                    {
                         let response = ui.selectable_label(
                             editor.resource_selection == Some(choice.id),
                             format!(
                                 "{}  {}",
-                                if is_authoring_source(choice) {
+                                if choice.kind == AssetKind::Data {
+                                    "数据"
+                                } else if is_authoring_source(choice) {
                                     "Prefab"
                                 } else {
                                     "模型"
@@ -176,6 +184,7 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                             editor.resource_selection = Some(choice.id);
                         }
                         if response.double_clicked()
+                            && choice.kind == AssetKind::Prefab
                             && editor.play.is_none()
                             && !editor.is_busy()
                             && Some(choice.id) != editor.document.prefab_asset()
@@ -183,8 +192,14 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                             action = Some(ResourceAction::Place(choice.clone()));
                         }
                     }
-                    if editor.sources.of_kind(AssetKind::Prefab).next().is_none() {
-                        ui.weak("项目中没有已构建的模型或 Prefab。");
+                    if editor
+                        .sources
+                        .of_kind(AssetKind::Prefab)
+                        .chain(editor.sources.of_kind(AssetKind::Data))
+                        .next()
+                        .is_none()
+                    {
+                        ui.weak("项目中没有已构建的模型、Prefab 或数据。");
                     }
                 });
             match action {
@@ -206,4 +221,5 @@ pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetS
                 None => {}
             }
         });
+    data::show(editor, root.ctx(), assets);
 }

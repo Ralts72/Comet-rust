@@ -16,7 +16,11 @@ pub(crate) struct ImportedProduct {
 }
 pub(crate) struct Imported {
     pub products: Vec<ImportedProduct>,
-    pub files: BTreeMap<PathBuf, String>,
+    pub files: BTreeMap<PathBuf, SourceFile>,
+}
+pub(crate) struct SourceFile {
+    pub digest: String,
+    pub byte_limit: usize,
 }
 
 pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
@@ -36,12 +40,15 @@ pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
         "nav" => Some(AssetKind::Navigation),
         "wav" => Some(AssetKind::Audio),
         "ani" => Some(AssetKind::AnimationController),
+        "csv" => Some(AssetKind::Data),
         _ => None,
     }
 }
 pub(crate) fn bundle(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported> {
     if path.extension().is_some_and(|e| e == "gltf" || e == "glb") {
         crate::gltf::import(path, bytes, id)
+    } else if path.extension().is_some_and(|e| e == "csv") {
+        crate::game_data::import_csv(path, bytes, id)
     } else {
         Ok(Imported {
             products: vec![ImportedProduct {
@@ -182,6 +189,7 @@ mod tests {
         let temp = tempfile::tempdir()?;
         for (extension, limit) in [
             ("data.json", comet_asset_data::game_data::MAX_DATA_BYTES),
+            ("csv", comet_asset_data::game_data::MAX_DATA_BYTES),
             ("rhai", MAX_SCRIPT_BYTES),
             (
                 "ani",

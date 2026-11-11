@@ -32,15 +32,11 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
         AssetId::new(),
         AssetId::new(),
     );
-    let child = root.join("assets/leaf.data.json");
+    let child = root.join("assets/leaf.csv");
+    let schema = root.join("assets/leaf.csv.schema.json");
     let table = root.join("assets/stats.data.json");
-    source(
-        &child,
-        leaf,
-        serde_json::to_vec(
-            &json!({"fields":{"hp":{"type":"integer","min":1}},"rows":[{"id":"hero","hp":7}]}),
-        )?,
-    )?;
+    source(&child, leaf, b"id,hp\nhero,7\n")?;
+    fs::write(&schema, br#"{"fields":{"hp":{"type":"integer","min":1}}}"#)?;
     let value = json!({"fields":{"next":{"type":"asset","asset_type":"data"},"text":{"type":"json"}},"rows":[{"id":"link","next":leaf,"text":{"not_an_asset":AssetId::new()}}]});
     source(&table, parent, serde_json::to_vec(&value)?)?;
     source(
@@ -96,6 +92,14 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     );
     let metadata = fs::read(SourceMeta::path(&table))?;
     let index = fs::read(products.join("index.json"))?;
+    let child_metadata = fs::read(SourceMeta::path(&child))?;
+    fs::write(&schema, br#"{"fields":{"hp":{"type":"integer","max":6}}}"#)?;
+    assert!(prepare(&root, &products).is_err());
+    assert_eq!(fs::read(products.join("index.json"))?, index);
+    fs::File::create(&schema)?.set_len(comet_asset_data::game_data::MAX_DATA_BYTES as u64 + 1)?;
+    assert!(prepare(&root, &products).is_err());
+    assert_eq!(fs::read(products.join("index.json"))?, index);
+    fs::write(&schema, br#"{"fields":{"hp":{"type":"integer","min":1}}}"#)?;
     let mut legacy: serde_json::Value = serde_json::from_slice(&index)?;
     legacy["version"] = json!(6);
     let old = serde_json::to_vec(&legacy)?;
@@ -103,6 +107,12 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     assert!(format!("{:#}", prepare(&root, &products).unwrap_err()).contains("newer game data"));
     assert_eq!(fs::read(products.join("index.json"))?, old);
     fs::write(products.join("index.json"), &index)?;
+    let missing = root.join("assets/missing.csv");
+    fs::write(&missing, b"id,hp\nhero,1\n")?;
+    assert!(format!("{:#}", prepare(&root, &products).unwrap_err()).contains("CSV schema"));
+    assert!(!SourceMeta::path(&missing).exists());
+    assert_eq!(fs::read(products.join("index.json"))?, index);
+    fs::remove_file(missing)?;
     let mut wrong = value.clone();
     wrong["fields"]["next"]["asset_type"] = json!("prefab");
     fs::write(&table, serde_json::to_vec(&wrong)?)?;
@@ -119,8 +129,35 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     let renamed = root.join("assets/moved.data.json");
     fs::rename(&table, &renamed)?;
     fs::rename(SourceMeta::path(&table), SourceMeta::path(&renamed))?;
+    let old_digest = store.index().products[&leaf].digest.clone();
+    fs::write(&schema, br#"{"fields":{"hp":{"type":"integer","min":2}}}"#)?;
     prepare(&root, &products)?;
     store.refresh()?;
+    assert_ne!(
+        store.index().products[&leaf].digest,
+        old_digest,
+        "schema-only edits rebuild data"
+    );
+    assert_eq!(fs::read(SourceMeta::path(&child))?, child_metadata);
+    let old_digest = store.index().products[&leaf].digest.clone();
+    fs::write(
+        &schema,
+        b"{ \"fields\" : {\"hp\":{\"type\":\"integer\",\"min\":2}} }\n",
+    )?;
+    prepare(&root, &products)?;
+    store.refresh()?;
+    assert_ne!(
+        store.index().products[&leaf].digest,
+        old_digest,
+        "schema bytes participate in the source fingerprint"
+    );
+    let moved = root.join("assets/moved.csv");
+    fs::rename(&child, &moved)?;
+    fs::rename(&schema, root.join("assets/moved.csv.schema.json"))?;
+    fs::rename(SourceMeta::path(&child), SourceMeta::path(&moved))?;
+    prepare(&root, &products)?;
+    store.refresh()?;
+    assert_eq!(SourceMeta::load(&moved)?.id, leaf);
     assert_eq!(SourceMeta::load(&renamed)?.id, parent);
     let catalog = SourceCatalog::read(&ProjectPaths::open(&root)?, store.index())?;
     assert_eq!(catalog.of_kind(AssetKind::Data).count(), 2);

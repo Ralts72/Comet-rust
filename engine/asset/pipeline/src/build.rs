@@ -36,7 +36,7 @@ struct Input {
     products: Vec<PreparedProduct>,
     source_hash: String,
     metadata_hash: Option<String>,
-    files: BTreeMap<PathBuf, String>,
+    files: BTreeMap<PathBuf, import::SourceFile>,
 }
 pub(super) fn lock(path: &Path, description: &str) -> Result<fs::File> {
     let file = fs::OpenOptions::new()
@@ -89,13 +89,14 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
         let mut fingerprint = if imported.files.is_empty() && imported.products.len() == 1 {
             b"comet-assetc-v1\0".to_vec()
         } else {
+            // Preserve the existing multi-input fingerprint domain for glTF products.
             b"comet-assetc-gltf-v2\0".to_vec()
         };
         fingerprint.extend_from_slice(&bytes);
         let base = path.parent().context("source directory")?.canonicalize()?;
-        for (file, hash) in &imported.files {
+        for (file, input) in &imported.files {
             fingerprint.extend_from_slice(file.strip_prefix(&base)?.as_os_str().as_encoded_bytes());
-            fingerprint.extend_from_slice(hash.as_bytes());
+            fingerprint.extend_from_slice(input.digest.as_bytes());
         }
         let source_digest = digest(&fingerprint);
         let source_label = path
@@ -407,13 +408,10 @@ fn verify_snapshot(assets: &Path, paths: &[PathBuf], inputs: &[Input]) -> Result
             "metadata changed during build: {}; retry",
             i.meta_path.display()
         );
-        for (file, hash) in &i.files {
+        for (file, input) in &i.files {
             ensure!(
-                digest(&import::read_bounded(
-                    file,
-                    comet_asset_data::MAX_ANIMATION_BYTES
-                )?) == *hash,
-                "glTF resource changed during build: {}; retry",
+                digest(&import::read_bounded(file, input.byte_limit)?) == input.digest,
+                "source dependency changed during build: {}; retry",
                 file.display()
             );
         }

@@ -16,6 +16,126 @@ struct Case {
     sources: Vec<(PathBuf, Vec<u8>)>,
 }
 
+fn data_case() -> Result<(Case, comet_core::AssetId)> {
+    let mut c = Case::new(false)?;
+    let path = c.editor.project_root().join("assets").join("stats.csv");
+    fs::write(
+        &path,
+        "id,hp,ready,note,title\nhero,7,true,\"{\"\"drops\"\":[1,2]}\",\"英雄, \"\"甲\"\"\"\nguard,9,false,[],守卫\n",
+    )?;
+    fs::write(c.editor.project_root().join("assets").join("stats.csv.schema.json"), br#"{"fields":{"hp":{"type":"integer","min":1},"ready":{"type":"bool"},"note":{"type":"json"},"title":{"type":"string"}}}"#)?;
+    comet_asset_pipeline::prepare(c.editor.project_root(), &c.editor.products)?;
+    c.assets.refresh()?;
+    c.editor.sources = comet_asset_pipeline::SourceCatalog::read(
+        &comet_core::ProjectPaths::open(c.editor.project_root())?,
+        c.assets.index(),
+    )?;
+    let id = comet_asset_pipeline::SourceMeta::load(&path)?.id;
+    Ok((c, id))
+}
+
+#[test]
+fn data_preview_keeps_authoring_private_and_follows_atomic_refresh() -> Result<()> {
+    let (mut c, id) = data_case()?;
+    let authoring = c.editor.document.shared_source();
+    let history = c.editor.document.history_len();
+    c.frame(vec![]);
+    c.press("stats.csv", Rect::EVERYTHING);
+    for _ in 0..3 {
+        c.frame(vec![]);
+    }
+    assert_eq!(c.editor.resource_selection, Some(id));
+    let output = c.frame(vec![]);
+    for label in ["记录：2  字段：4", "hero", "7", "true", "{\"drops\":[1,2]}"] {
+        position(&output, label, Rect::EVERYTHING);
+    }
+    let schema = c
+        .editor
+        .project_root()
+        .join("assets")
+        .join("stats.csv.schema.json");
+    let accepted = fs::read(&schema)?;
+    let revision = c.assets.revision().to_owned();
+    fs::write(&schema, b"broken")?;
+    c.editor.refresh_resources()?;
+    let wait = |c: &mut Case| -> Result<()> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while c.editor.resource_build.is_running() {
+            c.frame(vec![]);
+            anyhow::ensure!(
+                std::time::Instant::now() < deadline,
+                "resource refresh timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        Ok(())
+    };
+    wait(&mut c)?;
+    assert!(c.editor.resource_build.failure.is_some());
+    assert_eq!(c.assets.revision(), revision);
+    assert_eq!(c.editor.resource_selection, Some(id));
+    position(&c.frame(vec![]), "7", Rect::EVERYTHING);
+    fs::write(&schema, &accepted)?;
+    let path = c.editor.project_root().join("assets").join("stats.csv");
+    let bytes = fs::read_to_string(&path)?.replace("hero,7,", "hero,11,");
+    fs::write(&path, &bytes)?;
+    c.editor.refresh_resources()?;
+    wait(&mut c)?;
+    assert!(
+        c.editor.resource_build.failure.is_none(),
+        "{:?}",
+        c.editor.error
+    );
+    assert_eq!(c.editor.resource_selection, None);
+    c.press("stats.csv", Rect::EVERYTHING);
+    for _ in 0..3 {
+        c.frame(vec![]);
+    }
+    position(&c.frame(vec![]), "11", Rect::EVERYTHING);
+    c.editor.start(&mut c.assets)?;
+    assert!(c.editor.refresh_resources().is_err());
+    c.frame(vec![]);
+    c.editor.stop();
+    assert!(Arc::ptr_eq(&authoring, &c.editor.document.shared_source()));
+    assert_eq!(c.editor.document.history_len(), history);
+    assert_eq!(fs::read_to_string(path)?, bytes);
+    assert_eq!(fs::read(schema)?, accepted);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a native offscreen GPU; tools/verify/verify.py --gpu runs this test"]
+fn headless_data_preview_draws_typed_records_without_editing_authoring() -> Result<()> {
+    let (mut c, id) = data_case()?;
+    c.frame(vec![]);
+    c.editor.resource_selection = Some(id);
+    for _ in 0..3 {
+        c.frame(vec![]);
+    }
+    position(&c.frame(vec![]), "记录：2  字段：4", Rect::EVERYTHING);
+    let path = c.editor.project_root().join("assets").join("stats.csv");
+    let bytes = fs::read(&path)?;
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("target/verification");
+    let mut options = comet_application::HostOptions::new("Comet · 数据");
+    options.headless = true;
+    options.smoke = true;
+    options.report = Some(out.join("editor-data-preview.json"));
+    options.capture = Some(out.join("editor-data-preview.png"));
+    comet_application::run(options, c.assets, c.editor)?;
+    assert_eq!(fs::read(path)?, bytes);
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join("editor-data-preview.json"))?)?;
+    assert_eq!(report["application"]["dirty"], false);
+    assert_eq!(report["application"]["history"], 0);
+    assert_eq!(report["application"]["play_active"], false);
+    assert!(report["application"]["error"].is_null());
+    assert_eq!(report["submitted_frames"], 8);
+    Ok(())
+}
+
 impl Case {
     fn new(nested: bool) -> Result<Self> {
         let (temp, mut editor, mut assets) = crate::test_support::fixture()?;
