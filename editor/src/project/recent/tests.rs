@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 fn project(base: &Path, name: &str, sources: &[&str]) -> Result<ProjectPaths> {
     let root = base.join(name);

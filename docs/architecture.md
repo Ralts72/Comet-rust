@@ -135,7 +135,7 @@ Render 的直接工程依赖只保留 Core 与资产数据；Scene 和 Store 的
 | Metal 与系统对象绑定 | `objc2`、`objc2-metal`、Foundation、QuartzCore | `engine/render`、`tools/gpu`，macOS 目标 |
 | 原生窗口句柄 | `raw-window-handle`、`raw-window-metal` | `engine/render` |
 | Shader 翻译 | `naga` | `engine/render`：WGSL 输入、MSL/SPIR-V 输出 |
-| 窗口与 UI | `winit`、`egui`、`egui-winit` | 根 workspace、Application、Editor、Render |
+| 窗口与 UI | `winit`、`egui`、`egui-winit`、`egui_tiles` | 根 workspace、Application、Editor、Render |
 | 静态模型导入 | `gltf`、`base64`、`percent-encoding` | `engine/asset/pipeline` |
 | PNG/JPEG 解码 | `image`、`png` | `engine/asset/pipeline` |
 | 窗口图标解码、验收截图编码 | `png` | `engine/application` / `engine/render`，不用于导入作者源 |
@@ -213,6 +213,8 @@ Editor 按状态所有权组织模块；UI 沿用旧版的功能目标与中文�
 | `validation.rs` | 共享作者内容与保留历史的预检；借用输入，写入和接纳归调用方 |
 | `resources.rs`、`export.rs` | 构建/导出候选、接纳策略及导出子进程 |
 | `jobs.rs` | 工作线程、进度通道和唯一结果的所有权与回收；候选接纳由各控制器决定 |
+| `ui/workspace.rs`、`ui/workspace/storage.rs`、`ui/theme.rs` | 停靠拓扑、面板尺寸/可见性、本机布局与编辑器样式；不拥有作者内容或运行状态 |
+| `preferences.rs` | 最近项目与布局共用的三平台用户目录和文件边界 |
 | `ui/inspector/` | 面板组合、输入与派生显示缓存；`properties.rs` 管理数值手势，`assets.rs` 管理共享元数据目录和资源菜单 |
 
 Job 的进度通道只传显示消息，类型化结果由线程句柄返回。轮询只在工作线程结束后 join，再交付剩余进度与结果；完成或 panic 只交付一次，未消费结果随 Job 在所有者线程回收。Drop 仍等待运行中的工作收尾。项目、刷新、导航和导出分别保留世界/revision、身份及发布守卫；取消只使请求或候选失效，不中断文件发布。目录浏览保留运行任务直至结束，关闭浏览器不在主线程等待文件系统。
@@ -270,6 +272,16 @@ Runtime 使用 60 Hz 固定步，游戏时间由已完成步数计算，独立�
 
 动作契约位于 Core，不依赖 egui/winit。Application 统一采样默认键鼠映射；Runtime 保存连续状态、累加鼠标位移，并按顺序缓存按下/释放事件。没有固定步的帧不丢失快速点按；补步时边沿和鼠标位移只交付给第一步，后续步仍可读取持续状态。输入队列有上限，溢出或非有限值报错，不覆盖已接纳的输入与时钟。
 新世界、暂停、宿主恢复及输入授权恢复会建立新基线，保留当前持续状态，不重放旧边沿或鼠标位移。UI 文本输入拥有键盘时关闭游戏输入授权，游戏时钟仍继续。宿主失焦、遮挡、零尺寸或平台挂起时冻结模拟并清空欠账；恢复首帧时间为零，交换链或烟测注入的呈现尺寸不决定游戏时间。
+
+### 编辑器工作区
+
+旧 C++ 编辑器使用 ImGui DockSpace；Rust 工作区由 Editor 私有的 egui_tiles 0.18 适配管理，版本与现有 egui 0.37 对齐。层级、场景、属性、项目和日志只提供面板内容，分割线、标签组合、拖拽重排和可见性由同一布局树处理，替换固定顺序的侧栏容器。主窗口可重新分割及合组，保留“视图”面板开关与恢复默认布局；独立浮动窗口、多系统窗口和完整旧面板仍待接入。样式属于 Editor，字体接入仍由 Application 共享。
+
+面板内容使用独立于停靠父节点的 scope ID，重排后控件身份保持。布局变化清理在途拾取和框选；未完成的作者预览在显式面板切换/关闭前沿现有事务提交，不把布局变更写入作者历史。隐藏或过小的场景面板提交空绘制快照及无输入响应，作者/运行世界仍保留；重新打开按当前视口重新提取。启动 Play 会显示场景面板，模拟生命周期仍归 Runtime。项目切换保留用户工作区，不把布局附着到场景文件。
+
+普通 GUI 显式启用本机 workspace.json，headless、smoke、CLI 导出和普通构造器保持无用户 I/O。v1 文件保存 egui_tiles 0.18 的布局树，不是项目内容协议；将来更换编码时需升级或显式迁移，不能复用作者字段 ID。读取先限制 64 KiB，再检查根、可达性、重复/缺失面板、环路、16 层深度、32 个节点和有限正权重；重新分配安全的节点计数器及固定工作区 ID 后才接纳。格式或读取失败使用默认布局并保留坏文件，“恢复默认布局”后才允许重新写入。
+
+拖拽期间只更新内存，松开指针或关闭时按原子文件边界保存；写入失败保留当前布局及原文件，并在“视图”显示诊断。preferences.rs 统一布局和最近项目的 macOS/Windows/Linux 用户目录与普通文件校验；两类偏好保留独立格式、容量和接纳规则。ScriptConsole 只保存有界诊断和去重状态，日志面板激活状态由工作区管理。
 
 ## 物理与角色
 

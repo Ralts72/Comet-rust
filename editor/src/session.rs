@@ -14,6 +14,7 @@ mod navigation;
 mod play;
 mod projects;
 pub struct Editor {
+    pub(crate) workspace: crate::ui::workspace::Workspace,
     pub(crate) documents: crate::documents::DocumentWorkflow,
     pub(crate) directory_reader: crate::project::DirectoryReader,
     pub(crate) recent_projects: crate::project::RecentProjects,
@@ -318,6 +319,7 @@ impl Application for Editor {
         let approved = self.request_editor_close();
         if approved {
             self.stop();
+            self.workspace.flush();
         }
         approved
     }
@@ -486,13 +488,24 @@ impl Application for Editor {
         }
         Ok(ViewRequest {
             world: self.world(),
-            hud: self.play.as_ref().and_then(PlaySession::hud_frame),
-            snapshot,
+            hud: view
+                .visible
+                .then(|| self.play.as_ref().and_then(PlaySession::hud_frame))
+                .flatten(),
+            snapshot: if view.visible {
+                snapshot
+            } else {
+                Default::default()
+            },
             viewport,
             camera: self.camera,
-            selected: self.selection.ids(),
+            selected: if view.visible {
+                self.selection.ids()
+            } else {
+                vec![]
+            },
             pick: pick.map(|pick| pick.request),
-            shadows: self.shadows,
+            shadows: view.visible && self.shadows,
         })
     }
     fn feedback(&mut self, feedback: &FrameFeedback) {
@@ -609,6 +622,7 @@ pub(crate) fn open(
         console: Default::default(),
         checkpoint_input: Default::default(),
         preview_checkpoint: None,
+        workspace: Default::default(),
     };
     Ok((editor, assets))
 }

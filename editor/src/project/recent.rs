@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
     ffi::OsString,
-    fs::{self, File},
+    fs::File,
     path::{Component, Path, PathBuf},
 };
 
@@ -179,19 +179,7 @@ impl RecentProject {
 }
 
 fn check_storage(storage: &Path) -> Result<()> {
-    ensure!(
-        storage.is_absolute() && storage.file_name().is_some(),
-        "recent projects storage must be an absolute file path"
-    );
-    match fs::symlink_metadata(storage) {
-        Ok(metadata) => ensure!(
-            metadata.file_type().is_file(),
-            "recent projects storage must be a regular file"
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("inspect recent projects storage"),
-    }
-    Ok(())
+    crate::preferences::check_file(storage)
 }
 
 fn decode(bytes: &[u8]) -> Result<Vec<RecentProject>> {
@@ -252,29 +240,8 @@ fn decode(bytes: &[u8]) -> Result<Vec<RecentProject>> {
     Ok(entries)
 }
 
-fn absolute_base(name: &str, value: Option<OsString>) -> Result<PathBuf> {
-    let value =
-        PathBuf::from(value.with_context(|| format!("{name} is unavailable for editor state"))?);
-    ensure!(
-        !value.as_os_str().is_empty() && value.is_absolute(),
-        "{name} must be an absolute nonempty editor state path"
-    );
-    Ok(value)
-}
-
-fn user_path(os: &str, mut get: impl FnMut(&str) -> Option<OsString>) -> Result<PathBuf> {
-    let directory = match os {
-        "macos" => {
-            absolute_base("HOME", get("HOME"))?.join("Library/Application Support/Comet/editor")
-        }
-        "windows" => absolute_base("APPDATA", get("APPDATA"))?.join("Comet/editor"),
-        "linux" => match get("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
-            Some(value) => absolute_base("XDG_STATE_HOME", Some(value))?.join("comet/editor"),
-            None => absolute_base("HOME", get("HOME"))?.join(".local/state/comet/editor"),
-        },
-        _ => anyhow::bail!("unsupported editor user-state platform: {os}"),
-    };
-    Ok(directory.join("recent-projects.json"))
+fn user_path(os: &str, get: impl FnMut(&str) -> Option<OsString>) -> Result<PathBuf> {
+    Ok(crate::preferences::directory(os, get)?.join("recent-projects.json"))
 }
 
 #[cfg(test)]

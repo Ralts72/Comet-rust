@@ -2,8 +2,11 @@ mod gizmo;
 mod hierarchy;
 mod inspector;
 mod project;
+mod properties;
 mod resources;
+mod theme;
 mod viewport;
+pub(crate) mod workspace;
 pub(crate) use hierarchy::cancel_placement;
 pub(crate) use viewport::cancel_gesture as cancel_viewport_gesture;
 use viewport::click_modifiers;
@@ -22,89 +25,105 @@ pub(crate) fn show(
     assets: &mut AssetStore,
     active: bool,
 ) -> Result<viewport::ViewportFrame> {
+    theme::apply(root);
+    let mut workspace = std::mem::take(&mut editor.workspace);
     egui::Panel::top("toolbar")
         .exact_size(44.)
         .show(root, |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.label(
-                    egui::RichText::new("C O M E T")
-                        .strong()
-                        .color(Color32::from_rgb(236, 185, 99)),
-                );
-                ui.separator();
-                if ui.button("新建场景").clicked() {
-                    editor.documents.open_browser(BrowserMode::NewScene);
-                }
-                if ui.button("打开场景 / Prefab").clicked() {
-                    editor.documents.open_browser(BrowserMode::Open);
-                }
-                project::menu(editor, ui);
-                if ui
-                    .add_enabled(
-                        editor.play.is_none(),
-                        egui::Button::new(if editor.document.prefab_asset().is_some() {
-                            "保存 Prefab"
+            let width = ui.available_width();
+            egui::ScrollArea::horizontal()
+                .id_salt("editor-toolbar")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_min_width(width);
+                    ui.horizontal_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new("Comet")
+                                .strong()
+                                .color(Color32::from_gray(230)),
+                        );
+                        ui.separator();
+                        project::files(editor, ui, assets);
+                        project::menu(editor, ui);
+                        project::edit(editor, ui);
+                        workspace.menu(ui, editor);
+                        ui.separator();
+                        if ui.button("新建场景").clicked() {
+                            editor.documents.open_browser(BrowserMode::NewScene);
+                        }
+                        if ui.button("打开场景 / Prefab").clicked() {
+                            editor.documents.open_browser(BrowserMode::Open);
+                        }
+                        if ui
+                            .add_enabled(
+                                editor.play.is_none(),
+                                egui::Button::new(if editor.document.prefab_asset().is_some() {
+                                    "保存 Prefab"
+                                } else {
+                                    "保存场景"
+                                }),
+                            )
+                            .clicked()
+                        {
+                            let result = editor.save(assets);
+                            editor.notice(result);
+                        }
+                        if ui
+                            .add_enabled(editor.play.is_none(), egui::Button::new("撤销"))
+                            .clicked()
+                        {
+                            let result = editor.commit().and_then(|_| editor.document.undo());
+                            editor.notice(result);
+                        }
+                        if ui
+                            .add_enabled(editor.play.is_none(), egui::Button::new("重做"))
+                            .clicked()
+                        {
+                            let result = editor.commit().and_then(|_| editor.document.redo());
+                            editor.notice(result);
+                        }
+                        if ui.button("导出 App...").clicked() {
+                            editor.export.open = true;
+                        }
+                        ui.separator();
+                        if editor.play.is_none() {
+                            if ui.button("运行").clicked() {
+                                let result = editor.start(assets);
+                                if result.is_ok() {
+                                    workspace.focus(workspace::Pane::Scene);
+                                }
+                                editor.notice(result);
+                            }
                         } else {
-                            "保存场景"
-                        }),
-                    )
-                    .clicked()
-                {
-                    let result = editor.save(assets);
-                    editor.notice(result);
-                }
-                if ui
-                    .add_enabled(editor.play.is_none(), egui::Button::new("撤销"))
-                    .clicked()
-                {
-                    let result = editor.commit().and_then(|_| editor.document.undo());
-                    editor.notice(result);
-                }
-                if ui
-                    .add_enabled(editor.play.is_none(), egui::Button::new("重做"))
-                    .clicked()
-                {
-                    let result = editor.commit().and_then(|_| editor.document.redo());
-                    editor.notice(result);
-                }
-                if ui.button("导出 App...").clicked() {
-                    editor.export.open = true;
-                }
-                ui.separator();
-                if editor.play.is_none() {
-                    if ui.button("运行").clicked() {
-                        let result = editor.start(assets);
-                        editor.notice(result);
-                    }
-                } else {
-                    let paused = editor.play.as_ref().unwrap().is_paused();
-                    if ui.button(if paused { "继续" } else { "暂停" }).clicked() {
-                        editor.play.as_mut().unwrap().set_paused(!paused);
-                    }
-                    if ui.add_enabled(paused, egui::Button::new("单步")).clicked() {
-                        let result = editor.play.as_mut().unwrap().request_single_step();
-                        editor.notice(result);
-                    }
-                    if ui
-                        .button("重开")
-                        .on_hover_text("恢复本次运行的起始状态（R）")
-                        .clicked()
-                    {
-                        let result = editor.restart_play();
-                        editor.notice(result);
-                    }
-                    if ui.button("停止").clicked() {
-                        editor.stop();
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(if editor.document.is_dirty() {
-                        "未保存 *"
-                    } else {
-                        "已保存"
+                            let paused = editor.play.as_ref().unwrap().is_paused();
+                            if ui.button(if paused { "继续" } else { "暂停" }).clicked() {
+                                editor.play.as_mut().unwrap().set_paused(!paused);
+                            }
+                            if ui.add_enabled(paused, egui::Button::new("单步")).clicked() {
+                                let result = editor.play.as_mut().unwrap().request_single_step();
+                                editor.notice(result);
+                            }
+                            if ui
+                                .button("重开")
+                                .on_hover_text("恢复本次运行的起始状态（R）")
+                                .clicked()
+                            {
+                                let result = editor.restart_play();
+                                editor.notice(result);
+                            }
+                            if ui.button("停止").clicked() {
+                                editor.stop();
+                            }
+                        }
+                        let used = ui.cursor().left() - ui.min_rect().left();
+                        ui.add_space((width - used - 64.).max(8.));
+                        ui.label(if editor.document.is_dirty() {
+                            "未保存 *"
+                        } else {
+                            "已保存"
+                        });
                     });
                 });
-            });
         });
     egui::Panel::bottom("status")
         .exact_size(27.)
@@ -127,71 +146,9 @@ pub(crate) fn show(
                 }
             });
         });
-    hierarchy::show(editor, root, assets);
-    egui::Panel::right("inspector")
-        .default_size(280.)
-        .show(root, |ui| {
-            ui.heading("属性");
-            ui.add_space(12.);
-            egui::ScrollArea::vertical()
-                .id_salt("inspector-content")
-                .show(ui, |ui| {
-                    // Keep large rig binding maps shared while widgets publish later candidates.
-                    let snapshot = editor.last_snapshot.clone();
-                    let entity = editor.selection.active().and_then(|id| {
-                        snapshot
-                            .entities
-                            .binary_search_by_key(&id, |entity| entity.id)
-                            .ok()
-                            .map(|index| &snapshot.entities[index])
-                    });
-                    if editor.selection.is_empty() {
-                        inspector::clear_model_draft(ui.ctx());
-                        ui.weak("请在层级或视口中选择实体。");
-                    } else if editor.selection.len() > 1 {
-                        inspector::clear_model_draft(ui.ctx());
-                        ui.strong(format!("共同属性 · {} 个实体", editor.selection.len()));
-                        if let Some(entity) = entity {
-                            ui.label(format!("主实体：{}", entity.name));
-                            let mut selected = vec![entity];
-                            selected.extend(editor.selection.ids().into_iter()
-                                .filter(|id| *id != entity.id).filter_map(|id| {
-                                    snapshot.entities.binary_search_by_key(&id, |entity| entity.id)
-                                        .ok().map(|index| &snapshot.entities[index])
-                                }));
-                            if selected.len() == editor.selection.len() {
-                                ui.weak("多值以主实体显示；修改一轴保留其他轴，数值使用各自的局部坐标。");
-                                inspector::transform::draw(editor, ui, assets, &selected);
-                                inspector::common::draw(editor, ui, assets, &selected);
-                            } else {
-                                ui.weak("所选实体已变化，请重新选择。");
-                            }
-                        }
-                        ui.weak(
-                            "拖动视口坐标轴可成组移动。右键层级实体可批量复制、删除或调整父级。",
-                        );
-                        if editor.play.is_some() {
-                            ui.weak("运行期间暂不支持成组修改。");
-                        }
-                    } else if let Some(entity) = entity {
-                        inspector::draw(editor, ui, assets, entity);
-                    }
-                    ui.separator();
-                    ui.checkbox(&mut editor.shadows, "方向光阴影");
-                    if let Some(message) = editor.error.clone() {
-                        ui.add_space(12.);
-                        ui.colored_label(Color32::from_rgb(244, 141, 131), "操作未完成");
-                        ui.collapsing("诊断详情", |ui| {
-                            ui.label(message);
-                        });
-                        if ui.small_button("关闭提示").clicked() {
-                            editor.error = None;
-                        }
-                    }
-                });
-        });
-    resources::show(editor, root, assets);
-    let view = viewport::show(editor, root, assets, active);
+    let view = workspace.show(editor, root, assets, active);
+    editor.workspace = workspace;
+    resources::preview(editor, root.ctx(), assets);
     let ctx = root.ctx();
     if hierarchy::placement_dialog(editor, ctx, assets, active) {
         return view.finish(editor, assets, ctx, active);

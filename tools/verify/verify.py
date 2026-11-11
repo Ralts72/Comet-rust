@@ -1099,6 +1099,14 @@ def main():
             assert data["submitted_frames"] == 8 and not data["application"]["play_active"]
             checks["editor_data_preview_evidence"] = {"status": "passed", "submitted_frames": 8,
                 "png_sha256": inspect_png(OUT / "editor-data-preview.png")["sha256"], "author_dirty": False}
+            workspace = offscreen_test("editor_workspace_gpu",
+                "ui::tests::workspace::headless_resized_workspace_draws_the_scene_and_preserves_authoring",
+                "editor-workspace.json")
+            assert workspace["application"]["error"] is None and not workspace["application"]["dirty"]
+            assert workspace["application"]["history"] == 0 and workspace["submitted_frames"] == 8
+            checks["editor_workspace_evidence"] = {"status": "passed", "submitted_frames": 8,
+                "png_sha256": inspect_png(OUT / "editor-workspace.png")["sha256"], "author_dirty": False,
+                "draw_count": 5, "layout": "three resized splitters"}
             menu = offscreen_test("app_pause_menu_gpu",
                 "session::tests::menu::headless_pause_menu_draws_without_advancing_the_world_or_touching_player_data",
                 "app-pause-menu.json", package="comet-app")

@@ -5,7 +5,7 @@ use comet_core::math::{Mat4, Quat, Vec3};
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 pub(super) fn controls(editor: &mut Editor, ui: &mut egui::Ui, allow_start: bool) {
     let playing = editor.play.is_some();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add_enabled_ui(editor.drag_origin.is_none() && allow_start, |ui| {
             ui.selectable_value(
                 &mut editor.gizmo_tool,

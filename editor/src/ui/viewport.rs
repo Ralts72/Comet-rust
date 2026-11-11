@@ -93,6 +93,7 @@ pub(super) struct ViewportResponse {
 }
 
 pub(crate) struct ViewportFrame {
+    pub visible: bool,
     pub viewport: Rect,
     pub pick: Option<SelectionPick>,
     pub actions: ActionInput,
@@ -100,6 +101,30 @@ pub(crate) struct ViewportFrame {
 }
 
 impl ViewportResponse {
+    pub(super) fn is_visible(&self) -> bool {
+        self.viewport.width() > 1. && self.viewport.height() > 1.
+    }
+    pub(super) fn hidden(ui: &egui::Ui) -> Self {
+        cancel_gesture(ui.ctx());
+        Self {
+            viewport: Rect::from_min_size(Pos2::ZERO, Vec2::splat(1.)),
+            pick: None,
+            actions: ActionInput::default(),
+            owns_pointer: false,
+            rectangle_context: None,
+            response: Some(ui.interact(
+                Rect::NOTHING,
+                egui::Id::unique("hidden-scene"),
+                egui::Sense::hover(),
+            )),
+        }
+    }
+    pub(super) fn cancel_input(&mut self, ctx: &egui::Context) {
+        cancel_gesture(ctx);
+        self.pick = None;
+        self.actions = ActionInput::default();
+        self.rectangle_context = None;
+    }
     pub fn finish(
         mut self,
         editor: &Editor,
@@ -123,6 +148,7 @@ impl ViewportResponse {
             cancel_gesture(ctx);
         }
         Ok(ViewportFrame {
+            visible: self.is_visible(),
             viewport: self.viewport,
             pick: self.pick,
             actions: self.actions,
@@ -145,183 +171,190 @@ pub(super) fn show(
         rectangle_context: None,
         response: None,
     };
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE)
-        .show(root, |ui| {
-            let mut gesture = ui.data(|data| data.get_temp::<PointerGesture>(gesture_id()));
-            gizmo::controls(editor, ui, gesture.is_none());
-            let viewport = ui.available_rect_before_wrap();
-            result.viewport = viewport;
-            let response = ui.allocate_rect(viewport, egui::Sense::click_and_drag());
-            if response.clicked() {
-                response.request_focus();
-            }
-            result.response = Some(response.clone());
-            comet_application::orbit(&mut editor.camera, &response);
-            if editor.play.is_some() {
-                result.actions =
-                    comet_application::sample_actions(&response, active, editor.camera);
-            }
-            ui.painter().text(
-                viewport.left_top() + Vec2::new(18., 16.),
-                egui::Align2::LEFT_TOP,
-                "透视 / 光照",
-                egui::FontId::proportional(12.),
-                Color32::from_gray(190),
-            );
-            ui.painter().text(
-                viewport.left_bottom() + Vec2::new(18., -18.),
-                egui::Align2::LEFT_BOTTOM,
-                if editor.play.is_some() {
-                    "WASD：移动 · 空格：跳跃 · Shift：跑步 · Ctrl：蹲伏 · 右键：环绕"
-                } else {
-                    "右键拖动：环绕 · 滚轮：缩放 · 拖动手柄：变换 · 左键拖动：框选"
-                },
-                egui::FontId::proportional(11.),
-                Color32::from_gray(160),
-            );
-            if let Some(play) = &editor.play {
-                ui.painter().text(
-                    viewport.left_bottom() + Vec2::new(18., -34.),
-                    egui::Align2::LEFT_BOTTOM,
-                    if play.scene_asset().is_some() {
-                        "F5：保存预览检查点 · F9：继续 · 停止后清空"
-                    } else {
-                        "Prefab 预览不支持检查点"
-                    },
-                    egui::FontId::proportional(11.),
-                    Color32::from_gray(160),
-                );
-            }
-            let enabled = active && ui.is_enabled();
-            if let Some(PointerGesture::Selection { context, .. }) = &gesture
-                && (!context.valid(editor, assets, viewport, enabled)
-                    || ui.input(|input| input.key_pressed(egui::Key::Escape)))
-            {
-                gesture = Some(PointerGesture::Canceled);
-            }
-            let gizmo = gizmo::draw(editor, ui, assets, viewport, gesture.is_none() && enabled);
-            let (pressed, held, released, pointer) = ui.input(|input| {
-                (
-                    input.pointer.primary_pressed(),
-                    input.pointer.primary_down(),
-                    input.pointer.primary_released(),
-                    input.pointer.interact_pos(),
-                )
-            });
-            if gesture.is_none()
-                && !gizmo
-                && enabled
-                && viewport.width() > 0.
-                && viewport.height() > 0.
-                && editor.play.is_none()
-                && !editor.documents.is_blocking()
-                && !editor.document.is_editing()
-                && editor.drag_origin.is_none()
-                && pressed
-                && (response.contains_pointer() || response.is_pointer_button_down_on())
-                && !ui.input(|input| {
-                    input.pointer.secondary_down()
-                        || input.pointer.button_down(egui::PointerButton::Middle)
-                })
-                && let Some(start) = ui.input(|input| input.pointer.press_origin())
-                && start.is_finite()
-                && viewport.contains(start)
-            {
-                gesture = Some(PointerGesture::Selection {
-                    context: GestureContext::capture(editor, assets, viewport),
-                    start,
-                    current: start,
-                    dragged: false,
-                });
-            }
-            result.owns_pointer = gesture.is_some();
-            match &mut gesture {
-                Some(PointerGesture::Selection {
-                    context,
-                    start,
-                    current,
-                    dragged,
-                }) => {
-                    if let Some(pointer) =
-                        pointer.filter(|point| point.is_finite() && (held || released))
-                    {
-                        *current = pointer;
-                        if !*dragged && current.distance(*start) >= DRAG_THRESHOLD {
-                            *dragged = true;
-                            editor.picking.clear();
-                        }
-                        if *dragged {
-                            let rect =
-                                Rect::from_two_pos(*start, *current).intersect(context.viewport);
-                            let painter = ui.painter().with_clip_rect(context.viewport);
-                            painter.rect_filled(
-                                rect,
-                                0.,
-                                Color32::from_rgba_unmultiplied(97, 174, 241, 32),
-                            );
-                            painter.rect_stroke(
-                                rect,
-                                0.,
-                                egui::Stroke::new(1., Color32::from_rgb(97, 174, 241)),
-                                egui::StrokeKind::Inside,
-                            );
-                            if released && rect.width() > 0. && rect.height() > 0. {
-                                result.pick = Some(selection_pick(
-                                    editor,
-                                    ui,
-                                    PickRequest::Rect {
-                                        min: uv(rect.min, context.viewport),
-                                        max: uv(rect.max, context.viewport),
-                                    },
-                                ));
-                                result.rectangle_context = Some(context.clone());
-                            }
-                        } else if released && response.clicked() {
-                            result.pick = Some(selection_pick(
-                                editor,
-                                ui,
-                                PickRequest::Point(uv(*current, viewport)),
-                            ));
-                        }
-                        if released {
-                            gesture = None;
-                        }
-                    } else {
-                        gesture = if held {
-                            Some(PointerGesture::Canceled)
-                        } else {
-                            None
-                        };
-                    }
+    let ui = root;
+    let background = ui.painter().add(egui::Shape::Noop);
+    let mut gesture = ui.data(|data| data.get_temp::<PointerGesture>(gesture_id()));
+    gizmo::controls(editor, ui, gesture.is_none());
+    let viewport = ui.available_rect_before_wrap();
+    if viewport.width() <= 1. || viewport.height() <= 1. {
+        return ViewportResponse::hidden(ui);
+    }
+    ui.painter().set(
+        background,
+        egui::Shape::rect_filled(
+            Rect::from_min_max(
+                ui.max_rect().min,
+                Pos2::new(ui.max_rect().right(), viewport.top()),
+            ),
+            0.,
+            ui.visuals().panel_fill,
+        ),
+    );
+    result.viewport = viewport;
+    let response = ui.allocate_rect(viewport, egui::Sense::click_and_drag());
+    if response.clicked() {
+        response.request_focus();
+    }
+    result.response = Some(response.clone());
+    comet_application::orbit(&mut editor.camera, &response);
+    if editor.play.is_some() {
+        result.actions = comet_application::sample_actions(&response, active, editor.camera);
+    }
+    ui.painter().text(
+        viewport.left_top() + Vec2::new(18., 16.),
+        egui::Align2::LEFT_TOP,
+        "透视 / 光照",
+        egui::FontId::proportional(12.),
+        Color32::from_gray(190),
+    );
+    ui.painter().text(
+        viewport.left_bottom() + Vec2::new(18., -18.),
+        egui::Align2::LEFT_BOTTOM,
+        if editor.play.is_some() {
+            "WASD：移动 · 空格：跳跃 · Shift：跑步 · Ctrl：蹲伏 · 右键：环绕"
+        } else {
+            "右键拖动：环绕 · 滚轮：缩放 · 拖动手柄：变换 · 左键拖动：框选"
+        },
+        egui::FontId::proportional(11.),
+        Color32::from_gray(160),
+    );
+    if let Some(play) = &editor.play {
+        ui.painter().text(
+            viewport.left_bottom() + Vec2::new(18., -34.),
+            egui::Align2::LEFT_BOTTOM,
+            if play.scene_asset().is_some() {
+                "F5：保存预览检查点 · F9：继续 · 停止后清空"
+            } else {
+                "Prefab 预览不支持检查点"
+            },
+            egui::FontId::proportional(11.),
+            Color32::from_gray(160),
+        );
+    }
+    let enabled = active && ui.is_enabled();
+    if let Some(PointerGesture::Selection { context, .. }) = &gesture
+        && (!context.valid(editor, assets, viewport, enabled)
+            || ui.input(|input| input.key_pressed(egui::Key::Escape)))
+    {
+        gesture = Some(PointerGesture::Canceled);
+    }
+    let gizmo = gizmo::draw(editor, ui, assets, viewport, gesture.is_none() && enabled);
+    let (pressed, held, released, pointer) = ui.input(|input| {
+        (
+            input.pointer.primary_pressed(),
+            input.pointer.primary_down(),
+            input.pointer.primary_released(),
+            input.pointer.interact_pos(),
+        )
+    });
+    if gesture.is_none()
+        && !gizmo
+        && enabled
+        && viewport.width() > 0.
+        && viewport.height() > 0.
+        && editor.play.is_none()
+        && !editor.documents.is_blocking()
+        && !editor.document.is_editing()
+        && editor.drag_origin.is_none()
+        && pressed
+        && (response.contains_pointer() || response.is_pointer_button_down_on())
+        && !ui.input(|input| {
+            input.pointer.secondary_down() || input.pointer.button_down(egui::PointerButton::Middle)
+        })
+        && let Some(start) = ui.input(|input| input.pointer.press_origin())
+        && start.is_finite()
+        && viewport.contains(start)
+    {
+        gesture = Some(PointerGesture::Selection {
+            context: GestureContext::capture(editor, assets, viewport),
+            start,
+            current: start,
+            dragged: false,
+        });
+    }
+    result.owns_pointer = gesture.is_some();
+    match &mut gesture {
+        Some(PointerGesture::Selection {
+            context,
+            start,
+            current,
+            dragged,
+        }) => {
+            if let Some(pointer) = pointer.filter(|point| point.is_finite() && (held || released)) {
+                *current = pointer;
+                if !*dragged && current.distance(*start) >= DRAG_THRESHOLD {
+                    *dragged = true;
+                    editor.picking.clear();
                 }
-                Some(PointerGesture::Canceled) => {
-                    if released || !held {
-                        gesture = None;
-                    }
-                }
-                None => {
-                    if response.clicked()
-                        && !gizmo
-                        && editor.play.is_some()
-                        && let Some(pointer) = response.interact_pointer_pos()
-                    {
+                if *dragged {
+                    let rect = Rect::from_two_pos(*start, *current).intersect(context.viewport);
+                    let painter = ui.painter().with_clip_rect(context.viewport);
+                    painter.rect_filled(
+                        rect,
+                        0.,
+                        Color32::from_rgba_unmultiplied(97, 174, 241, 32),
+                    );
+                    painter.rect_stroke(
+                        rect,
+                        0.,
+                        egui::Stroke::new(1., Color32::from_rgb(97, 174, 241)),
+                        egui::StrokeKind::Inside,
+                    );
+                    if released && rect.width() > 0. && rect.height() > 0. {
                         result.pick = Some(selection_pick(
                             editor,
                             ui,
-                            PickRequest::Point(uv(pointer, viewport)),
+                            PickRequest::Rect {
+                                min: uv(rect.min, context.viewport),
+                                max: uv(rect.max, context.viewport),
+                            },
                         ));
+                        result.rectangle_context = Some(context.clone());
                     }
+                } else if released && response.clicked() {
+                    result.pick = Some(selection_pick(
+                        editor,
+                        ui,
+                        PickRequest::Point(uv(*current, viewport)),
+                    ));
                 }
-            }
-            ui.data_mut(|data| {
-                if let Some(gesture) = gesture {
-                    data.insert_temp(gesture_id(), gesture);
+                if released {
+                    gesture = None;
+                }
+            } else {
+                gesture = if held {
+                    Some(PointerGesture::Canceled)
                 } else {
-                    data.remove::<PointerGesture>(gesture_id());
-                }
-            });
-        });
+                    None
+                };
+            }
+        }
+        Some(PointerGesture::Canceled) => {
+            if released || !held {
+                gesture = None;
+            }
+        }
+        None => {
+            if response.clicked()
+                && !gizmo
+                && editor.play.is_some()
+                && let Some(pointer) = response.interact_pointer_pos()
+            {
+                result.pick = Some(selection_pick(
+                    editor,
+                    ui,
+                    PickRequest::Point(uv(pointer, viewport)),
+                ));
+            }
+        }
+    }
+    ui.data_mut(|data| {
+        if let Some(gesture) = gesture {
+            data.insert_temp(gesture_id(), gesture);
+        } else {
+            data.remove::<PointerGesture>(gesture_id());
+        }
+    });
     result
 }
 

@@ -8,6 +8,7 @@ mod resources;
 mod restart;
 mod selection;
 mod viewport;
+mod workspace;
 
 use comet_core::math::Vec3;
 use comet_scene::EntityData;

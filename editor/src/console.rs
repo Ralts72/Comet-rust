@@ -9,7 +9,6 @@ const MESSAGE_BYTES: usize = 4096;
 pub(crate) struct ScriptConsole {
     entries: VecDeque<ScriptDiagnostic>,
     seen: BTreeSet<(WorldId, u64)>,
-    pub show: bool,
 }
 impl ScriptConsole {
     pub fn collect(&mut self, diagnostics: &VecDeque<ScriptDiagnostic>) {

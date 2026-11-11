@@ -10,6 +10,7 @@ mod models;
 mod navigation;
 mod objects;
 mod picking;
+mod preferences;
 mod project;
 mod resources;
 mod scripts;
@@ -110,6 +111,7 @@ fn main() -> Result<()> {
     }
     if !options.headless && !options.smoke {
         editor.enable_recents();
+        editor.workspace.enable_user_state();
     }
     comet_application::run(options, assets, editor)
 }

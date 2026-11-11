@@ -57,7 +57,6 @@ fn merged_restart_worlds_keep_their_identity_and_reset_clears_the_project_scope(
     assert!(console.entries[1].message.len() <= MESSAGE_BYTES);
     assert!(!console.entries[1].message.is_empty());
     assert_eq!(console.report()[1]["failed"], true);
-    console.show = true;
     console.reset();
-    assert!(console.entries.is_empty() && console.seen.is_empty() && !console.show);
+    assert!(console.entries.is_empty() && console.seen.is_empty());
 }

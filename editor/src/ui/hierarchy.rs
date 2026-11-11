@@ -56,140 +56,134 @@ fn drop_target(
         .map(|drag| Action::Reparent(drag.entity, parent))
 }
 
-pub(super) fn show(editor: &mut Editor, root: &mut egui::Ui, assets: &mut AssetStore) {
-    egui::Panel::left("scene")
-        .default_size(220.)
-        .min_size(180.)
-        .show(root, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("层级");
-                if ui
-                    .add_enabled(
-                        editor.play.is_none() && !editor.is_busy(),
-                        egui::Button::new("创建实体"),
+pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetStore) {
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                editor.play.is_none() && !editor.is_busy(),
+                egui::Button::new("创建实体"),
+            )
+            .clicked()
+        {
+            let result = editor.create_object(None, assets);
+            editor.notice(result);
+        }
+    });
+    ui.label(
+        editor
+            .project_root()
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy(),
+    )
+    .on_hover_text(editor.project_root().display().to_string());
+    ui.label(
+        editor
+            .source
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy(),
+    )
+    .on_hover_text(editor.source.display().to_string());
+    ui.label(
+        egui::RichText::new(if editor.play.is_some() {
+            format!("运行预览 · 作者{}", editor.document_kind_label())
+        } else {
+            format!("编辑{}", editor.document_kind_label())
+        })
+        .small()
+        .weak(),
+    );
+    ui.add_space(10.);
+    let snapshot = editor.last_snapshot.clone();
+    // Build the child lookup once, rather than scanning the scene at every node.
+    let mut children: BTreeMap<Option<EntityId>, Vec<&EntityData>> = BTreeMap::new();
+    for entity in &snapshot.entities {
+        children.entry(entity.parent).or_default().push(entity);
+    }
+    let authored: BTreeSet<_> = editor
+        .document
+        .shared_source()
+        .base
+        .entities
+        .iter()
+        .map(|entity| entity.id)
+        .collect();
+    let world = editor.document.world_id();
+    let before = editor.selection.generation();
+    let mut action = None;
+    let can_edit = editor.play.is_none() && !editor.is_busy();
+    if can_edit {
+        let response = ui
+            .button(format!("{}根节点", editor.document_kind_label()))
+            .on_hover_text("将作者实体拖到这里，取消父级并保持世界变换。");
+        action = drop_target(ui, &response, world, editor.selection.generation(), None);
+        if response.clicked() {
+            editor.selection.clear();
+        }
+    }
+    let mut visible = Vec::new();
+    fn flatten(
+        children: &BTreeMap<Option<EntityId>, Vec<&EntityData>>,
+        parent: Option<EntityId>,
+        ids: &mut Vec<EntityId>,
+    ) {
+        for entity in children.get(&parent).into_iter().flatten() {
+            ids.push(entity.id);
+            flatten(children, Some(entity.id), ids);
+        }
+    }
+    flatten(&children, None, &mut visible);
+    ui.small("Ctrl/Cmd 多选 · Shift 范围选择");
+    let source = editor.document.shared_source();
+    let tree = Tree {
+        source: &source,
+        sources: &editor.sources,
+        children: &children,
+        authored: &authored,
+        world,
+        can_edit,
+        visible: &visible,
+    };
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        tree.show(ui, None, &mut editor.selection, &mut action, assets);
+    });
+    if before != editor.selection.generation() {
+        editor.picking.clear();
+        editor.drag_origin = None;
+        let result = editor.commit();
+        editor.notice(result);
+    }
+    if let Some(action) = action {
+        let result = match action {
+            Action::CreateChild(id) => editor.create_object(Some(id), assets),
+            Action::Duplicate(id) => editor.duplicate_object(id, assets),
+            Action::PlaceCopies(entity) => {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(
+                        placement_id(),
+                        Placement {
+                            entity,
+                            world: editor.document.world_id(),
+                            revision: editor.document.revision(),
+                            selection: editor.selection.generation(),
+                            products: assets.revision().into(),
+                            copies: 3,
+                            step: [2., 0., 0.],
+                            focus: true,
+                            error: None,
+                        },
                     )
-                    .clicked()
-                {
-                    let result = editor.create_object(None, assets);
-                    editor.notice(result);
-                }
-            });
-            ui.label(
-                editor
-                    .project_root()
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            )
-            .on_hover_text(editor.project_root().display().to_string());
-            ui.label(
-                editor
-                    .source
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            )
-            .on_hover_text(editor.source.display().to_string());
-            ui.label(
-                egui::RichText::new(if editor.play.is_some() {
-                    format!("运行预览 · 作者{}", editor.document_kind_label())
-                } else {
-                    format!("编辑{}", editor.document_kind_label())
-                })
-                .small()
-                .weak(),
-            );
-            ui.add_space(10.);
-            let snapshot = editor.last_snapshot.clone();
-            // Build the child lookup once, rather than scanning the scene at every node.
-            let mut children: BTreeMap<Option<EntityId>, Vec<&EntityData>> = BTreeMap::new();
-            for entity in &snapshot.entities {
-                children.entry(entity.parent).or_default().push(entity);
+                });
+                Ok(())
             }
-            let authored: BTreeSet<_> = editor
-                .document
-                .shared_source()
-                .base
-                .entities
-                .iter()
-                .map(|entity| entity.id)
-                .collect();
-            let world = editor.document.world_id();
-            let before = editor.selection.generation();
-            let mut action = None;
-            let can_edit = editor.play.is_none() && !editor.is_busy();
-            if can_edit {
-                let response = ui
-                    .button(format!("{}根节点", editor.document_kind_label()))
-                    .on_hover_text("将作者实体拖到这里，取消父级并保持世界变换。");
-                action = drop_target(ui, &response, world, editor.selection.generation(), None);
-                if response.clicked() {
-                    editor.selection.clear();
-                }
-            }
-            let mut visible = Vec::new();
-            fn flatten(
-                children: &BTreeMap<Option<EntityId>, Vec<&EntityData>>,
-                parent: Option<EntityId>,
-                ids: &mut Vec<EntityId>,
-            ) {
-                for entity in children.get(&parent).into_iter().flatten() {
-                    ids.push(entity.id);
-                    flatten(children, Some(entity.id), ids);
-                }
-            }
-            flatten(&children, None, &mut visible);
-            ui.small("Ctrl/Cmd 多选 · Shift 范围选择");
-            let source = editor.document.shared_source();
-            let tree = Tree {
-                source: &source,
-                sources: &editor.sources,
-                children: &children,
-                authored: &authored,
-                world,
-                can_edit,
-                visible: &visible,
-            };
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                tree.show(ui, None, &mut editor.selection, &mut action, assets);
-            });
-            if before != editor.selection.generation() {
-                editor.picking.clear();
-                editor.drag_origin = None;
-                let result = editor.commit();
-                editor.notice(result);
-            }
-            if let Some(action) = action {
-                let result = match action {
-                    Action::CreateChild(id) => editor.create_object(Some(id), assets),
-                    Action::Duplicate(id) => editor.duplicate_object(id, assets),
-                    Action::PlaceCopies(entity) => {
-                        ui.ctx().data_mut(|data| {
-                            data.insert_temp(
-                                placement_id(),
-                                Placement {
-                                    entity,
-                                    world: editor.document.world_id(),
-                                    revision: editor.document.revision(),
-                                    selection: editor.selection.generation(),
-                                    products: assets.revision().into(),
-                                    copies: 3,
-                                    step: [2., 0., 0.],
-                                    focus: true,
-                                    error: None,
-                                },
-                            )
-                        });
-                        Ok(())
-                    }
-                    Action::Delete(id) => editor.delete_object(id, assets),
-                    Action::Detach(id) => editor.detach_resource(id, assets),
-                    Action::SavePrefab(id) => editor.begin_save_prefab(id, assets),
-                    Action::Reparent(id, parent) => editor.reparent_object(id, parent, assets),
-                };
-                editor.notice(result);
-            }
-        });
+            Action::Delete(id) => editor.delete_object(id, assets),
+            Action::Detach(id) => editor.detach_resource(id, assets),
+            Action::SavePrefab(id) => editor.begin_save_prefab(id, assets),
+            Action::Reparent(id, parent) => editor.reparent_object(id, parent, assets),
+        };
+        editor.notice(result);
+    }
 }
 
 struct Tree<'a> {

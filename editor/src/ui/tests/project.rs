@@ -167,7 +167,7 @@ fn a_recent_project_menu_uses_the_existing_unsaved_confirmation_and_cancel_keeps
         size: [1280, 800],
         smoke: false,
     };
-    for label in ["项目", "最近项目", "recent-game", "取消"] {
+    for label in ["文件", "最近项目", "recent-game", "取消"] {
         let (_, output) =
             frame_with_output(&ctx, &mut editor, &mut assets, context(number), vec![]);
         number += 1;
