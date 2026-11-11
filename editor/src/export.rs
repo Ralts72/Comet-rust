@@ -460,21 +460,22 @@ fn validate_export_scenes(
         let snapshot = assets.expand_scene(id)?;
         comet_application::extract(&snapshot, assets, &[])
             .with_context(|| format!("导出场景 {id} 的绘制或骨骼绑定校验失败"))?;
-        let libraries = assets.animation_sources(&snapshot)?;
+        let resources = assets
+            .scene_resources(&snapshot)
+            .with_context(|| format!("导出场景 {id} 的资源校验失败"))?;
         comet_runtime::validate_animations(
             &snapshot,
-            &libraries.skeletons,
-            &libraries.clips,
-            &libraries.controllers,
+            &resources.skeletons,
+            &resources.animations,
+            &resources.controllers,
         )
         .with_context(|| format!("导出场景 {id} 的动画校验失败"))?;
-        let navigation = assets.navigation_data(&snapshot)?;
-        comet_runtime::validate_navigation(&snapshot, navigation.as_deref())
+        comet_runtime::validate_navigation(&snapshot, resources.navigation.as_deref())
             .with_context(|| format!("导出场景 {id} 的导航校验失败，请先烘焙匹配的导航数据"))?;
-        comet_runtime::validate_audio(&snapshot, &assets.audio_sources(&snapshot)?)
+        comet_runtime::validate_audio(&snapshot, &resources.audio)
             .with_context(|| format!("导出场景 {id} 的音频校验失败"))?;
         validator
-            .validate(&snapshot, &assets.script_sources(&snapshot)?)
+            .validate(&snapshot, &resources.scripts)
             .with_context(|| format!("导出场景 {id} 的脚本校验失败"))?;
     }
     Ok(())

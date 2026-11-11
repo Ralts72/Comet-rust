@@ -1,14 +1,14 @@
 use anyhow::Result;
 use comet_asset_data::AudioData;
 use comet_core::{AssetId, EntityId};
-use comet_runtime::{FIXED_DELTA, JointKind, JointStatus, PlaySession, RuntimeResources};
+use comet_runtime::{FIXED_DELTA, JointKind, JointStatus, PlaySession, SceneResources};
 use comet_scene::{
     AudioSource, BodyMotion, EntityData, EntityRef, JointConnection, PhysicsBody, PointJoint,
     SceneSnapshot, Script, ScriptValue,
 };
 use std::sync::Arc;
 
-fn script(entity: &mut EntityData, text: &str, resources: &mut RuntimeResources) {
+fn script(entity: &mut EntityData, text: &str, resources: &mut SceneResources) {
     let asset = AssetId::new();
     entity.script = Some(Script::new(asset));
     resources.scripts.insert(asset, text.into());
@@ -23,7 +23,7 @@ fn target(entity: &mut EntityData, id: EntityId) {
 #[test]
 fn subtree_destruction_finishes_callbacks_then_releases_physics_joints_sound_hud_and_references()
 -> Result<()> {
-    let mut resources = RuntimeResources::default();
+    let mut resources = SceneResources::default();
     let sound = AssetId::new();
     resources.audio.insert(
         sound,
@@ -155,7 +155,7 @@ fn a_trigger_can_destroy_its_visitor_without_stale_events_or_a_synthetic_exit() 
         sensor: true,
         ..Default::default()
     });
-    let mut resources = RuntimeResources::default();
+    let mut resources = SceneResources::default();
     script(
         &mut sensor,
         r#"
@@ -195,7 +195,7 @@ fn a_trigger_can_destroy_its_visitor_without_stale_events_or_a_synthetic_exit() 
 fn failed_callback_does_not_queue_destruction_or_publish_its_other_commands() -> Result<()> {
     for failure in ["throw \"bad callback\";", "ctx.play_sound(ctx.entity());"] {
         let mut entity = EntityData::new("survivor");
-        let mut resources = RuntimeResources::default();
+        let mut resources = SceneResources::default();
         script(
             &mut entity,
             &format!(

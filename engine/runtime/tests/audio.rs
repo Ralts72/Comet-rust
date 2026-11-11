@@ -2,7 +2,7 @@ use anyhow::Result;
 use comet_asset_data::AudioData;
 use comet_audio::{AudioFrame, AudioLibrary, AudioVoice};
 use comet_core::{AssetId, EntityId};
-use comet_runtime::{PlaySession, RuntimeResources, validate_audio};
+use comet_runtime::{PlaySession, SceneResources, validate_audio};
 use comet_scene::{
     AudioSource, EntityData, SceneSnapshot, Script,
     schema::{self, FieldValue},
@@ -204,7 +204,7 @@ fn pcm(samples: usize) -> Arc<AudioData> {
         samples: vec![0; samples].into(),
     })
 }
-fn fixture(autoplay: bool) -> (SceneSnapshot, RuntimeResources, EntityId) {
+fn fixture(autoplay: bool) -> (SceneSnapshot, SceneResources, EntityId) {
     let clip = AssetId::new();
     let mut entity = EntityData::new("sound");
     entity.audio_source = Some(AudioSource {
@@ -220,7 +220,7 @@ fn fixture(autoplay: bool) -> (SceneSnapshot, RuntimeResources, EntityId) {
             entities: vec![entity],
             ..Default::default()
         },
-        RuntimeResources {
+        SceneResources {
             audio: AudioLibrary::from([(clip, pcm(16))]),
             ..Default::default()
         },

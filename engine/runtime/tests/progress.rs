@@ -2,11 +2,11 @@ use anyhow::Result;
 use comet_core::{
     AssetId, Checkpoint, EntityId, GameId, ProgressEntry, ProgressValue, ProgressValues,
 };
-use comet_runtime::{FIXED_DELTA, PlaySession, RuntimeResources};
+use comet_runtime::{FIXED_DELTA, PlaySession, SceneResources};
 use comet_scene::{EntityData, SceneSnapshot, Script};
 use std::sync::Arc;
 
-fn fixture(source: &str) -> (SceneSnapshot, RuntimeResources, EntityId) {
+fn fixture(source: &str) -> (SceneSnapshot, SceneResources, EntityId) {
     let mut entity = EntityData::new("progress owner");
     let asset = AssetId::new();
     entity.script = Some(Script::new(asset));
@@ -16,7 +16,7 @@ fn fixture(source: &str) -> (SceneSnapshot, RuntimeResources, EntityId) {
             entities: vec![entity],
             ..Default::default()
         },
-        RuntimeResources {
+        SceneResources {
             scripts: [(asset, source.into())].into(),
             ..Default::default()
         },
@@ -314,13 +314,13 @@ fn scoped_owner_keys_do_not_alias_and_progress_survives_only_accepted_candidates
     let accepted = play.progress_snapshot();
     let (bad_snapshot, _, _) = fixture("fn on_start(ctx) {} ");
     assert!(
-        play.prepare_scene(bad_snapshot, RuntimeResources::default(), AssetId::new())
+        play.prepare_scene(bad_snapshot, SceneResources::default(), AssetId::new())
             .is_err()
     );
     assert!(Arc::ptr_eq(&accepted, &play.progress_snapshot()));
     let mut candidate = play.prepare_scene(
         SceneSnapshot::default(),
-        RuntimeResources::default(),
+        SceneResources::default(),
         AssetId::new(),
     )?;
     candidate.stop();
@@ -330,7 +330,7 @@ fn scoped_owner_keys_do_not_alias_and_progress_survives_only_accepted_candidates
     assert!(
         play.prepare_scene(
             SceneSnapshot::default(),
-            RuntimeResources::default(),
+            SceneResources::default(),
             AssetId::new()
         )
         .is_err()

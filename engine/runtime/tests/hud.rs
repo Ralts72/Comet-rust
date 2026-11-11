@@ -1,7 +1,7 @@
 use anyhow::Result;
 use comet_asset_data::AudioData;
 use comet_core::{AssetId, EntityId, HudFrame, MAX_HUD_LABEL_BYTES, MAX_HUD_LABELS};
-use comet_runtime::{FIXED_DELTA, PlaySession, RuntimeResources, ScriptLibrary};
+use comet_runtime::{FIXED_DELTA, PlaySession, SceneResources, ScriptLibrary};
 use comet_scene::{AudioSource, EntityData, SceneSnapshot, Script, ScriptValue};
 use std::sync::Arc;
 
@@ -135,7 +135,7 @@ fn failed_mixed_callbacks_keep_hud_scene_sound_requests_and_ordinary_logs_unpubl
         .insert("next".into(), ScriptValue::Text(AssetId::new().to_string()));
     let mut play = PlaySession::start_with_resources(
         scene,
-        RuntimeResources {
+        SceneResources {
             scripts,
             audio: [(
                 clip,

@@ -1,18 +1,14 @@
 use anyhow::{Context, Result, ensure};
-use comet_asset_data::AudioData;
+use comet_asset_data::{AudioData, AudioLibrary};
 use comet_core::{
     AssetId, EntityId, WorldId,
     math::{DVec3, Quat, Vec3},
 };
 use serde::Serialize;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 pub const MAX_VOICES: usize = 64;
 pub const MAX_TOTAL_SAMPLES: usize = 16_777_216;
-pub type AudioLibrary = BTreeMap<AssetId, Arc<AudioData>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct SpatialVoice {

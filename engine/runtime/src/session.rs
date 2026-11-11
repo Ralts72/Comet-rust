@@ -5,9 +5,10 @@ use crate::{
     input::InputBuffer,
     navigation::{NavigationCommand, NavigationStatus},
     physics::Physics,
-    script::{ScriptDiagnostic, ScriptLibrary, Scripts},
+    script::{ScriptDiagnostic, Scripts},
 };
 use anyhow::{Context, Result, ensure};
+use comet_asset_data::{SceneResources, ScriptLibrary};
 use comet_core::{ActionInput, AssetId, EntityId, HudFrame, ProgressValues, WorldId};
 use comet_scene::{
     FieldUpdate, PoseUpdate, Scene, SceneSnapshot,
@@ -37,7 +38,7 @@ pub struct PlaySession {
     entry_progress: Arc<ProgressValues>,
     scene: Scene,
     physics: Physics,
-    resources: Arc<RuntimeResources>,
+    resources: Arc<SceneResources>,
     audio: Audio,
     animation: Animation,
     navigation: Option<crate::navigation::Navigation>,
@@ -52,16 +53,6 @@ pub struct PlaySession {
     frame_steps: u32,
     discard_next_delta: bool,
 }
-#[derive(Clone, Default)]
-pub struct RuntimeResources {
-    pub data: comet_asset_data::game_data::DataLibrary,
-    pub scripts: ScriptLibrary,
-    pub navigation: Option<Arc<comet_asset_data::NavigationData>>,
-    pub audio: comet_audio::AudioLibrary,
-    pub skeletons: comet_asset_data::SkeletonLibrary,
-    pub animations: comet_asset_data::AnimationLibrary,
-    pub controllers: comet_asset_data::ControllerLibrary,
-}
 impl PlaySession {
     pub fn start(snapshot: SceneSnapshot) -> Result<Self> {
         Self::start_with_scripts(snapshot, ScriptLibrary::new())
@@ -69,7 +60,7 @@ impl PlaySession {
     pub fn start_with_scripts(snapshot: SceneSnapshot, sources: ScriptLibrary) -> Result<Self> {
         Self::start_with_resources(
             snapshot,
-            RuntimeResources {
+            SceneResources {
                 scripts: sources,
                 ..Default::default()
             },
@@ -77,7 +68,7 @@ impl PlaySession {
     }
     pub fn start_with_resources(
         snapshot: SceneSnapshot,
-        resources: RuntimeResources,
+        resources: SceneResources,
     ) -> Result<Self> {
         Self::from_baseline(
             Arc::new(snapshot),
@@ -89,7 +80,7 @@ impl PlaySession {
     /// Start an isolated world with explicit source identity and an entry progress baseline.
     pub fn start_with_progress(
         snapshot: SceneSnapshot,
-        resources: RuntimeResources,
+        resources: SceneResources,
         scene: AssetId,
         progress: Arc<ProgressValues>,
     ) -> Result<Self> {
@@ -104,7 +95,7 @@ impl PlaySession {
     pub fn prepare_scene(
         &self,
         snapshot: SceneSnapshot,
-        resources: RuntimeResources,
+        resources: SceneResources,
         target: AssetId,
     ) -> Result<Self> {
         ensure!(!self.stopped, "Play session is stopped");
@@ -118,7 +109,7 @@ impl PlaySession {
     }
     fn from_baseline(
         baseline: Arc<SceneSnapshot>,
-        resources: Arc<RuntimeResources>,
+        resources: Arc<SceneResources>,
         scene_asset: Option<AssetId>,
         entry_progress: Arc<ProgressValues>,
     ) -> Result<Self> {

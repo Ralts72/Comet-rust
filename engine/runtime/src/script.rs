@@ -13,6 +13,7 @@ use crate::{
     session::SceneRequest,
 };
 use anyhow::{Context as _, Result, ensure};
+use comet_asset_data::{MAX_SCENE_DATA_ASSETS, ScriptLibrary};
 use comet_core::{ActionInput, AssetId, EntityId, HudFrame, ProgressValues, WorldId};
 use comet_scene::{Scene, SceneSnapshot, ScriptParameters};
 use rhai::{AST, CallFnOptions, Dynamic, Engine, FLOAT, INT, Map, Scope};
@@ -23,7 +24,6 @@ use std::{
     sync::Arc,
 };
 
-pub type ScriptLibrary = BTreeMap<AssetId, String>;
 const MAX_BINDINGS: usize = 128;
 const MAX_PHASE_OPERATIONS: u64 = 200_000;
 const MAX_DIAGNOSTIC_BYTES: usize = 4096;
@@ -203,7 +203,10 @@ impl Scripts {
     ) -> Result<Self> {
         let mut validator = ScriptValidator::default();
         validator.validate(snapshot, sources)?;
-        ensure!(data.len() <= 64, "runtime data asset budget exceeded");
+        ensure!(
+            data.len() <= MAX_SCENE_DATA_ASSETS,
+            "runtime data asset budget exceeded"
+        );
         for table in data.values() {
             table.validate()?;
             for (id, kind) in table.references() {

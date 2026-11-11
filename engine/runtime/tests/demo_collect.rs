@@ -6,7 +6,7 @@ use comet_asset_data::{
 use comet_core::{
     Action, ActionEvent, ActionInput, AssetId, EntityId, InstanceId, ProgressValue, ProgressValues,
 };
-use comet_runtime::{AnimationState, FIXED_DELTA, PlaySession, RuntimeResources, ScriptLibrary};
+use comet_runtime::{AnimationState, FIXED_DELTA, PlaySession, SceneResources, ScriptLibrary};
 use comet_scene::{
     Animator, ContentSource, EntityData, EntityRef, Model, PhysicsBody, PrefabResolver,
     SceneSnapshot, SkinBinding, Surface, Transform,
@@ -114,7 +114,7 @@ fn prefab() -> ContentSource {
     content
 }
 
-fn resources(author: &SceneSnapshot) -> Result<RuntimeResources> {
+fn resources(author: &SceneSnapshot) -> Result<SceneResources> {
     let owner = author
         .entities
         .iter()
@@ -170,7 +170,7 @@ fn resources(author: &SceneSnapshot) -> Result<RuntimeResources> {
         }],
     });
     animation.validate_for(&skeleton)?;
-    Ok(RuntimeResources {
+    Ok(SceneResources {
         scripts: ScriptLibrary::from([(
             script,
             include_str!("../../../demo/assets/scripts/collect.rhai").into(),
@@ -386,7 +386,7 @@ fn actual_collect_demo_moves_into_the_sensor_once_then_requires_a_fresh_interact
         .unwrap();
     let candidate = play.prepare_scene(
         second.clone(),
-        RuntimeResources {
+        SceneResources {
             scripts: ScriptLibrary::from([(
                 binding.asset,
                 include_str!("../../../demo/assets/scripts/travel.rhai").into(),

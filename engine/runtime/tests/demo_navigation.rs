@@ -42,7 +42,7 @@ fn baked_demo_geometry_routes_a_capsule_around_the_physical_wall_and_restarts() 
     let baseline = source.base.clone();
     let mut play = PlaySession::start_with_resources(
         source.base,
-        comet_runtime::RuntimeResources {
+        comet_runtime::SceneResources {
             scripts: ScriptLibrary::new(),
             navigation: Some(Arc::new(data)),
             ..Default::default()
@@ -133,7 +133,7 @@ fn patrol(unreachable: bool, no_player: bool) -> Result<Patrol> {
         serde_json::from_slice(include_bytes!("../../../demo/assets/navigation.nav"))?;
     let play = PlaySession::start_with_resources(
         author.clone(),
-        comet_runtime::RuntimeResources {
+        comet_runtime::SceneResources {
             scripts: library,
             navigation: Some(Arc::new(data)),
             ..Default::default()

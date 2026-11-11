@@ -110,16 +110,7 @@ pub(super) fn prepare_play(
 fn runtime_resources(
     snapshot: &SceneSnapshot,
     assets: &mut AssetStore,
-) -> Result<comet_runtime::RuntimeResources> {
+) -> Result<comet_runtime::SceneResources> {
     comet_application::extract(snapshot, assets, &[])?;
-    let libraries = assets.animation_sources(snapshot)?;
-    Ok(comet_runtime::RuntimeResources {
-        data: assets.game_data_sources(snapshot)?,
-        scripts: assets.script_sources(snapshot)?,
-        navigation: assets.navigation_data(snapshot)?,
-        audio: assets.audio_sources(snapshot)?,
-        skeletons: libraries.skeletons,
-        animations: libraries.clips,
-        controllers: libraries.controllers,
-    })
+    assets.scene_resources(snapshot)
 }

@@ -48,6 +48,8 @@ def audit(target=None):
         forbidden = {"wgpu", "wgpu-core", "cc", "cmake"}
         if name in DATA:
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "rune"}
+        if name != "comet-editor":
+            forbidden.add("egui_tiles")
         if name not in {"comet-runtime", "comet-editor", "comet-app"}:
             forbidden.add("rapier3d")
             forbidden.add("landmass")

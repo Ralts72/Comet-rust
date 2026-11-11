@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use comet_asset_data::AudioData;
 use comet_core::{Action, ActionEvent, ActionInput, AssetId};
-use comet_runtime::{FIXED_DELTA, PlaySession, RuntimeResources, ScriptLibrary};
+use comet_runtime::{FIXED_DELTA, PlaySession, SceneResources, ScriptLibrary};
 use comet_scene::{ContentSource, SceneSnapshot};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -45,7 +45,7 @@ fn actual_audio_demo_script_publishes_scoped_intents_and_keeps_authoring_unchang
         .context("background source")?
         .id;
     let audio = ready_pcm(&author);
-    let resources = RuntimeResources {
+    let resources = SceneResources {
         scripts: ScriptLibrary::from([(
             script.asset,
             include_str!("../../../demo/assets/scripts/audio_demo.rhai").into(),
@@ -207,7 +207,7 @@ fn actual_spatial_audio_demo_moves_without_replaying_and_toggles_only_on_fresh_i
     let script = emitter.script.as_ref().context("spatial demo script")?;
     let mut play = PlaySession::start_with_resources(
         author.clone(),
-        RuntimeResources {
+        SceneResources {
             scripts: ScriptLibrary::from([(
                 script.asset,
                 include_str!("../../../demo/assets/scripts/spatial_audio.rhai").into(),

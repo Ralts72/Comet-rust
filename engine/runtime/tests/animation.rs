@@ -4,7 +4,7 @@ use comet_asset_data::{
     SkeletonNode,
 };
 use comet_core::{AssetId, EntityId, math::Quat};
-use comet_runtime::{FIXED_DELTA, PlaySession, RuntimeResources, validate_animations};
+use comet_runtime::{FIXED_DELTA, PlaySession, SceneResources, validate_animations};
 use comet_scene::{
     Animator, EntityData, EntityRef, FieldUpdate, SceneSnapshot, Script, ScriptValue, Transform,
     UnboundRig,
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 struct Rig {
     scene: SceneSnapshot,
-    resources: RuntimeResources,
+    resources: SceneResources,
     owner: EntityId,
     a: EntityId,
     b: EntityId,
@@ -99,7 +99,7 @@ fn rig() -> Rig {
             entities: vec![owner, a, b],
             ..Default::default()
         },
-        resources: RuntimeResources {
+        resources: SceneResources {
             skeletons: [(skeleton, Arc::new(skeleton_data))].into(),
             animations: [(clip, Arc::new(clip_data))].into(),
             ..Default::default()

@@ -106,7 +106,7 @@ fn position(play: &mut PlaySession, id: EntityId) -> [f32; 3] {
 fn start(f: &Fixture) -> Result<PlaySession> {
     PlaySession::start_with_resources(
         f.snapshot.clone(),
-        comet_runtime::RuntimeResources {
+        comet_runtime::SceneResources {
             scripts: ScriptLibrary::new(),
             navigation: Some(data(&f.snapshot)?),
             ..Default::default()
@@ -186,7 +186,7 @@ fn disconnected_navigation_and_an_unbound_target_stop_horizontal_motion_but_keep
     mesh.polygons = vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]];
     let mut play = PlaySession::start_with_resources(
         f.snapshot.clone(),
-        comet_runtime::RuntimeResources {
+        comet_runtime::SceneResources {
             scripts: ScriptLibrary::new(),
             navigation: Some(Arc::new(mesh)),
             ..Default::default()
@@ -212,7 +212,7 @@ fn disconnected_navigation_and_an_unbound_target_stop_horizontal_motion_but_keep
         .target = None;
     let mut play = PlaySession::start_with_resources(
         snapshot.clone(),
-        comet_runtime::RuntimeResources {
+        comet_runtime::SceneResources {
             scripts: ScriptLibrary::new(),
             navigation: Some(data(&snapshot)?),
             ..Default::default()
@@ -242,7 +242,7 @@ fn navigation_rejects_missing_stale_invalid_and_incompatible_products_before_sta
     assert!(
         PlaySession::start_with_resources(
             changed,
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: ScriptLibrary::new(),
                 navigation: Some(original.clone()),
                 ..Default::default()
@@ -255,7 +255,7 @@ fn navigation_rejects_missing_stale_invalid_and_incompatible_products_before_sta
     assert!(
         PlaySession::start_with_resources(
             f.snapshot.clone(),
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: ScriptLibrary::new(),
                 navigation: Some(Arc::new(invalid)),
                 ..Default::default()
@@ -276,7 +276,7 @@ fn navigation_rejects_missing_stale_invalid_and_incompatible_products_before_sta
     assert!(
         PlaySession::start_with_resources(
             incompatible.clone(),
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: ScriptLibrary::new(),
                 navigation: Some(data(&incompatible)?),
                 ..Default::default()
@@ -297,7 +297,7 @@ fn navigation_rejects_missing_stale_invalid_and_incompatible_products_before_sta
     assert!(
         PlaySession::start_with_resources(
             unbaked,
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: ScriptLibrary::new(),
                 navigation: Some(original),
                 ..Default::default()
@@ -321,7 +321,7 @@ fn navigation_rejects_missing_stale_invalid_and_incompatible_products_before_sta
     assert!(
         PlaySession::start_with_resources(
             external.clone(),
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: ScriptLibrary::new(),
                 navigation: Some(data(&external)?),
                 ..Default::default()
@@ -413,7 +413,7 @@ fn baked_geometry_is_frozen_through_public_and_script_transactions_without_affec
     )]);
     let mut play = PlaySession::start_with_resources(
         f.snapshot.clone(),
-        comet_runtime::RuntimeResources {
+        comet_runtime::SceneResources {
             scripts,
             navigation: Some(data(&f.snapshot)?),
             ..Default::default()
@@ -508,7 +508,7 @@ fn region_motion_is_rejected_before_script_start_and_fixed_callback_prefixes_pub
         );
         let mut play = PlaySession::start_with_resources(
             f.snapshot.clone(),
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: ScriptLibrary::from([(asset, script)]),
                 navigation: Some(data(&f.snapshot)?),
                 ..Default::default()

@@ -82,8 +82,8 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     assert_eq!(expanded.version, 12);
     let mut unsupported = expanded.clone();
     unsupported.version = 11;
-    assert!(store.game_data_sources(&unsupported).is_err());
-    let library = store.game_data_sources(&expanded)?;
+    assert!(store.scene_resources(&unsupported).is_err());
+    let library = store.scene_resources(&expanded)?.data;
     assert_eq!(library.len(), 2);
     assert_eq!(library[&leaf].rows["hero"]["hp"], DataValue::Integer(7));
     assert_eq!(
@@ -173,7 +173,7 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     fs::remove_dir_all(&products)?;
     let mut packaged = AssetStore::open(export.join("products"))?;
     let snapshot = packaged.expand_scene(scene)?;
-    assert_eq!(packaged.game_data_sources(&snapshot)?.len(), 2);
+    assert_eq!(packaged.scene_resources(&snapshot)?.data.len(), 2);
     assert_eq!(library[&leaf].rows["hero"]["hp"], DataValue::Integer(7));
     Ok(())
 }

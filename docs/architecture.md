@@ -48,8 +48,8 @@
 engine/
   core/                  identity.rs / storage.rs / input.rs / paths.rs / publication.rs / math.rs
   scene/                 components.rs / physics.rs / joints.rs / navigation.rs / audio.rs / script.rs / schema.rs / scene.rs / prefab.rs
-  asset/data/            product.rs / navigation.rs / navigation/ / audio.rs：CPU 产品、导航输入与 PCM 协议
-  asset/runtime/         store.rs：只读产品消费
+  asset/data/            product.rs / resources.rs / navigation.rs / navigation/ / audio.rs：CPU 产品、场景资源集合、导航输入与 PCM 协议
+  asset/runtime/         store.rs：产品接纳与缓存；resources.rs：场景资源准备
   asset/pipeline/        source.rs：源目录与身份；导入、构建、打包、模板与项目配置库
   runtime/               session.rs / clock.rs / input.rs / physics.rs / character.rs / navigation.rs / audio.rs / script/：运行世界、模拟与脚本
   audio/                 frame.rs / output.rs：中立声音帧与私有 Kira/CPAL 输出
@@ -107,6 +107,7 @@ flowchart TD
 
 图中表示主要编译依赖，实际直接依赖由 `tools/verify/check_boundaries.py` 校验。`asset/data` 不导入源文件、不持有 Store 或 GPU；Render 可以依赖这些数据协议，但不依赖资产运行时加载器。`asset/runtime` 表示资产消费，`engine/runtime` 表示游戏运行，二者职责不同。
 资产 Pipeline 是引擎的生产库，独立 Cargo 包 `comet-asset-pipeline` 供编辑器与资产 CLI 调用；tools/asset 只保留命令行入口。tools/launch 和 tools/verify 分别编排启动准备与工程验收，继续使用 Python 标准库。
+停靠库 `egui_tiles` 只允许 Editor 依赖；Application 的通用 egui 宿主及独立 App 不拥有编辑器工作区，此约束由边界审计检查。
 App 直接使用 SceneSnapshot/EntityRef 准备 Runtime 候选和只读姿态报告，运行世界与变更仍由 Runtime 管理。App 不链接编辑器、资产生产库、glTF 或通用源图像导入器；Application 使用 png 解码内置或包内窗口图标，Render 使用它编码截图。数据层、资产生产和编辑文档不依赖窗口、GPU、模拟世界或脚本 VM。GPU 工具独立运行，不是游戏依赖。
 App 的 main.rs 解析启动参数、包身份与存储方式，session.rs 协调运行世界、检查点和已接纳输出偏好；menu.rs 只管理 egui 草稿与用户意图，settings.rs 负责有效值校验及私有文件封装，storage.rs 统一两种固定文件的目录和原子 I/O。菜单不持 Store 或 Runtime，不建立通用 Service 层。
 Render 的直接工程依赖只保留 Core 与资产数据；Scene 和 Store 的访问归 Application 提取阶段，后端只消费已经准备好的帧与产品。
@@ -308,7 +309,7 @@ Scene 只保存 NavigationRegion 和 NavigationAgent。展开后的世界最多�
 
 AssetData 的 NavigationInput 从已展开快照捕获区域内 Fixed、非传感器的 Box 几何，生成规范输入摘要；相交的其他固定形状会拒绝烘焙。摘要包含世界几何、区域边界、profile 和构建策略，排除 data 引用、实体身份、名称、NPC/目标与材质。Pipeline 私有 rerecast 适配执行离线烘焙，检查网格、体素、span 及输出预算，并把输出归一化为 Comet 的 Y-up 坐标及数学 XZ-CCW 多边形。NavigationData v1 保存数组、索引和输入摘要，不保存第三方内存布局；显式 `.nav` 与 `.nav.meta` 是可保留的派生资产，重烘焙同一路径复用身份，再构建为正常导航产品。
 
-Editor/App 从 Store 加载区域明确引用的导航产品，经 `RuntimeResources.navigation` 将 `Arc<NavigationData>` 交给 `start_with_resources`。Runtime 不读取 Store 或作者文件，私有 Landmass 拥有路径及局部避障。每个固定步在脚本后、物理前同步胶囊实际脚底、速度和目标，更新一次期望世界 XZ 速度；Motor 以米/秒消费它，不重复乘 move_speed，Y 向仍由 Rapier 的重力、台阶、坡度和贴地控制。玩家及未受导航控制的角色作为避障对象，玩家仍只接收原动作输入。只有 Moving 状态消费导航水平速度，停止、到达、不可达或自身离网格时输出零；物理重力和碰撞仍然生效。
+Editor/App 从 Store 加载区域明确引用的导航产品，经 `SceneResources.navigation` 将 `Arc<NavigationData>` 交给 `start_with_resources`。Runtime 不读取 Store 或作者文件，私有 Landmass 拥有路径及局部避障。每个固定步在脚本后、物理前同步胶囊实际脚底、速度和目标，更新一次期望世界 XZ 速度；Motor 以米/秒消费它，不重复乘 move_speed，Y 向仍由 Rapier 的重力、台阶、坡度和贴地控制。玩家及未受导航控制的角色作为避障对象，玩家仍只接收原动作输入。只有 Moving 状态消费导航水平速度，停止、到达、不可达或自身离网格时输出零；物理重力和碰撞仍然生效。
 
 运行意图不进入 Scene 协议或作者历史。初始使用 NavigationAgent.target，Point/Entity 命令覆盖它，Stop 作为持续停止的覆盖保留，不能通过清空覆盖意外恢复作者目标。重开和换关新建意图及状态，只复用不可变产品；脚本的 `this` 负责玩法状态，不由导航组件保存巡逻或追逐模式。Rust 宿主使用 PlaySession 的 `navigate_to`、`follow_navigation`、`stop_navigation` 和 `navigation_status`；Rhai 提供以下接口：
 
@@ -335,7 +336,7 @@ Scene 的 AudioSource 保存 clip 资产、音量、循环、自动播放、空�
 
 Pipeline 私有 Hound 仅导入单/双声道、8–192 kHz 的 PCM16 WAV，生成 AudioData v1：采样率、声道数及交错 i16 样本 `Arc<[i16]>`。产品不保存 WAV 路径或编解码器对象，包只携带依赖产品；WAV 与 `.wav.meta` 保留在作者工程，移动时一起维护身份。单 clip 最多 8,388,608 个样本；声音帧最多 64 个实体，总样本预算 16,777,216 按唯一 clip 计一次，约 32 MiB 源 PCM。同一 clip 的多个 voice 共享样本，加载及预检不打开设备。
 
-RuntimeResources 集中传入脚本、导航和 AudioLibrary，Runtime 持有不可变产品与声音意图，不拥有设备、相机或 AssetStore。AudioFrame 携带 WorldId、暂停状态、共享 voice 批次及可选监听姿态，voice 使用 EntityId 与单调 generation；0 表示从未播放，自动播放及显式重播产生新代次。Runtime 仅在存在空间声源且 Scene revision 改变时计算其层级世界位置，全部位置成功后一起发布；位置和意图未变时复用 voice Arc，位置更新不扫描或转换 PCM。重开及换关建立新世界和新意图，候选 on_start 也只产生意图；未被宿主接纳的候选不会播放声音。
+SceneResources 集中传入脚本、导航和 AudioLibrary，Runtime 持有不可变产品与声音意图，不拥有设备、相机或 AssetStore。AudioFrame 携带 WorldId、暂停状态、共享 voice 批次及可选监听姿态，voice 使用 EntityId 与单调 generation；0 表示从未播放，自动播放及显式重播产生新代次。Runtime 仅在存在空间声源且 Scene revision 改变时计算其层级世界位置，全部位置成功后一起发布；位置和意图未变时复用 voice Arc，位置更新不扫描或转换 PCM。重开及换关建立新世界和新意图，候选 on_start 也只产生意图；未被宿主接纳的候选不会播放声音。
 
 Rhai 提供 `ctx.play_sound(entity)`、`ctx.stop_sound(entity)`、`ctx.set_sound_volume(entity, gain)`，目标必须属于本世界且有 AudioSource，音量有限且在 [0,1]。它们与字段、物理、导航命令共用每回调 256 条预算；全部预检及状态预算成功后一起发布，代次溢出、坏目标或后续错误会丢弃本回调的全部命令、普通日志和换关请求。on_stop 仍只允许查询与日志。声音命令修改运行意图，不承诺设备侧多个 voice 的异步提交具有事务性。
 
@@ -478,13 +479,19 @@ Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常�
 
 Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径、版本校验与排他身份预留；构建、Scene/Prefab 创建和导航发布复用同一 metadata 写入规则，路径与候选校验仍归各自调用方。SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。有编辑来源信息时，作者身份必须对应源根，不能借用同类型的衍生产品 ID；源文件携带 metadata 改名后仍使用原身份，目录不按旧显示标签推断路径。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
-SceneSnapshot 协议为 11，产品协议为 6，索引协议为 7，NavigationData、AudioData、SkeletonData 与 SkinData 协议均为 1；AnimationClipData 支持 v1 线性/阶梯、v2 三次样条和 v3 具名阶段事件。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。AnimationControllerData 为 v1。Pipeline 可从有效 v1–6 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2，v1–6 不得夹带 AnimationController。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
+SceneSnapshot 协议为 12，产品协议为 6，索引协议为 7，NavigationData、AudioData、SkeletonData 与 SkinData 协议均为 1；AnimationClipData 支持 v1 线性/阶梯、v2 三次样条和 v3 具名阶段事件。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。AnimationControllerData 为 v1。Pipeline 可从有效 v1–6 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2，v1–6 不得夹带 AnimationController。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
 
 标签变化发布新索引身份；构建复用与 `AssetStore::refresh` 的内容比较只使用摘要、类型和运行依赖，后者保留未变产品的原 Arc。源文件与 metadata 一起改路径时可仅更新标签；glTF 内部内容修改仍参与输入摘要，唯一名称也参与既有子身份规则，不承诺改名保留 UUID。模型选择界面只读取已接纳索引，按 revision 缓存轻量 ID/标签列表，不加载产品或重新解析 glTF。
 
 资源刷新只在 Edit 模式启动，提交活动预览但不自动保存作者文件。后台线程调用 Pipeline 构建、打开独立 AssetStore、准备 SourceCatalog，并校验当前文档、保存点和 undo/redo 保留内容的 Prefab 展开、全部依赖类型和渲染提取。零缩放模型和渲染尚未使用的外部场景引用同样不能缺失；Store 的脚本准备先检查整个快照的依赖类型，再返回启用脚本源码，历史校验复用此入口后进行渲染与脚本预检。Document 仅提供不可变内容引用，不拥有 Store。共享预检归 validation.rs，借用当前文档及保留历史；加载、刷新、导出与导航按各自边界调用，保存使用其中的作者可编辑性检查，空闲帧不扫描历史。任务期间禁用修改、Play、保存、切换和并发导出；主线程再次核对文档世界和 revision，成功后一起接纳 Store、目录和快照，失败保留当前状态。外部源删除或结构变化使历史不可解析时拒绝接纳；保留可解析性不表示撤销会恢复旧版本资产内容。
 
 构建发布磁盘索引与编辑器接纳候选是两层边界：候选被编辑器拒绝时，磁盘上可能已有完整新索引，当前会话继续使用旧索引及保留的产品文件，不回滚作者源或自动清理产品。导出复用相同的历史依赖校验，防止完成后切换 Store 导致撤销失效。
+
+`SceneResources`、`ScriptLibrary` 与 `AudioLibrary` 归 Asset Data，只存 CPU 数据，不拥有 Store、运行世界、VM、设备或线程；Runtime 和 Audio 在各自公共出口复用这些类型，不维护另一份集合。该进程内资源集合不序列化，不改变 Scene/Product/Index 协议。Runtime 持有它的不可变 Arc，重开和候选世界共享已预载产品；Asset Data 不反向依赖 Runtime 或音频输出。
+
+Asset Runtime 的 resources.rs 统一场景资源准备。`AssetStore::scene_resources` 先检查一次快照及全部依赖类型，再准备启用脚本、传递数据表、显式导航、声音及骨骼/片段/控制器，整体成功才返回候选。数据表闭包最多 `MAX_SCENE_DATA_ASSETS`（64）份；禁用脚本的引用仍校验身份与类型，但不执行或预载其数据闭包。App、Editor Play/换关与导出共用此入口，不分别拼装库；导出对全部可达场景执行相同资源预算检查，仍只编译脚本而不执行回调。渲染提取和运行系统绑定校验属于其各自消费者，完整候选初始化后的绘制检查仍在宿主接纳之前。
+
+作者编辑与进入运行世界的要求不同。动画、脚本和导航保留有实际消费者的按需入口，供保存、历史校验或导航烘焙使用；未完成的显式动画绑定仍允许编辑，不因读取脚本或动画而强制烘焙导航。按需入口与完整入口共用私有加载实现，公开接口只保留正式用途。
 
 当前构建仍解析全部源，复用的是未变化的产品文件，尚无导入计算缓存。资产打开/刷新仍全量验证，尚未实现大场景按需流送。
 自有源、metadata、产品和索引有显式版本，未知版本/字段报错。旧 C++ 自有格式需显式单向迁移；源路径不参与资产身份。

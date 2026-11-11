@@ -157,7 +157,7 @@ impl Fixture {
         };
         PlaySession::start_with_resources(
             self.snapshot.clone(),
-            comet_runtime::RuntimeResources {
+            comet_runtime::SceneResources {
                 scripts: self.sources.clone(),
                 navigation: Some(Arc::new(data)),
                 audio: self.audio.clone(),

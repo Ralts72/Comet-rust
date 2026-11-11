@@ -4,13 +4,13 @@ use comet_asset_data::{
     AnimationParameter as Parameter, AnimationValues, SkeletonData, SkeletonNode,
 };
 use comet_core::{AssetId, EntityId};
-use comet_runtime::{FIXED_DELTA, PlaySession, RuntimeResources};
+use comet_runtime::{FIXED_DELTA, PlaySession, SceneResources};
 use comet_scene::{Animator, EntityData, EntityRef, SceneSnapshot, Script, Transform};
 use std::sync::Arc;
 
 struct Fixture {
     scene: SceneSnapshot,
-    resources: RuntimeResources,
+    resources: SceneResources,
     owner: EntityId,
     bone: EntityId,
     controller: AssetId,
@@ -104,7 +104,7 @@ fn fixture() -> Fixture {
             entities: vec![owner, bone],
             ..Default::default()
         },
-        resources: RuntimeResources {
+        resources: SceneResources {
             skeletons: [(
                 skeleton,
                 Arc::new(SkeletonData {

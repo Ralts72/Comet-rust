@@ -309,3 +309,135 @@ fn every_additional_export_scene_requires_complete_animation_bindings() -> Resul
     assert!(format!("{error:#}").contains(&additional.to_string()));
     Ok(())
 }
+
+#[test]
+fn nested_scene_data_budget_rejects_publication_and_repaired_sources_can_retry() -> Result<()> {
+    use comet_asset_data::MAX_SCENE_DATA_ASSETS;
+    use comet_scene::ScriptValue;
+    use serde_json::json;
+    use std::sync::Arc;
+    let temp = tempfile::tempdir()?;
+    let project = temp.path().join("project");
+    let sources = project.join("assets");
+    fs::create_dir_all(&sources)?;
+    let products = temp.path().join("products");
+    let (entry, additional, linked, script) = (
+        AssetId::new(),
+        AssetId::new(),
+        AssetId::new(),
+        AssetId::new(),
+    );
+    let tables: Vec<_> = (0..=MAX_SCENE_DATA_ASSETS)
+        .map(|_| AssetId::new())
+        .collect();
+    let table = |next: Option<AssetId>| match next {
+        Some(id) => {
+            json!({"fields":{"next":{"type":"asset","asset_type":"data"}},"rows":[{"id":"link","next":id}]})
+        }
+        None => json!({"fields":{},"rows":[{"id":"leaf"}]}),
+    };
+    for (index, id) in tables.iter().enumerate() {
+        let path = sources.join(format!("table-{index}.data.json"));
+        fs::write(
+            &path,
+            serde_json::to_vec(&table(tables.get(index + 1).copied()))?,
+        )?;
+        fs::write(
+            SourceMeta::path(&path),
+            serde_json::to_vec(&SourceMeta {
+                version: 1,
+                id: *id,
+            })?,
+        )?;
+    }
+    let script_path = sources.join("behavior.rhai");
+    fs::write(
+        &script_path,
+        "fn on_start(ctx) { throw \"export must not run callbacks\"; }",
+    )?;
+    fs::write(
+        SourceMeta::path(&script_path),
+        serde_json::to_vec(&SourceMeta {
+            version: 1,
+            id: script,
+        })?,
+    )?;
+    let mut actor = EntityData::new("data owner in dependency scene");
+    let mut binding = Script::new(script);
+    binding
+        .parameters
+        .insert("stats".into(), ScriptValue::Data(Some(tables[0])));
+    actor.script = Some(binding);
+    let actor_id = actor.id;
+    write_source(&sources.join("main.scene"), entry, vec![])?;
+    write_source(&sources.join("additional.scene"), additional, vec![actor])?;
+    let mut link = EntityData::new("link to data scene");
+    link.links.target = Some(EntityRef::External {
+        scene: additional,
+        entity: actor_id,
+    });
+    write_source(&sources.join("linked.scene"), linked, vec![link])?;
+    comet_asset_pipeline::prepare(&project, &products)?;
+    let mut assets = AssetStore::open(&products)?;
+    let mut disabled = assets.expand_scene(additional)?;
+    disabled.entities[0].script.as_mut().unwrap().enabled = false;
+    let resources = assets.scene_resources(&disabled)?;
+    assert!(resources.data.is_empty() && resources.scripts.is_empty());
+    let app = temp.path().join(if cfg!(windows) {
+        "comet-app.exe"
+    } else {
+        "comet-app"
+    });
+    fs::write(&app, b"packing fixture; never executed")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&app, fs::Permissions::from_mode(0o755))?;
+    }
+    let output = temp.path().join("game");
+    let publish = |assets: &mut AssetStore| {
+        let revision = assets.revision().to_owned();
+        package_export(
+            assets,
+            PackageRequest {
+                products: &products,
+                game_id: comet_core::GameId::new(),
+                index_revision: Some(&revision),
+                entry_scene: entry,
+                additional_scenes: &[linked],
+                app: &app,
+                runtime: None,
+                app_digest: None,
+                notices: &[],
+                app_icon: None,
+                game_icon: None,
+                output: &output,
+            },
+        )
+    };
+    let accepted = assets.shared_index();
+    let author = fs::read(sources.join("additional.scene"))?;
+    let error = format!("{:#}", publish(&mut assets).unwrap_err());
+    assert!(
+        error.contains(&additional.to_string()) && error.contains("runtime data asset budget"),
+        "{error}"
+    );
+    assert!(!output.exists());
+    assert!(Arc::ptr_eq(&accepted, &assets.shared_index()));
+    assert_eq!(fs::read(sources.join("additional.scene"))?, author);
+    // Skip one link: the same entry now has exactly the supported reachable data set.
+    fs::write(
+        sources.join("table-0.data.json"),
+        serde_json::to_vec(&table(Some(tables[2])))?,
+    )?;
+    comet_asset_pipeline::prepare(&project, &products)?;
+    assets.refresh()?;
+    let packaged = publish(&mut assets)?;
+    let mut portable = AssetStore::open(packaged.products)?;
+    let snapshot = portable.expand_scene(additional)?;
+    assert_eq!(
+        portable.scene_resources(&snapshot)?.data.len(),
+        MAX_SCENE_DATA_ASSETS
+    );
+    Ok(())
+}

@@ -178,7 +178,7 @@ fn audio_worlds_share_pcm_and_reject_wrong_types_and_oversized_refreshes_without
         entities: vec![source("first"), source("second")],
         ..Default::default()
     };
-    let library = store.audio_sources(&snapshot)?;
+    let library = store.scene_resources(&snapshot)?.audio;
     assert_eq!(library.len(), 1);
     let product = store.load(clip)?;
     let Product::Audio(data) = &product.payload else {
@@ -186,7 +186,7 @@ fn audio_worlds_share_pcm_and_reject_wrong_types_and_oversized_refreshes_without
     };
     assert!(Arc::ptr_eq(&library[&clip].samples, &data.samples));
     snapshot.entities[1].audio_source.as_mut().unwrap().clip = ids[0];
-    assert!(store.audio_sources(&snapshot).is_err());
+    assert!(store.scene_resources(&snapshot).is_err());
     let accepted_index = store.shared_index();
     let bytes = fs::read(&product_path)?;
     fs::File::options()

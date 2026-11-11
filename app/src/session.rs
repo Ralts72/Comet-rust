@@ -438,25 +438,8 @@ fn prepare_play(
     progress: Arc<comet_core::ProgressValues>,
 ) -> Result<PlaySession> {
     comet_application::extract(&snapshot, assets, &[])?;
-    let scripts = assets.script_sources(&snapshot)?;
-    let data = assets.game_data_sources(&snapshot)?;
-    let navigation = assets.navigation_data(&snapshot)?;
-    let audio = assets.audio_sources(&snapshot)?;
-    let libraries = assets.animation_sources(&snapshot)?;
-    let mut candidate = PlaySession::start_with_progress(
-        snapshot,
-        comet_runtime::RuntimeResources {
-            data,
-            scripts,
-            navigation,
-            audio,
-            skeletons: libraries.skeletons,
-            animations: libraries.clips,
-            controllers: libraries.controllers,
-        },
-        scene,
-        progress,
-    )?;
+    let resources = assets.scene_resources(&snapshot)?;
+    let mut candidate = PlaySession::start_with_progress(snapshot, resources, scene, progress)?;
     comet_application::extract(&candidate.shared_snapshot(), assets, &[])?;
     Ok(candidate)
 }

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use comet_asset_data::game_data::{DataLibrary, GameData};
 use comet_core::AssetId;
-use comet_runtime::{FIXED_DELTA, PlaySession, RuntimeResources};
+use comet_runtime::{FIXED_DELTA, PlaySession, SceneResources};
 use comet_scene::{EntityData, SceneSnapshot, Script, ScriptValue};
 use serde_json::json;
 use std::sync::Arc;
@@ -18,7 +18,7 @@ fn start(source: &str, data: DataLibrary, id: AssetId) -> Result<PlaySession> {
             entities: vec![entity],
             ..Default::default()
         },
-        RuntimeResources {
+        SceneResources {
             data,
             scripts: [(asset, source.into())].into(),
             ..Default::default()
