@@ -371,6 +371,13 @@ fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
                 .all(|entry| entry.kind != AssetKind::AnimationController),
             "legacy index contains a newer animation controller kind"
         );
+        ensure!(
+            previous
+                .products
+                .values()
+                .all(|entry| entry.kind != AssetKind::Data),
+            "legacy index contains a newer game data kind"
+        );
         // Only the producer migrates known caches; author identities and current product bytes stay intact.
         previous.version = INDEX_VERSION;
     }

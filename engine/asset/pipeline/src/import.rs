@@ -20,6 +20,12 @@ pub(crate) struct Imported {
 }
 
 pub(crate) fn source_kind(path: &Path) -> Option<AssetKind> {
+    if path
+        .file_name()
+        .is_some_and(|name| name.as_encoded_bytes().ends_with(b".data.json"))
+    {
+        return Some(AssetKind::Data);
+    }
     match path.extension()?.to_str()? {
         "scene" => Some(AssetKind::Scene),
         "prefab" | "gltf" | "glb" => Some(AssetKind::Prefab),
@@ -58,6 +64,8 @@ pub(crate) fn import(path: &Path, bytes: &[u8]) -> Result<Product> {
         .to_string_lossy();
     let value = if name.ends_with(".scene") {
         Product::Scene(serde_json::from_slice(bytes)?)
+    } else if name.ends_with(".data.json") {
+        Product::Data(crate::game_data::import(bytes)?)
     } else if name.ends_with(".prefab") {
         Product::Prefab(serde_json::from_slice(bytes)?)
     } else if name.ends_with(".mesh") {
@@ -98,6 +106,9 @@ pub(crate) fn import(path: &Path, bytes: &[u8]) -> Result<Product> {
     Ok(value)
 }
 pub(crate) fn read(path: &Path) -> Result<Vec<u8>> {
+    if source_kind(path) == Some(AssetKind::Data) {
+        return read_bounded(path, comet_asset_data::game_data::MAX_DATA_BYTES);
+    }
     let limit = match path.extension().and_then(|extension| extension.to_str()) {
         Some("wav") => Some(crate::audio::MAX_WAV_BYTES),
         Some("gltf" | "glb") => Some(comet_asset_data::MAX_ANIMATION_BYTES),
@@ -170,6 +181,7 @@ mod tests {
     fn source_formats_apply_their_declared_budget_before_import_or_allocation() -> Result<()> {
         let temp = tempfile::tempdir()?;
         for (extension, limit) in [
+            ("data.json", comet_asset_data::game_data::MAX_DATA_BYTES),
             ("rhai", MAX_SCRIPT_BYTES),
             (
                 "ani",

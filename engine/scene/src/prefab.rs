@@ -244,19 +244,10 @@ impl ContentSource {
         for i in &self.instances {
             deps.insert(i.prefab);
             for o in &i.overrides {
-                match &o.value {
-                    FieldValue::Asset(id) => {
-                        deps.insert(*id);
-                    }
-                    FieldValue::OptionalAsset(Some(id)) => {
-                        deps.insert(*id);
-                    }
-                    _ => {
-                        for reference in schema::value_entity_references(&o.value) {
-                            if let crate::EntityRef::External { scene, .. } = reference {
-                                deps.insert(*scene);
-                            }
-                        }
+                deps.extend(schema::value_asset_references(&o.value));
+                for reference in schema::value_entity_references(&o.value) {
+                    if let crate::EntityRef::External { scene, .. } = reference {
+                        deps.insert(*scene);
                     }
                 }
             }

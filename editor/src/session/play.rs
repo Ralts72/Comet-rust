@@ -114,6 +114,7 @@ fn runtime_resources(
     comet_application::extract(snapshot, assets, &[])?;
     let libraries = assets.animation_sources(snapshot)?;
     Ok(comet_runtime::RuntimeResources {
+        data: assets.game_data_sources(snapshot)?,
         scripts: assets.script_sources(snapshot)?,
         navigation: assets.navigation_data(snapshot)?,
         audio: assets.audio_sources(snapshot)?,

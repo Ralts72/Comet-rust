@@ -1,6 +1,7 @@
 //! Versioned CPU asset protocols, independent of importers, stores and GPU handles.
 pub mod animation;
 pub mod audio;
+pub mod game_data;
 pub mod navigation;
 pub mod package;
 pub mod product;

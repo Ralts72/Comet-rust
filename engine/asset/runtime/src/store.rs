@@ -209,6 +209,39 @@ impl AssetStore {
         };
         Ok(Some(Arc::new(data.clone())))
     }
+    /// Resolve declared data and nested data references before any script callback runs.
+    pub fn game_data_sources(
+        &mut self,
+        snapshot: &SceneSnapshot,
+    ) -> Result<comet_asset_data::game_data::DataLibrary> {
+        snapshot.validate()?;
+        validate_scene_dependency_kinds(snapshot, |id| {
+            self.index.products.get(&id).map(|entry| entry.kind)
+        })?;
+        let mut pending: Vec<_> = snapshot
+            .entities
+            .iter()
+            .filter_map(|e| e.script.as_ref())
+            .filter(|s| s.enabled)
+            .flat_map(|s| comet_scene::schema::script_data_assets(&s.parameters))
+            .collect();
+        let mut data = comet_asset_data::game_data::DataLibrary::new();
+        while let Some(id) = pending.pop() {
+            if data.contains_key(&id) {
+                continue;
+            }
+            anyhow::ensure!(data.len() < 64, "runtime data asset budget exceeded");
+            let product = self.load(id)?;
+            let Product::Data(table) = &product.payload else {
+                anyhow::bail!("script data parameter is not data: {id}")
+            };
+            pending.extend(table.references().filter_map(|(id, kind)| {
+                (kind == comet_asset_data::product::AssetKind::Data).then_some(id)
+            }));
+            data.insert(id, Arc::new(table.clone()));
+        }
+        Ok(data)
+    }
     /// Preload only this world's clips; the simulation and output retain immutable PCM independently.
     pub fn audio_sources(
         &mut self,

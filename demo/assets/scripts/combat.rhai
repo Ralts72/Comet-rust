@@ -1,9 +1,11 @@
 fn actor(ctx, key, label, player) {
+    let stats = ctx.data_get(ctx.param("stats"), if player { "player" } else { "guard" });
+    if stats == () { throw "缺少战斗数值记录"; }
     #{ entity: ctx.param(key), visual: ctx.param(key + "_visual"),
        model: ctx.param(key + "_model"), animator: ctx.param(key + "_animator"),
-       label: label, player: player, health: if player {120} else {90},
-       maximum: if player {120} else {90}, damage: if player {35} else {12},
-       range: if player {1.9} else {1.7}, interval: if player {0.8} else {1.15},
+       label: label, player: player, health: stats.health,
+       maximum: stats.health, damage: stats.damage,
+       range: stats.range, interval: stats.cooldown,
        cooldown: 0.0, attacking: false, hit_done: false, pulse: 0.0, defeat_time: 0.0, removed: false }
 }
 fn begin_attack(ctx, a) {
@@ -19,10 +21,10 @@ fn defeated(actors) {
 }
 fn show_hud(ctx, actors) {
     let count = defeated(actors);
-    let text = "战斗样例\n练习者：" + actors[0].health + " / 120\n守卫 1：" + actors[1].health
-        + " / 90　守卫 2：" + actors[2].health + " / 90\n击败：" + count + " / 2\n";
+    let text = "战斗样例\n练习者：" + actors[0].health + " / " + actors[0].maximum + "\n守卫 1：" + actors[1].health
+        + " / " + actors[1].maximum + "　守卫 2：" + actors[2].health + " / " + actors[2].maximum + "\n击败：" + count + " / " + (actors.len() - 1) + "\n";
     if actors[0].health <= 0 { text += "失败！按 R 重新开始。"; }
-    else if count == 2 { text += "胜利！按 R 重新开始。"; }
+    else if count == actors.len() - 1 { text += "胜利！按 R 重新开始。"; }
     else { text += "WASD 移动，J / 鼠标左键攻击；朝向目标，隔墙不命中。"; }
     ctx.set_hud(text);
 }
@@ -69,7 +71,7 @@ fn on_start(ctx) {
 }
 fn on_fixed_update(ctx, dt) {
     let actors = this.actors;
-    let active = actors[0].health > 0 && defeated(actors) < 2;
+    let active = actors[0].health > 0 && defeated(actors) < actors.len() - 1;
     let target = ctx.position(actors[0].entity);
     for i in 0..actors.len() {
         let a = actors[i];

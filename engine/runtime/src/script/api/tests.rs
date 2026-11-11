@@ -15,6 +15,8 @@ fn follow_resolves_both_world_identities_and_stop_callbacks_only_query_navigatio
     }
     snapshot.canonicalize();
     let call = Rc::new(RefCell::new(Call {
+        data: Default::default(),
+        data_budget: Rc::new(std::cell::Cell::new(16_384)),
         queries: Arc::new(Default::default()),
         query_budget: Rc::new(std::cell::Cell::new(128)),
         world_matrices: Default::default(),
@@ -82,6 +84,8 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
     let world = WorldId::new();
     owner.transform.translation = [1., 0., 0.];
     let call = Rc::new(RefCell::new(Call {
+        data: Default::default(),
+        data_budget: Rc::new(std::cell::Cell::new(16_384)),
         queries: Arc::new(Default::default()),
         query_budget: Rc::new(std::cell::Cell::new(128)),
         world_matrices: Default::default(),
@@ -123,6 +127,13 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
     let mut scope = rhai::Scope::new();
     scope.push("ctx", Context(call.clone()));
     scope.push("foreign", Entity::local(id, WorldId::new()));
+    scope.push(
+        "foreign_data",
+        DataAsset {
+            asset: AssetId::new(),
+            world: WorldId::new(),
+        },
+    );
     scope.push("owner", Entity::local(id, world));
     for expression in [
         "ctx.play_animation(foreign)",
@@ -136,6 +147,8 @@ fn animation_controls_and_queries_enforce_world_identity_stop_permissions_and_fi
         "ctx.raycast([0,0,0],[1,0,0],1,foreign)",
         "ctx.destroy_entity(foreign)",
         "ctx.exists(foreign)",
+        "ctx.data_ids(foreign_data)",
+        "ctx.data_get(foreign_data, \"hero\")",
     ] {
         let error = engine
             .eval_with_scope::<Dynamic>(&mut scope, expression)

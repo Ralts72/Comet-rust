@@ -558,6 +558,10 @@ pub fn value_entity_references(value: &FieldValue) -> Vec<&EntityRef> {
 }
 /// A field's old component version alone cannot describe a newer reference inside its value.
 pub fn required_value_scene_version(value: &FieldValue) -> u32 {
+    if matches!(value, FieldValue::ScriptParameters(parameters) if parameters.values().any(|v| matches!(v, crate::ScriptValue::Data(_))))
+    {
+        return 12;
+    }
     value_entity_references(value)
         .into_iter()
         .map(EntityRef::required_scene_version)
@@ -576,15 +580,36 @@ pub fn entity_references(e: &EntityData) -> Vec<EntityRef> {
         })
         .collect()
 }
+pub fn value_asset_references(value: &FieldValue) -> BTreeSet<AssetId> {
+    match value {
+        FieldValue::Asset(id) => [*id].into(),
+        FieldValue::OptionalAsset(id) => id.iter().copied().collect(),
+        FieldValue::ScriptParameters(parameters) => script_data_assets(parameters).collect(),
+        _ => BTreeSet::new(),
+    }
+}
+pub fn script_data_assets(
+    parameters: &crate::ScriptParameters,
+) -> impl Iterator<Item = AssetId> + '_ {
+    parameters.values().filter_map(|value| {
+        if let crate::ScriptValue::Data(id) = value {
+            *id
+        } else {
+            None
+        }
+    })
+}
 pub fn asset_references(e: &EntityData) -> BTreeSet<AssetId> {
     let mut result: BTreeSet<_> = fields()
-        .filter(|f| f.references == ReferencePolicy::Asset)
-        .filter_map(|f| match f.read(e) {
-            Some(FieldValue::Asset(id)) => Some(id),
-            Some(FieldValue::OptionalAsset(id)) => id,
-            _ => None,
-        })
+        .filter(|field| field.references == ReferencePolicy::Asset)
+        .filter_map(|f| f.read(e))
+        .flat_map(|value| value_asset_references(&value))
         .collect();
+    result.extend(
+        e.script
+            .iter()
+            .flat_map(|script| script_data_assets(&script.parameters)),
+    );
     for r in entity_references(e) {
         if let EntityRef::External { scene, .. } = r {
             result.insert(scene);

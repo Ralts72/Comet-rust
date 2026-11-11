@@ -18,12 +18,22 @@ fn input() -> ActionInput {
 }
 impl Arena {
     fn new() -> Result<Self> {
+        Self::with_tuning(false)
+    }
+    fn with_tuning(custom: bool) -> Result<Self> {
         let temp = tempfile::tempdir()?;
         let project = temp.path().join("project");
         copy_project(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo"),
             &project,
         )?;
+        if custom {
+            let path = project.join("assets/data/combat.data.json");
+            let mut data: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            data["rows"][0]["damage"] = serde_json::json!(60);
+            data["rows"][0]["health"] = serde_json::json!(150);
+            fs::write(path, serde_json::to_vec(&data)?)?;
+        }
         let (mut editor, mut assets) =
             open(project, temp.path().join("products"), "combat.scene".into())?;
         let source = editor.document.shared_source();
@@ -106,6 +116,24 @@ impl Arena {
         });
         self.step(count, press)
     }
+}
+
+#[test]
+fn project_data_changes_drive_real_combat_damage_and_health_without_changing_script_or_authoring()
+-> Result<()> {
+    let mut arena = Arena::with_tuning(true)?;
+    let author = arena.editor.document.shared_source();
+    assert!(arena.hud().contains(" / 150"));
+    arena.place(0, [4., 0.82, 6.], 0.)?;
+    arena.place(1, [4., 0.82, 4.7], 0.)?;
+    arena.place(2, [8., 0.82, -8.], 0.)?;
+    arena.press(55)?;
+    assert!(arena.hud().contains("守卫 1：30 / 90"), "{}", arena.hud());
+    arena.editor.restart_play()?;
+    assert!(arena.hud().contains("练习者：150 / 150"));
+    arena.editor.stop();
+    assert_eq!(arena.editor.document.shared_source(), author);
+    Ok(())
 }
 
 #[test]

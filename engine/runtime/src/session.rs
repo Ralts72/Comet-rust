@@ -54,6 +54,7 @@ pub struct PlaySession {
 }
 #[derive(Clone, Default)]
 pub struct RuntimeResources {
+    pub data: comet_asset_data::game_data::DataLibrary,
     pub scripts: ScriptLibrary,
     pub navigation: Option<Arc<comet_asset_data::NavigationData>>,
     pub audio: comet_audio::AudioLibrary,
@@ -141,6 +142,7 @@ impl PlaySession {
         let mut scripts = Scripts::new(
             &baseline,
             &resources.scripts,
+            resources.data.clone(),
             scene.world_id(),
             scene_asset,
             entry_progress.clone(),

@@ -26,6 +26,7 @@ pub enum ScriptValue {
     Vec3([f32; 3]),
     /// Deleted local targets become None; external references retain their explicit scene identity.
     Entity(Option<EntityRef>),
+    Data(Option<AssetId>),
 }
 
 #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]

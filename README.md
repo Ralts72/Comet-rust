@@ -5,7 +5,7 @@ Comet 的独立 Rust 3D 引擎工程，沿用引擎、编辑器、游戏与工�
 编辑器界面使用简体中文，内置中文字体，独立游戏包无需另行安装字体。当前支持 glTF/GLB 静态与蒙皮模型导入、单片段播放与参数动画控制器、多材质 PBR/阴影、场景编辑、撤销/重做、保存与独立游戏打包。桌面共同支持目标为 macOS、Windows、Linux；macOS 使用原生 Metal，Windows/Linux 使用原生 Vulkan，暂不接入 DX12。Metal 已实际运行，Windows/Linux 已纳入交叉编译检查，目标设备运行仍需验证。Rhai 游戏脚本、文字 HUD、离线静态导航、2D 与点声源空间音频已接入；完整角色动画系统和旧玩法仍待迁移。
 Editor Play 与 App 共用 60 Hz 固定步、暂停单步、失焦冻结及动作输入消费；长帧补步有上限并记录掉时。Rapier 已接入基础刚体、碰撞层、触发器、胶囊角色，以及点关节、铰链关节和滑动关节；默认 demo 可观察落体，Play 和独立游戏均可操作角色。编辑器关闭窗口时检查未保存的场景，支持保存后退出、直接退出或取消；保存失败保留窗口。视图内容错误同样保留编辑器和作者事务，显示诊断以便修复或撤销；Play 出错时停止运行并返回作者世界。
 
-`./start.sh --scene combat.scene` 可进入战斗样例：J / 鼠标左键出拳，按住不连发；动画的命中阶段检查距离、朝向与墙体遮挡。两名守卫通过导航绕墙接近并攻击，HUD 显示双方血量与击败数；受击有声音和缩放反馈；守卫击败后在 0.4 秒内缩小，1.2 秒后连同碰撞、动画、导航与声音源移除，胜败后按 R 重开。暂停、单步、Stop 和独立导出沿用公共流程。当前未接入粒子、描边和倒地动作，战斗血量属于本局运行状态，继续存档会重新开始本局。
+`./start.sh --scene combat.scene` 可进入战斗样例：J / 鼠标左键出拳，按住不连发；动画的命中阶段检查距离、朝向与墙体遮挡。两名守卫通过导航绕墙接近并攻击，HUD 显示双方血量与击败数；受击有声音和缩放反馈；守卫击败后在 0.4 秒内缩小，1.2 秒后连同碰撞、动画、导航与声音源移除，胜败后按 R 重开。暂停、单步、Stop 和独立导出沿用公共流程。基础数值来自 `data/combat.data.json`，刷新资源后重新进入 Play 接纳新值。当前未接入粒子、描边和倒地动作，战斗血量属于本局运行状态，继续存档会重新开始本局。
 
 ## 开发与启动
 
@@ -46,7 +46,7 @@ macOS 启动时自动准备带原版蓝色彗星图标的 `Comet Editor.app`；�
 
 打开 `collect.scene` 并运行，用 WASD 走近金色方块：HUD 从 0/1 更新为 1/1，目标外观隐藏，旁边的蒙皮模型播放一次动作并响起提示音；离开再进入不会重复收集。等 HUD 提示动作完成，再重新按 E 前往现有第二关；提前按下或持续按住 E 不会自动换关。脚本显式记录已收集进度，继续时回到保存关卡起点，目标不重生，也不重播提示音或动作。R 恢复本次入关进度，正常新 Play 从空进度开始；停止 Play 保留作者文档。示例复用现有方块、SimpleSkin 产品和提示音；导出时需包含 `collect.scene`、`travel_second.scene` 及第二关返回的 `travel.scene`。
 
-运行 `./start.sh --scene character.scene` 可进入双关三目标玩法：人形角色支持待机/走路/跑步的一维混合、蹲伏/蹲行、跳跃与下落过渡，地面移动时由动画事件播放空间脚步提示音。每关收集三个目标，每个目标独立播放 SimpleSkin 动作和提示音；收到三个“动作完成”事件后，出口闸门连同碰撞体升起。走到出口重新按 E 前往另一关，持续按住 E 不会自动跳关。第一关含台阶与蹲伏通道，第二关含绕行墙；使用现有 WASD、Space、Shift、Ctrl 与鼠标相机操作。F5 保存、F9 继续会从保存关卡入口重建，已收集目标保持隐藏且不重播反馈；两关进度分别保留，R 恢复本次入关基线。导出时同时包含 `character.scene` 和 `character_second.scene`。资源来源见 [示例资源说明](demo/ASSET-CREDITS.txt)；分层动画、挂点、粒子、章节 UI、手柄和完整设置仍待迁移。
+运行 `./start.sh --scene character.scene` 可进入双关三目标玩法：人形角色支持待机/走路/跑步的一维混合、蹲伏/蹲行、跳跃与下落过渡，地面移动时由动画事件播放空间脚步提示音。每关收集三个目标，每个目标独立播放 SimpleSkin 动作和提示音；收到三个“动作完成”事件后，出口闸门连同碰撞体升起。走到出口重新按 E 前往另一关，持续按住 E 不会自动跳关。第一关含台阶与蹲伏通道，第二关含绕行墙；使用现有 WASD、Space、Shift、Ctrl 与鼠标相机操作。F5 保存、F9 继续会从保存关卡入口重建，已收集目标外观保持移除且不重播反馈；两关进度分别保留，R 恢复本次入关基线。导出时同时包含 `character.scene` 和 `character_second.scene`。资源来源见 [示例资源说明](demo/ASSET-CREDITS.txt)；分层动画、挂点、粒子、章节 UI、手柄和完整设置仍待迁移。
 
 打开 `animation.scene` 并运行，可观察官方 SimpleSkin 蒙皮模型随骨骼弯曲；暂停、单步和 R 重开共用正常运行流程，导出包只读取构建产品。示例源在 `demo/assets/models/simple_skin/`，测试复用同一份资产。属性面板“动画”可选片段、循环、速度及骨骼绑定，“蒙皮”可选同骨架的动画实体；强引用仍有效时，缺失或过期的源绑定表可显式重建并撤销。支持 STEP/LINEAR/CUBICSPLINE 的单 Clip TRS 播放；脚本可重播、暂停、继续、设置速度并查询已发布的播放状态，示例见 `collect.scene`。动画片段支持由 glTF `animation.extras.comet_events` 定义的阶段事件，脚本通过 `on_animation_event(ctx, animator, name)` 消费；暂停、单步和重播共用固定步流程。同骨架的 `.ani` 动画控制器支持参数、条件转换、一维混合与可打断过渡；属性面板可选择控制器，运行时显示状态与过渡进度。根运动、分层、重定向和 IK 尚未接入。
 
@@ -108,7 +108,7 @@ macOS 默认导出 `.app`，资源放在 `Contents/Resources`，发布前完成�
 测试继承开发配置；配置统一在根 `Cargo.toml`，选项含义见 [Cargo Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)。`target/` 包含缓存、测试和验证输出，不作为发布包。定期检查并清理过期缓存和旧程序快照，保留正在使用的产物；具体规则见[构建缓存维护](docs/development.md#构建缓存维护)。
 
 作者资产及其 `.meta` 身份文件需要一起入库，包括 glTF 配套的 `.bin`、纹理和测试数据；`Cargo.lock` 也保留在版本控制中。
-自有作者格式使用 `.scene`、`.prefab`、`.mesh`、`.material`、`.ani`，烘焙导航保存为 `.nav`，内容均为 JSON；`.nav` 与其 `.meta` 一起保留，重烘焙更新同一资产。默认场景为 `demo/assets/main.scene`；metadata 在完整源文件名后追加 `.meta`，例如 `main.scene.meta`、`showcase.gltf.meta`，重命名时随源文件一起移动并保留 UUID。
+自有作者格式使用 `.scene`、`.prefab`、`.mesh`、`.material`、`.ani`，只读游戏数据表使用 `*.data.json`（`fields` / `rows`），烘焙导航保存为 `.nav`，内容均为 JSON；`.nav` 与其 `.meta` 一起保留，重烘焙更新同一资产。默认场景为 `demo/assets/main.scene`；metadata 在完整源文件名后追加 `.meta`，例如 `main.scene.meta`、`showcase.gltf.meta`，重命名时随源文件一起移动并保留 UUID。
 可再生产品、截图、报告与诊断输出放在 `target/`，导出包可放在 `target/packages/` 或根 `dist/`。根 `target/`、`products/`、`dist/`，以及构建锁、原子写入临时文件、GPU 捕获包和 Python 缓存由 `.gitignore` 排除；运行证据保存在 `target/` 或 CI 附件，不放进文档目录或版本控制。
 
 ## 源码归属

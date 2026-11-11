@@ -48,6 +48,7 @@ pub struct ScriptDiagnostic {
 }
 #[derive(Default)]
 struct Fuel {
+    data: Rc<Cell<usize>>,
     queries: Rc<Cell<usize>>,
     remaining: Cell<u64>,
     previous: Cell<u64>,
@@ -177,6 +178,7 @@ enum CallbackEvent<'a> {
     Animation(&'a crate::animation::AnimationEventOccurrence),
 }
 pub(crate) struct Scripts {
+    data: Arc<comet_asset_data::game_data::DataLibrary>,
     world: WorldId,
     engine: Engine,
     fuel: Rc<Fuel>,
@@ -194,12 +196,33 @@ impl Scripts {
     pub fn new(
         snapshot: &SceneSnapshot,
         sources: &ScriptLibrary,
+        data: comet_asset_data::game_data::DataLibrary,
         world: WorldId,
         scope: Option<AssetId>,
         progress: Arc<ProgressValues>,
     ) -> Result<Self> {
         let mut validator = ScriptValidator::default();
         validator.validate(snapshot, sources)?;
+        ensure!(data.len() <= 64, "runtime data asset budget exceeded");
+        for table in data.values() {
+            table.validate()?;
+            for (id, kind) in table.references() {
+                ensure!(
+                    kind != comet_asset_data::product::AssetKind::Data || data.contains_key(&id),
+                    "missing referenced data asset {id}"
+                );
+            }
+        }
+        for script in snapshot
+            .entities
+            .iter()
+            .filter_map(|e| e.script.as_ref())
+            .filter(|s| s.enabled)
+        {
+            for id in comet_scene::schema::script_data_assets(&script.parameters) {
+                ensure!(data.contains_key(&id), "missing script data asset {id}");
+            }
+        }
         let mut bindings: Vec<_> = snapshot
             .entities
             .iter()
@@ -218,6 +241,7 @@ impl Scripts {
             .collect();
         bindings.sort_by_key(|binding| binding.entity);
         Ok(Self {
+            data: Arc::new(data),
             world,
             engine: validator.engine,
             fuel: validator.fuel,
@@ -272,6 +296,7 @@ impl Scripts {
         true
     }
     fn phase(&self) {
+        self.fuel.data.set(16_384);
         self.fuel.queries.set(128);
         self.fuel.remaining.set(MAX_PHASE_OPERATIONS);
         self.fuel.exhausted.set(false);
@@ -500,6 +525,8 @@ impl Scripts {
             return;
         }
         let call = Rc::new(RefCell::new(api::Call {
+            data: self.data.clone(),
+            data_budget: self.fuel.data.clone(),
             world: scene.world_id(),
             owner: binding.entity,
             snapshot: scene.shared_snapshot(),
@@ -652,7 +679,12 @@ fn validate_state(value: &Dynamic, depth: usize, budget: &mut StateBudget) -> Re
     );
     budget.nodes -= 1;
     budget.charge(std::mem::size_of::<Dynamic>())?;
-    if value.is_unit() || value.is::<bool>() || value.is::<INT>() || value.is::<api::Entity>() {
+    if value.is_unit()
+        || value.is::<bool>()
+        || value.is::<INT>()
+        || value.is::<api::Entity>()
+        || value.is::<api::DataAsset>()
+    {
         return Ok(());
     }
     if value.is::<FLOAT>() {

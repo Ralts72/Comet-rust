@@ -21,6 +21,7 @@ pub enum AssetKind {
     Material,
     Texture,
     Script,
+    Data,
     Navigation,
     Audio,
     Skeleton,
@@ -32,6 +33,7 @@ impl AssetKind {
     /// Byte limit for a complete encoded ProductFile, separate from source and payload limits.
     pub fn encoded_byte_limit(self) -> Option<usize> {
         match self {
+            Self::Data => Some(8 * crate::game_data::MAX_DATA_BYTES + 4096),
             Self::AnimationController => Some(crate::animation::controller::MAX_CONTROLLER_BYTES),
             Self::Audio => Some(crate::audio::MAX_AUDIO_BYTES),
             Self::Mesh | Self::Skeleton | Self::Skin | Self::AnimationClip => {
@@ -209,6 +211,7 @@ pub enum Product {
     Material(MaterialData),
     Texture(TextureData),
     Script(ScriptData),
+    Data(crate::game_data::GameData),
     Navigation(NavigationData),
     Audio(AudioData),
     Skeleton(SkeletonData),
@@ -225,6 +228,7 @@ impl Product {
             Self::Material(_) => AssetKind::Material,
             Self::Texture(_) => AssetKind::Texture,
             Self::Script(_) => AssetKind::Script,
+            Self::Data(_) => AssetKind::Data,
             Self::Navigation(_) => AssetKind::Navigation,
             Self::Audio(_) => AssetKind::Audio,
             Self::Skeleton(_) => AssetKind::Skeleton,
@@ -240,6 +244,7 @@ impl Product {
             Self::Material(m) => m.validate(),
             Self::Texture(t) => t.validate(),
             Self::Script(s) => s.validate(),
+            Self::Data(data) => data.validate(),
             Self::Navigation(n) => n.validate(),
             Self::Audio(audio) => audio.validate(),
             Self::Skeleton(value) => value.validate(),
@@ -252,6 +257,7 @@ impl Product {
         match self {
             Self::Scene(s) | Self::Prefab(s) => s.dependencies(),
             Self::Material(m) => m.base_color_texture.into_iter().collect(),
+            Self::Data(data) => data.dependencies(),
             Self::Skin(value) => [value.skeleton].into_iter().collect(),
             Self::AnimationClip(value) => [value.skeleton].into_iter().collect(),
             Self::AnimationController(value) => {
@@ -274,6 +280,11 @@ impl Product {
                 for i in &s.instances {
                     expect(i.prefab, AssetKind::Prefab)?;
                     for o in &i.overrides {
+                        if let schema::FieldValue::ScriptParameters(parameters) = &o.value {
+                            for id in schema::script_data_assets(parameters) {
+                                expect(id, AssetKind::Data)?;
+                            }
+                        }
                         if let schema::FieldValue::OptionalAsset(Some(id)) = o.value {
                             if o.field == schema::NAVIGATION_DATA {
                                 expect(id, AssetKind::Navigation)?;
@@ -321,6 +332,11 @@ impl Product {
                     expect(id, AssetKind::Texture)?;
                 }
             }
+            Self::Data(data) => {
+                for (id, kind) in data.references() {
+                    expect(id, kind)?;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -362,6 +378,9 @@ fn validate_entity_dependency_kinds(
         }
         if let Some(script) = &e.script {
             expect(script.asset, AssetKind::Script)?;
+            for id in schema::script_data_assets(&script.parameters) {
+                expect(id, AssetKind::Data)?;
+            }
         }
         if let Some(animator) = &e.animator {
             expect(animator.skeleton, AssetKind::Skeleton)?;

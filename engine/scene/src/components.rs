@@ -127,6 +127,13 @@ impl EntityData {
         if self.script.is_some() {
             version = version.max(4);
         }
+        if self.script.as_ref().is_some_and(|s| {
+            s.parameters
+                .values()
+                .any(|v| matches!(v, crate::ScriptValue::Data(_)))
+        }) {
+            version = version.max(12);
+        }
         if self.point_joint.is_some() || self.hinge_joint.is_some() || self.slider_joint.is_some() {
             version = version.max(5);
         }

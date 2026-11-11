@@ -189,6 +189,10 @@ fn controller_picker_switches_atomically_and_preserves_prefab_overrides_undo_and
     let instance = comet_core::InstanceId::new();
     let source_owner = f.selected;
     f.editor.document = Document::open_source(ContentSource {
+        base: SceneSnapshot {
+            version: 9,
+            ..Default::default()
+        },
         instances: vec![PrefabInstance {
             id: instance,
             prefab: f.prefab,

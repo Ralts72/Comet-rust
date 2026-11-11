@@ -13,6 +13,12 @@ use rhai::{Dynamic, Engine, EvalAltResult, FLOAT, INT, ImmutableString};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 type ScriptResult<T> = Result<T, Box<EvalAltResult>>;
+mod data;
+#[derive(Clone, Debug)]
+pub(super) struct DataAsset {
+    asset: AssetId,
+    world: WorldId,
+}
 const MAX_COMMANDS: usize = 256;
 const MAX_LOGS_PER_CALL: usize = 32;
 
@@ -41,6 +47,8 @@ impl Entity {
 }
 
 pub(super) struct Call {
+    pub data: Arc<comet_asset_data::game_data::DataLibrary>,
+    pub data_budget: Rc<std::cell::Cell<usize>>,
     pub queries: Arc<crate::physics::queries::Queries>,
     pub query_budget: Rc<std::cell::Cell<usize>>,
     pub world_matrices:
@@ -159,6 +167,11 @@ impl Context {
             ScriptValue::Text(value) => value.clone().into(),
             ScriptValue::Vec3(value) => numbers(*value).into(),
             ScriptValue::Entity(None) => Dynamic::UNIT,
+            ScriptValue::Data(None) => Dynamic::UNIT,
+            ScriptValue::Data(Some(asset)) => Dynamic::from(DataAsset {
+                asset: *asset,
+                world: call.world,
+            }),
             ScriptValue::Entity(Some(reference)) => Dynamic::from(Entity {
                 reference: reference.clone(),
                 world: call.world,
@@ -234,6 +247,7 @@ mod spatial;
 mod tests;
 
 pub(super) fn register(engine: &mut Engine) {
+    data::register(engine);
     spatial::register(engine);
     engine.register_fn("destroy_entity", |context: &mut Context, entity: Entity| {
         context.enqueue(entity, Command::Destroy)

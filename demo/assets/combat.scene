@@ -1,7 +1,7 @@
 {
   "version": 1,
   "base": {
-    "version": 11,
+    "version": 12,
     "entities": [
       {
         "id": "c5950f6e-2172-500b-958c-e7455d3ad49e",
@@ -838,6 +838,10 @@
                 "instance": "b40329f7-8a19-5c59-bb29-857154afdf07",
                 "entity": "dfcb6432-d0ca-5970-950f-63ad0eb946f1"
               }
+            },
+            "stats": {
+              "type": "data",
+              "value": "771c1eeb-1922-5fe5-a992-2244052ab3c7"
             }
           }
         }

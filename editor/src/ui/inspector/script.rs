@@ -4,7 +4,15 @@ use comet_asset::AssetStore;
 use comet_asset_data::product::AssetKind;
 use comet_scene::{EntityData, EntityRef, Script, ScriptValue};
 
-const TYPES: [&str; 6] = ["布尔", "整数", "数值", "文本", "三维向量", "实体引用"];
+const TYPES: [&str; 7] = [
+    "布尔",
+    "整数",
+    "数值",
+    "文本",
+    "三维向量",
+    "实体引用",
+    "数据",
+];
 
 pub(super) fn draw(
     editor: &mut Editor,
@@ -262,6 +270,7 @@ fn kind(value: &ScriptValue) -> usize {
         ScriptValue::Text(_) => 3,
         ScriptValue::Vec3(_) => 4,
         ScriptValue::Entity(_) => 5,
+        ScriptValue::Data(_) => 6,
     }
 }
 
@@ -272,6 +281,7 @@ fn default_value(kind: usize) -> ScriptValue {
         2 => ScriptValue::Number(0.),
         3 => ScriptValue::Text(String::new()),
         4 => ScriptValue::Vec3([0.; 3]),
+        6 => ScriptValue::Data(None),
         _ => ScriptValue::Entity(None),
     }
 }
@@ -285,6 +295,39 @@ fn draw_value(
     finish: &mut bool,
 ) {
     let response = match value {
+        ScriptValue::Data(value) => {
+            let before = *value;
+            egui::ComboBox::from_id_salt("data-asset")
+                .selected_text(
+                    value
+                        .and_then(|id| {
+                            editor
+                                .sources
+                                .of_kind(AssetKind::Data)
+                                .find(|s| s.id == id)
+                                .map(|s| s.source.display().to_string())
+                        })
+                        .unwrap_or_else(|| {
+                            if value.is_some() {
+                                "数据已缺失".into()
+                            } else {
+                                "未设置数据".into()
+                            }
+                        }),
+                )
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(value, None, "未设置数据");
+                    for source in editor.sources.of_kind(AssetKind::Data) {
+                        ui.selectable_value(
+                            value,
+                            Some(source.id),
+                            source.source.display().to_string(),
+                        );
+                    }
+                });
+            *finish |= before != *value;
+            return;
+        }
         ScriptValue::Bool(value) => {
             *finish |= ui.checkbox(value, "值").changed();
             return;

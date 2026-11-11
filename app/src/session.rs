@@ -439,12 +439,14 @@ fn prepare_play(
 ) -> Result<PlaySession> {
     comet_application::extract(&snapshot, assets, &[])?;
     let scripts = assets.script_sources(&snapshot)?;
+    let data = assets.game_data_sources(&snapshot)?;
     let navigation = assets.navigation_data(&snapshot)?;
     let audio = assets.audio_sources(&snapshot)?;
     let libraries = assets.animation_sources(&snapshot)?;
     let mut candidate = PlaySession::start_with_progress(
         snapshot,
         comet_runtime::RuntimeResources {
+            data,
             scripts,
             navigation,
             audio,

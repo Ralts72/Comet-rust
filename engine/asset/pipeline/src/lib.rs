@@ -6,6 +6,7 @@ mod package;
 pub use package::{PackageOutput, PackageRequest, package, package_scenes};
 mod template;
 pub use template::{AppTemplate, PackageFile};
+mod game_data;
 mod icon;
 mod import;
 mod navigation;

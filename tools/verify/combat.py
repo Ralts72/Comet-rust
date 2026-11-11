@@ -6,17 +6,24 @@ SCENE = "799d31eb-db7a-560e-badd-593eddaa4d89"
 CONTROLLER = "171b6088-5cbc-5822-9396-573149ea3b4e"
 SCRIPT = "c76d234d-3469-58c4-bf1c-a84eb5cb73e4"
 NAVIGATION = "8517122b-7685-5fa9-b8bd-a751c0c322db"
+DATA = "771c1eeb-1922-5fe5-a992-2244052ab3c7"
 DRAW_COUNT = 10
 
 
 def inspect_package(products, protocols, read_product, author_assets):
     entries = json.loads((products / "index.json").read_text())["products"]
     scene = read_product(products, entries, SCENE, protocols)["data"]
-    assert scene["base"]["version"] == 11 and len(scene["instances"]) == 3
+    assert scene["base"]["version"] == 12 and len(scene["instances"]) == 3
     actors = [entity for entity in scene["base"]["entities"] if entity.get("character")]
     assert len(actors) == 3 and sum(actor["character"]["player_controlled"] for actor in actors) == 1
     assert sum(bool(actor.get("navigation_agent")) for actor in actors) == 2
     assert entries[NAVIGATION]["kind"] == "navigation"
+    assert entries[DATA]["kind"] == "data" and DATA in entries[SCENE]["dependencies"]
+    data = read_product(products, entries, DATA, protocols)["data"]
+    author = json.loads((author_assets / "data/combat.data.json").read_text())
+    assert data == {"version": 1, "fields": author["fields"], "rows": {row["id"]: row for row in author["rows"]}}
+    coordinator = next(entity for entity in scene["base"]["entities"] if entity.get("script", {}).get("asset") == SCRIPT)
+    assert coordinator["script"]["parameters"]["stats"] == {"type": "data", "value": DATA}
     controller = read_product(products, entries, CONTROLLER, protocols)["data"]
     assert controller["parameters"]["attacking"] is False
     attack = next(state for state in controller["states"] if state["name"] == "attack")
@@ -24,7 +31,7 @@ def inspect_package(products, protocols, read_product, author_assets):
         {"phase": 0.43, "name": "combat.strike"}, {"phase": 0.95, "name": "combat.recover"}]
     assert read_product(products, entries, SCRIPT, protocols)["data"]["source"] == (author_assets / "scripts/combat.rhai").read_text()
     return {"status": "passed", "scene": SCENE, "actors": 3, "navigation_agents": 2,
-            "attack_events": attack["events"], "scope": "partial combat migration; no particles or defeat animation"}
+            "attack_events": attack["events"], "data_asset": DATA, "scope": "partial combat migration; no particles or defeat animation"}
 
 
 def inspect_runtime(report, native=False):
