@@ -76,6 +76,8 @@ enum PointerGesture {
 }
 
 pub(crate) fn cancel_gesture(ctx: &egui::Context) {
+    // Resource drags share the viewport's focus and layout lifetime.
+    super::resources::cancel_drag(ctx);
     ctx.data_mut(|data| {
         if data.get_temp::<PointerGesture>(gesture_id()).is_some() {
             data.insert_temp(gesture_id(), PointerGesture::Canceled);
@@ -127,8 +129,8 @@ impl ViewportResponse {
     }
     pub fn finish(
         mut self,
-        editor: &Editor,
-        assets: &AssetStore,
+        editor: &mut Editor,
+        assets: &mut AssetStore,
         ctx: &egui::Context,
         active: bool,
     ) -> anyhow::Result<ViewportFrame> {
@@ -147,13 +149,15 @@ impl ViewportResponse {
         }) {
             cancel_gesture(ctx);
         }
-        Ok(ViewportFrame {
+        let mut frame = ViewportFrame {
             visible: self.is_visible(),
             viewport: self.viewport,
             pick: self.pick,
             actions: self.actions,
             response: self.response.context("缺少视口输入响应")?,
-        })
+        };
+        super::resources::finish_drag(editor, assets, ctx, active, &mut frame);
+        Ok(frame)
     }
 }
 
@@ -174,7 +178,12 @@ pub(super) fn show(
     let ui = root;
     let background = ui.painter().add(egui::Shape::Noop);
     let mut gesture = ui.data(|data| data.get_temp::<PointerGesture>(gesture_id()));
-    gizmo::controls(editor, ui, gesture.is_none());
+    let resource_drag =
+        egui::DragAndDrop::has_payload_of_type::<super::resources::ResourceDrag>(ui.ctx());
+    if resource_drag {
+        gesture = None;
+    }
+    gizmo::controls(editor, ui, gesture.is_none() && !resource_drag);
     let viewport = ui.available_rect_before_wrap();
     if viewport.width() <= 1. || viewport.height() <= 1. {
         return ViewportResponse::hidden(ui);
@@ -196,8 +205,10 @@ pub(super) fn show(
         response.request_focus();
     }
     result.response = Some(response.clone());
-    comet_application::orbit(&mut editor.camera, &response);
-    if editor.play.is_some() {
+    if !resource_drag {
+        comet_application::orbit(&mut editor.camera, &response);
+    }
+    if editor.play.is_some() && !resource_drag {
         result.actions = comet_application::sample_actions(&response, active, editor.camera);
     }
     ui.painter().text(
@@ -231,7 +242,22 @@ pub(super) fn show(
             Color32::from_gray(160),
         );
     }
-    let enabled = active && ui.is_enabled();
+    let enabled = active && ui.is_enabled() && !resource_drag;
+    if resource_drag && response.contains_pointer() {
+        ui.painter().rect_stroke(
+            viewport.shrink(2.),
+            0.,
+            egui::Stroke::new(2., Color32::from_rgb(97, 174, 241)),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter().text(
+            viewport.center_top() + Vec2::new(0., 18.),
+            egui::Align2::CENTER_TOP,
+            "松开以添加资源（保留源坐标）",
+            egui::FontId::proportional(14.),
+            Color32::WHITE,
+        );
+    }
     if let Some(PointerGesture::Selection { context, .. }) = &gesture
         && (!context.valid(editor, assets, viewport, enabled)
             || ui.input(|input| input.key_pressed(egui::Key::Escape)))
@@ -272,7 +298,7 @@ pub(super) fn show(
             dragged: false,
         });
     }
-    result.owns_pointer = gesture.is_some();
+    result.owns_pointer = gesture.is_some() || resource_drag;
     match &mut gesture {
         Some(PointerGesture::Selection {
             context,

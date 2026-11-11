@@ -97,6 +97,9 @@ impl SourceCatalog {
         }
         Ok(Self { entries })
     }
+    pub fn iter(&self) -> impl Iterator<Item = &SourceAsset> {
+        self.entries.iter()
+    }
     pub fn of_kind(&self, kind: AssetKind) -> impl Iterator<Item = &SourceAsset> {
         self.entries.iter().filter(move |entry| entry.kind == kind)
     }

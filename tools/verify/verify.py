@@ -1107,6 +1107,14 @@ def main():
             checks["editor_workspace_evidence"] = {"status": "passed", "submitted_frames": 8,
                 "png_sha256": inspect_png(OUT / "editor-workspace.png")["sha256"], "author_dirty": False,
                 "draw_count": 5, "layout": "three resized splitters"}
+            resources = offscreen_test("editor_resource_tree_gpu",
+                "ui::resources::browser::tests::headless_project_tree_draws_filtered_subassets_without_editing",
+                "editor-resource-tree.json")
+            assert resources["application"]["error"] is None and not resources["application"]["dirty"]
+            assert resources["application"]["history"] == 0 and resources["submitted_frames"] == 8
+            checks["editor_resource_tree_evidence"] = {"status": "passed", "submitted_frames": 8,
+                "png_sha256": inspect_png(OUT / "editor-resource-tree.png")["sha256"], "author_dirty": False,
+                "query": "Amber", "contents": "directory, model source and matching material subasset"}
             menu = offscreen_test("app_pause_menu_gpu",
                 "session::tests::menu::headless_pause_menu_draws_without_advancing_the_world_or_touching_player_data",
                 "app-pause-menu.json", package="comet-app")

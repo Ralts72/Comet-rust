@@ -2,78 +2,108 @@ use crate::documents::{BrowserMode, DocumentAction, is_authoring_source};
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_asset_data::product::AssetKind;
+use std::path::PathBuf;
 
+mod browser;
 mod data;
+mod drag;
+mod tree;
+pub(super) use drag::{ResourceDrag, cancel_drag, finish_drag};
 
 enum ResourceAction {
     Place(comet_asset_pipeline::SourceAsset),
-    EditSource(std::path::PathBuf),
+    EditSource(PathBuf),
+}
+
+fn can_place(editor: &Editor, source: &comet_asset_pipeline::SourceAsset) -> bool {
+    source.kind == AssetKind::Prefab
+        && editor.play.is_none()
+        && !editor.is_busy()
+        && !editor.documents.is_blocking()
+        && Some(source.id) != editor.document.prefab_asset()
+}
+fn place(
+    editor: &mut Editor,
+    source: &comet_asset_pipeline::SourceAsset,
+    assets: &mut AssetStore,
+) -> anyhow::Result<()> {
+    editor.place_resource(
+        source.id,
+        &source
+            .source
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy(),
+        assets,
+    )
 }
 
 pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetStore) {
+    let mut browser = browser::Browser::load(editor, ui, assets);
     let mut action = None;
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(
-                !editor.is_busy() && !editor.documents.is_blocking(),
-                egui::Button::new("新建 Prefab"),
-            )
-            .clicked()
-        {
-            editor.documents.open_browser(BrowserMode::NewPrefab);
-        }
-        if ui
-            .add_enabled(
-                editor.play.is_none() && !editor.is_busy(),
-                egui::Button::new("刷新资源"),
-            )
-            .clicked()
-        {
-            let result = editor.refresh_resources();
-            editor.notice(result);
-        }
-        let selected = editor
-            .resource_selection
-            .and_then(|id| {
-                editor
-                    .sources
-                    .of_kind(AssetKind::Prefab)
-                    .find(|choice| choice.id == id)
-            })
-            .cloned();
-        let is_self = selected
-            .as_ref()
-            .is_some_and(|source| Some(source.id) == editor.document.prefab_asset());
-        if ui
-            .add_enabled(
-                editor.play.is_none() && !editor.is_busy() && selected.is_some() && !is_self,
-                egui::Button::new(format!("添加到{}", editor.document_kind_label())),
-            )
-            .on_disabled_hover_text(if is_self {
-                "不能将 Prefab 自身添加为实例。"
-            } else {
-                "请选择资源，并在编辑模式中添加。"
-            })
-            .clicked()
-        {
-            action = selected.clone().map(ResourceAction::Place);
-        }
-        if ui
-            .add_enabled(
-                !editor.is_busy()
-                    && !editor.documents.is_blocking()
-                    && selected.as_ref().is_some_and(is_authoring_source),
-                egui::Button::new("编辑源"),
-            )
-            .on_disabled_hover_text("请选择 .prefab 文件；glTF/GLB 请在建模工具中修改。")
-            .clicked()
-        {
-            action = selected
-                .as_ref()
-                .map(|source| ResourceAction::EditSource(source.source.clone()));
-        }
-        ui.weak("模型、Prefab 与数据");
-    });
+    egui::ScrollArea::horizontal()
+        .id_salt("resource-toolbar")
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !editor.is_busy() && !editor.documents.is_blocking(),
+                        egui::Button::new("新建 Prefab"),
+                    )
+                    .clicked()
+                {
+                    editor.documents.open_browser(BrowserMode::NewPrefab);
+                }
+                if ui
+                    .add_enabled(
+                        editor.play.is_none()
+                            && !editor.is_busy()
+                            && !editor.documents.is_blocking(),
+                        egui::Button::new("刷新资源"),
+                    )
+                    .clicked()
+                {
+                    let result = editor.refresh_resources();
+                    editor.notice(result);
+                }
+                let selected = editor
+                    .resource_selection
+                    .and_then(|id| editor.sources.iter().find(|source| source.id == id))
+                    .cloned();
+                if ui
+                    .add_enabled(
+                        selected
+                            .as_ref()
+                            .is_some_and(|source| can_place(editor, source)),
+                        egui::Button::new(format!("添加到{}", editor.document_kind_label())),
+                    )
+                    .on_disabled_hover_text(
+                        "请选择模型或 Prefab，在编辑模式中添加；不能添加 Prefab 自身。",
+                    )
+                    .clicked()
+                {
+                    action = selected.clone().map(ResourceAction::Place);
+                }
+                if ui
+                    .add_enabled(
+                        !editor.is_busy()
+                            && !editor.documents.is_blocking()
+                            && selected.as_ref().is_some_and(is_authoring_source),
+                        egui::Button::new("编辑源"),
+                    )
+                    .on_disabled_hover_text(
+                        "请选择场景或 .prefab 文件；glTF/GLB 请在建模工具中修改。",
+                    )
+                    .clicked()
+                {
+                    action = selected
+                        .as_ref()
+                        .map(|source| ResourceAction::EditSource(source.source.clone()));
+                }
+                browser.controls(ui);
+            });
+        });
     if editor.resource_build.is_running() {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -98,61 +128,10 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
             ui.label(error);
         });
     }
-    egui::ScrollArea::vertical()
-        .id_salt("resources-list")
-        .show(ui, |ui| {
-            for choice in editor
-                .sources
-                .of_kind(AssetKind::Prefab)
-                .chain(editor.sources.of_kind(AssetKind::Data))
-            {
-                let response = ui.selectable_label(
-                    editor.resource_selection == Some(choice.id),
-                    format!(
-                        "{}  {}",
-                        if choice.kind == AssetKind::Data {
-                            "数据"
-                        } else if is_authoring_source(choice) {
-                            "Prefab"
-                        } else {
-                            "模型"
-                        },
-                        choice.source.display()
-                    ),
-                );
-                if response.clicked() {
-                    editor.resource_selection = Some(choice.id);
-                }
-                if response.double_clicked()
-                    && choice.kind == AssetKind::Prefab
-                    && editor.play.is_none()
-                    && !editor.is_busy()
-                    && Some(choice.id) != editor.document.prefab_asset()
-                {
-                    action = Some(ResourceAction::Place(choice.clone()));
-                }
-            }
-            if editor
-                .sources
-                .of_kind(AssetKind::Prefab)
-                .chain(editor.sources.of_kind(AssetKind::Data))
-                .next()
-                .is_none()
-            {
-                ui.weak("项目中没有已构建的模型、Prefab 或数据。");
-            }
-        });
+    browser.show(editor, ui, assets, &mut action);
     match action {
-        Some(ResourceAction::Place(choice)) => {
-            let result = editor.place_resource(
-                choice.id,
-                &choice
-                    .source
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-                assets,
-            );
+        Some(ResourceAction::Place(source)) => {
+            let result = place(editor, &source, assets);
             editor.notice(result);
         }
         Some(ResourceAction::EditSource(path)) => {

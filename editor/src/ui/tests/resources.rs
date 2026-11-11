@@ -4,6 +4,8 @@ use comet_editor_core::Document;
 use comet_scene::{BodyMotion, ContentSource, PhysicsBody, PrefabInstance, SceneSnapshot};
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
+mod browser;
+
 struct Case {
     _temp: tempfile::TempDir,
     editor: Editor,
@@ -232,6 +234,10 @@ impl Case {
     }
 
     fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+        self.frame_result(events).1
+    }
+
+    fn frame_result(&mut self, events: Vec<egui::Event>) -> (ViewRequest, egui::FullOutput) {
         let number = self.number;
         self.number += 1;
         frame_with_output(
@@ -249,7 +255,6 @@ impl Case {
             },
             events,
         )
-        .1
     }
 
     fn click(&mut self, position: Pos2, modifiers: egui::Modifiers) -> egui::FullOutput {
