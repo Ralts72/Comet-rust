@@ -27,7 +27,7 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert {LOOP, CUE, SCRIPT} <= set(entries[AUDIO_SCENE]["dependencies"])
     assert all(entries[asset]["dependencies"] == [] for asset in (LOOP, CUE, SCRIPT))
     source = read_product(products, entries, AUDIO_SCENE, protocols)["data"]
-    assert protocols["scene"] == 12
+    assert protocols["scene"] == 1
     assert source["version"] == protocols["content"] and source["base"]["version"] == protocols["scene"], "2D scene must use the current protocol"
     owners = {entity["id"]: entity for entity in source["base"]["entities"] if entity.get("audio_source")}
     assert set(owners) == {_LOOP_ENTITY, CUE_ENTITY}
