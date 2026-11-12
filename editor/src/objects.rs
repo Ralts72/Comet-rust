@@ -4,7 +4,7 @@ use comet_asset::AssetStore;
 use comet_core::{AssetId, EntityId, InstanceId};
 use comet_editor_core::ObjectTarget;
 use comet_scene::{ContentSource, EntityData, PrefabResolver, PrefabRoot};
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 enum Owner {
     Authored,
@@ -15,7 +15,69 @@ enum Owner {
     },
 }
 
+pub(crate) struct Clipboard {
+    content: comet_editor_core::ObjectSnapshot,
+    roots: Vec<(EntityId, Owner)>,
+}
+
 impl Editor {
+    pub(crate) fn copy_objects(&mut self, entity: EntityId, assets: &mut AssetStore) -> Result<()> {
+        self.ensure_structural_editable()?;
+        let roots = self.operation_roots(entity, assets)?;
+        let targets: Vec<_> = roots.iter().map(|(id, owner)| owner.target(*id)).collect();
+        let content = self
+            .document
+            .capture_selection(&targets, assets)
+            .context("无法复制选中实体")?;
+        self.clipboard = Some(Clipboard { content, roots });
+        self.status = "已复制实体到剪贴板".into();
+        Ok(())
+    }
+
+    pub(crate) fn paste_objects(
+        &mut self,
+        parent: Option<EntityId>,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.ensure_structural_editable()?;
+        let clipboard = self.clipboard.as_ref().context("实体剪贴板为空")?;
+        let product = comet_asset_data::product::Product::Scene(clipboard.content.source().clone());
+        product
+            .validate_dependency_kinds(|id| {
+                assets.index().products.get(&id).map(|entry| entry.kind)
+            })
+            .context("剪贴板引用的资源已删除或类型已变化")?;
+        let mut dependencies = BTreeSet::new();
+        for asset in product.dependencies() {
+            dependencies.extend(assets.dependency_closure(asset)?);
+        }
+        for asset in dependencies {
+            assets.load(asset).context("无法读取剪贴板的资源依赖")?;
+        }
+        let mut sources = BTreeMap::new();
+        for (_, owner) in &clipboard.roots {
+            if let Owner::Instance { prefab, roots, .. } = owner {
+                if let Entry::Vacant(entry) = sources.entry(*prefab) {
+                    entry.insert(assets.prefab(*prefab)?.prefab_roots(assets)?);
+                }
+                ensure!(
+                    roots.iter().all(|root| sources[prefab].contains(root)),
+                    "复制的资源根已变化，请重新复制实体"
+                );
+            }
+        }
+        let map = self
+            .document
+            .paste_selection(&clipboard.content, parent, assets)
+            .context("无法粘贴实体；请检查父级约束、源资源及引用")?;
+        let selected = copied_selection(&clipboard.roots, std::slice::from_ref(&map));
+        self.picking.clear();
+        self.drag_origin = None;
+        self.selection.replace(selected);
+        self.status = "已粘贴实体".into();
+        Ok(())
+    }
+
     pub(crate) fn rename_object(&mut self, id: EntityId, name: String) -> Result<()> {
         ensure!(self.play.is_none(), "请先停止运行，再重命名作者实体");
         ensure!(!self.is_busy(), "请等待后台任务完成，再重命名实体");

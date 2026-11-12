@@ -1,8 +1,8 @@
-use super::Document;
+use super::{Document, ObjectTarget, selection::capture_objects};
 use anyhow::{Context, Result, ensure};
 use comet_core::{EntityId, math::Mat4};
 use comet_scene::{
-    ContentSource, EntityRef, PrefabResolver, SceneSnapshot, Transform, checked_transform_inverse,
+    ContentSource, EntityRef, PrefabResolver, Transform, checked_transform_inverse,
     world_transforms,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,38 +16,7 @@ impl Document {
         resolver: &mut impl PrefabResolver,
     ) -> Result<ContentSource> {
         self.expand(resolver)?;
-        let source = &self.current.source;
-        let selected = source.base.subtree_ids(&[root])?;
-        let mut content = ContentSource {
-            version: source.version,
-            base: SceneSnapshot {
-                version: source.base.version,
-                entities: source
-                    .base
-                    .entities
-                    .iter()
-                    .filter(|entity| selected.contains(&entity.id))
-                    .cloned()
-                    .collect(),
-            },
-            instances: source
-                .instances
-                .iter()
-                .filter(|instance| {
-                    instance
-                        .parent
-                        .is_some_and(|parent| selected.contains(&parent))
-                })
-                .cloned()
-                .collect(),
-        };
-        content
-            .base
-            .entities
-            .iter_mut()
-            .find(|entity| entity.id == root)
-            .expect("captured root")
-            .parent = None;
+        let mut content = capture_objects(&self.current.source, &[ObjectTarget::Authored(root)])?;
         let snapshot = content
             .expand(resolver)
             .context("Prefab 引用了所选子树以外的实体")?;

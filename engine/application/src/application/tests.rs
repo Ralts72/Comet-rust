@@ -131,6 +131,7 @@ fn host<A: Application>(assets: AssetStore, app: A) -> Host<A> {
         worker: None,
         window: None,
         state: None,
+        clipboard: None,
         options: HostOptions::new("application view test"),
         app,
         assets,

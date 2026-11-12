@@ -339,6 +339,10 @@ mod tests {
         editor.place_resource(id, "放置实例", position.to_array(), &mut assets)?;
         let root = editor.selection.active().unwrap();
         editor.place_copies(root, 2, [-3., 0., 0.], &mut assets)?;
+        let active = editor.selection.active().unwrap();
+        editor.copy_objects(active, &mut assets)?;
+        editor.delete_object(active, &mut assets)?;
+        editor.paste_objects(None, &mut assets)?;
         assert_eq!(editor.document.shared_source().instances.len(), 4);
         assert_eq!(editor.selection.len(), 2);
         let physical_bytes = fs::read(&physical)?;
@@ -367,7 +371,7 @@ mod tests {
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(out.join("editor-resource-tree.json"))?)?;
         assert_eq!(report["application"]["dirty"], true);
-        assert_eq!(report["application"]["history"], 2);
+        assert_eq!(report["application"]["history"], 4);
         assert!(
             report["frames"]
                 .as_array()

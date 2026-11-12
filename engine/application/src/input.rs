@@ -1,5 +1,68 @@
 use comet_core::{Action, ActionEvent, ActionInput, Actions};
 
+/// Keep a paste intent even when the system clipboard has no text. Text widgets still consume
+/// the original platform Paste event; a dedicated key pair never inserts empty text.
+pub(crate) fn preserve_paste_shortcut(
+    raw: &mut egui::RawInput,
+    logical: &winit::keyboard::Key,
+    physical: winit::keyboard::PhysicalKey,
+    fallback: egui::Modifiers,
+    windows: bool,
+) -> bool {
+    use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+    let modifiers = raw
+        .events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            egui::Event::ModifiersChanged(modifiers) => Some(*modifiers),
+            _ => None,
+        })
+        .unwrap_or(fallback);
+    let key = match logical {
+        Key::Named(NamedKey::Paste) => Some(egui::Key::Paste),
+        Key::Named(NamedKey::Insert) => Some(egui::Key::Insert),
+        Key::Character(text) => egui::Key::from_name(text),
+        _ => None,
+    }
+    .or(match physical {
+        PhysicalKey::Code(KeyCode::KeyV) => Some(egui::Key::V),
+        PhysicalKey::Code(KeyCode::Paste) => Some(egui::Key::Paste),
+        PhysicalKey::Code(KeyCode::Insert) => Some(egui::Key::Insert),
+        _ => None,
+    });
+    if key == Some(egui::Key::Paste)
+        || (key == Some(egui::Key::V) && modifiers.command_only())
+        || (windows && key == Some(egui::Key::Insert) && modifiers.shift)
+    {
+        // This is an intent, not a held gameplay key. Finish it in the same event batch.
+        raw.events
+            .extend([true, false].map(|pressed| egui::Event::Key {
+                key: egui::Key::Paste,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers,
+            }));
+        true
+    } else {
+        false
+    }
+}
+
+/// Replace only the current native key's window-local fallback, preserving earlier paste events.
+pub(crate) fn replace_paste_text(raw: &mut egui::RawInput, before: usize, text: Option<String>) {
+    for index in (before..raw.events.len()).rev() {
+        if matches!(raw.events[index], egui::Event::Paste(_)) {
+            raw.events.remove(index);
+        }
+    }
+    if let Some(text) = text.filter(|text| !text.is_empty()) {
+        raw.events
+            .push(egui::Event::Paste(text.replace("\r\n", "\n")));
+    }
+}
+
 fn keyboard_authorized(response: &egui::Response, active: bool) -> bool {
     active
         && (response.has_focus() || !response.ctx.egui_wants_keyboard_input())
@@ -209,5 +272,127 @@ pub fn follow_target(
         let delta = current - previous;
         camera.eye += delta;
         camera.target += delta;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+
+    #[test]
+    fn paste_intents_follow_event_modifiers_and_layout_without_replacing_platform_text() {
+        let physical = PhysicalKey::Code(KeyCode::KeyV);
+        for (logical, key, modifiers, windows, expected) in [
+            (
+                Key::Character("v".into()),
+                physical,
+                egui::Modifiers::COMMAND,
+                false,
+                true,
+            ),
+            (
+                Key::Character("V".into()),
+                physical,
+                egui::Modifiers::COMMAND,
+                true,
+                true,
+            ),
+            (
+                Key::Character("м".into()),
+                physical,
+                egui::Modifiers::COMMAND,
+                false,
+                true,
+            ),
+            (
+                Key::Character("f".into()),
+                physical,
+                egui::Modifiers::COMMAND,
+                false,
+                false,
+            ),
+            (
+                Key::Character("v".into()),
+                physical,
+                egui::Modifiers::NONE,
+                false,
+                false,
+            ),
+            (
+                Key::Character("v".into()),
+                physical,
+                egui::Modifiers::COMMAND.plus(egui::Modifiers::ALT),
+                false,
+                false,
+            ),
+            (
+                Key::Named(NamedKey::Paste),
+                PhysicalKey::Code(KeyCode::Paste),
+                egui::Modifiers::NONE,
+                false,
+                true,
+            ),
+            (
+                Key::Named(NamedKey::Insert),
+                PhysicalKey::Code(KeyCode::Insert),
+                egui::Modifiers::SHIFT,
+                true,
+                true,
+            ),
+            (
+                Key::Named(NamedKey::Insert),
+                PhysicalKey::Code(KeyCode::Insert),
+                egui::Modifiers::SHIFT,
+                false,
+                false,
+            ),
+        ] {
+            for platform in [None, Some(egui::Event::Paste("text".into()))] {
+                let mut raw = egui::RawInput::default();
+                raw.events.push(egui::Event::ModifiersChanged(modifiers));
+                raw.events.extend(platform.clone());
+                let before = raw.events.clone();
+                let matched =
+                    preserve_paste_shortcut(&mut raw, &logical, key, egui::Modifiers::ALT, windows);
+                assert_eq!(matched, expected);
+                assert_eq!(&raw.events[..before.len()], before);
+                assert_eq!(
+                    raw.events.len(),
+                    before.len() + if expected { 2 } else { 0 }
+                );
+                if expected {
+                    for (event, pressed) in raw.events[before.len()..].iter().zip([true, false]) {
+                        assert!(
+                            matches!(event, egui::Event::Key { key: egui::Key::Paste, pressed: p, modifiers: m, .. } if *p == pressed && *m == modifiers)
+                        );
+                    }
+                }
+            }
+        }
+        let mut raw = egui::RawInput::default();
+        preserve_paste_shortcut(
+            &mut raw,
+            &Key::Character("v".into()),
+            physical,
+            egui::Modifiers::COMMAND,
+            false,
+        );
+        assert_eq!(
+            raw.events.len(),
+            2,
+            "retain modifiers when the frame has no modifier changes"
+        );
+        let intent = raw.events.clone();
+        raw.events.insert(0, egui::Event::Paste("earlier".into()));
+        raw.events
+            .insert(1, egui::Event::Paste("stale fallback".into()));
+        replace_paste_text(&mut raw, 1, Some(String::new()));
+        assert_eq!(&raw.events[1..], intent);
+        assert_eq!(raw.events[0], egui::Event::Paste("earlier".into()));
+        replace_paste_text(&mut raw, 1, Some("a\r\nb".into()));
+        assert_eq!(raw.events.last(), Some(&egui::Event::Paste("a\nb".into())));
+        replace_paste_text(&mut raw, 1, None);
+        assert_eq!(&raw.events[1..], intent);
     }
 }

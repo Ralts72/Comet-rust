@@ -104,7 +104,7 @@ pub(super) fn menu(editor: &mut Editor, ui: &mut egui::Ui) {
     });
 }
 
-pub(super) fn edit(editor: &mut Editor, ui: &mut egui::Ui) {
+pub(super) fn edit(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetStore) {
     ui.menu_button("编辑", |ui| {
         for (label, undo) in [("撤销", true), ("重做", false)] {
             if ui
@@ -121,6 +121,32 @@ pub(super) fn edit(editor: &mut Editor, ui: &mut egui::Ui) {
                 editor.notice(result);
                 ui.close();
             }
+        }
+        ui.separator();
+        let editable = editor.ensure_structural_editable().is_ok() && !editor.document.is_editing();
+        if ui
+            .add_enabled(
+                editable && editor.selection.active().is_some(),
+                egui::Button::new("复制实体"),
+            )
+            .on_hover_text("Ctrl/Cmd-C：复制选中组到实体剪贴板，不生成副本。")
+            .clicked()
+        {
+            let result = editor.copy_objects(editor.selection.active().unwrap(), assets);
+            editor.notice(result);
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                editable && editor.clipboard.is_some(),
+                egui::Button::new("粘贴实体"),
+            )
+            .on_hover_text("Ctrl/Cmd-V：粘贴到场景根节点；右键作者实体可粘贴到其下。")
+            .clicked()
+        {
+            let result = editor.paste_objects(None, assets);
+            editor.notice(result);
+            ui.close();
         }
     });
 }

@@ -27,6 +27,14 @@ fn new_project_confirmation_saves_authoring_and_switches_all_project_state() -> 
     let original_root = editor.project_root().to_owned();
     let original_products = editor.products.clone();
     let original_source = editor.source.clone();
+    let copied = editor
+        .snapshot(&mut assets)?
+        .entities
+        .iter()
+        .find(|e| e.parent.is_none())
+        .unwrap()
+        .id;
+    editor.copy_objects(copied, &mut assets)?;
     preview(&mut editor, &mut assets)?;
     editor.start(&mut assets)?;
     let original_play = editor.world();
@@ -39,6 +47,7 @@ fn new_project_confirmation_saves_authoring_and_switches_all_project_state() -> 
     editor.request_document_action(DocumentAction::NewProject(new_root.clone()));
     editor.resolve_transition(Choice::Cancel, &mut assets);
     assert!(!new_root.exists());
+    assert!(editor.clipboard.is_some());
     assert_eq!(editor.world(), original_play);
     assert_eq!(editor.document.shared_source(), authored);
 
@@ -60,6 +69,7 @@ fn new_project_confirmation_saves_authoring_and_switches_all_project_state() -> 
     wait(&mut editor, &mut assets)?;
     assert!(!editor.documents.pending, "{:?}", editor.documents.error);
     assert_eq!(editor.project_root(), new_root.canonicalize()?);
+    assert!(editor.clipboard.is_none());
     assert!(editor.play.is_none());
     assert!(editor.selection.is_empty());
     assert_eq!(editor.document.history_len(), 0);

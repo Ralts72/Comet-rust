@@ -439,6 +439,44 @@ pub(super) fn clone_objects(
     Ok(results)
 }
 
+/// Capture declarations only; detached roots retain their local poses and outgoing references.
+pub(super) fn capture_objects(
+    source: &ContentSource,
+    selection: &[ObjectTarget],
+) -> Result<ContentSource> {
+    let (roots, instances) = selection_targets(source, selection)?;
+    let members = source.base.subtree_ids(&roots)?;
+    let mut content = ContentSource {
+        version: source.version,
+        base: comet_scene::SceneSnapshot {
+            version: source.base.version,
+            entities: source
+                .base
+                .entities
+                .iter()
+                .filter(|e| members.contains(&e.id))
+                .cloned()
+                .collect(),
+        },
+        instances: source
+            .instances
+            .iter()
+            .filter(|i| {
+                instances.contains(&i.id)
+                    || i.parent.is_some_and(|parent| members.contains(&parent))
+            })
+            .cloned()
+            .collect(),
+    };
+    for entity in &mut content.base.entities {
+        entity.parent = entity.parent.filter(|parent| members.contains(parent));
+    }
+    for instance in &mut content.instances {
+        instance.parent = instance.parent.filter(|parent| members.contains(parent));
+    }
+    Ok(content)
+}
+
 fn selection_targets(
     source: &ContentSource,
     selection: &[ObjectTarget],

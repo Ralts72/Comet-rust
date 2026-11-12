@@ -13,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 enum Action {
     CreateChild(EntityId),
     Duplicate(EntityId),
+    Copy(EntityId),
+    Paste(Option<EntityId>),
     PlaceCopies(EntityId),
     SavePrefab(EntityId),
     Delete(EntityId),
@@ -118,6 +120,15 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
             .button(format!("{}根节点", editor.document_kind_label()))
             .on_hover_text("将作者实体拖到这里，取消父级并保持世界变换。");
         action = drop_target(ui, &response, world, editor.selection.generation(), None);
+        response.context_menu(|ui| {
+            if ui
+                .add_enabled(editor.clipboard.is_some(), egui::Button::new("粘贴"))
+                .clicked()
+            {
+                action = Some(Action::Paste(None));
+                ui.close();
+            }
+        });
         if response.clicked() {
             editor.selection.clear();
         }
@@ -143,6 +154,7 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
         authored: &authored,
         world,
         can_edit,
+        can_paste: editor.clipboard.is_some(),
         visible: &visible,
     };
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -158,6 +170,8 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
         let result = match action {
             Action::CreateChild(id) => editor.create_object(Some(id), assets),
             Action::Duplicate(id) => editor.duplicate_object(id, assets),
+            Action::Copy(id) => editor.copy_objects(id, assets),
+            Action::Paste(parent) => editor.paste_objects(parent, assets),
             Action::PlaceCopies(entity) => {
                 ui.ctx().data_mut(|data| {
                     data.insert_temp(
@@ -193,6 +207,7 @@ struct Tree<'a> {
     authored: &'a BTreeSet<EntityId>,
     world: WorldId,
     can_edit: bool,
+    can_paste: bool,
     visible: &'a [EntityId],
 }
 impl Tree<'_> {
@@ -275,6 +290,22 @@ impl Tree<'_> {
                                 *action = Some(operation);
                                 ui.close();
                             }
+                        }
+                        if ui
+                            .add_enabled(placeable, egui::Button::new("复制到剪贴板"))
+                            .on_hover_text("Ctrl/Cmd-C：保留选中组，之后可粘贴多次。")
+                            .clicked()
+                        {
+                            *action = Some(Action::Copy(entity.id));
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(self.can_paste && authored, egui::Button::new("粘贴"))
+                            .on_hover_text("保留局部变换，粘贴到此作者实体下。")
+                            .clicked()
+                        {
+                            *action = Some(Action::Paste(Some(entity.id)));
+                            ui.close();
                         }
                         if ui
                             .add_enabled(placeable, egui::Button::new("批量放置..."))

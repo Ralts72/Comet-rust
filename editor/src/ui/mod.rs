@@ -45,7 +45,7 @@ pub(crate) fn show(
                         ui.separator();
                         project::files(editor, ui, assets);
                         project::menu(editor, ui);
-                        project::edit(editor, ui);
+                        project::edit(editor, ui, assets);
                         workspace.menu(ui, editor);
                         ui.separator();
                         if ui.button("新建场景").clicked() {
@@ -157,6 +157,57 @@ pub(crate) fn show(
         return view.finish(editor, assets, ctx, active);
     }
     if editor.play.is_none() && !ctx.text_edit_focused() {
+        if active
+            && editor.drag_origin.is_none()
+            && !editor.documents.is_blocking()
+            && !ctx.egui_is_using_pointer()
+        {
+            let (mut copy, mut paste) = (false, false);
+            ctx.input_mut(|input| {
+                input.events.retain(|event| {
+                    let command = match event {
+                        egui::Event::Copy => Some(false),
+                        egui::Event::Paste(_) => Some(true),
+                        egui::Event::Key {
+                            key: egui::Key::Paste,
+                            pressed: true,
+                            repeat: false,
+                            ..
+                        } => Some(true),
+                        egui::Event::Key {
+                            key,
+                            pressed: true,
+                            repeat: false,
+                            modifiers,
+                            ..
+                        } if modifiers.command && !modifiers.alt && !modifiers.shift => match key {
+                            egui::Key::C => Some(false),
+                            egui::Key::V => Some(true),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(is_paste) = command {
+                        if is_paste {
+                            paste = true;
+                        } else {
+                            copy = true;
+                        }
+                        false
+                    } else {
+                        true
+                    }
+                })
+            });
+            if copy && let Some(id) = editor.selection.active() {
+                let result = editor.copy_objects(id, assets);
+                editor.notice(result);
+            }
+            if paste && editor.clipboard.is_some() {
+                let result = editor.paste_objects(None, assets);
+                editor.notice(result);
+            }
+        }
         if active
             && editor.drag_origin.is_none()
             && !view.owns_pointer

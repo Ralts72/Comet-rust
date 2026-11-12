@@ -8,10 +8,12 @@ use comet_scene::{
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
 pub const HISTORY_CAPACITY: usize = 256;
+mod clipboard;
 mod hierarchy;
 mod joints;
 mod placement;
 mod selection;
+pub use clipboard::ObjectSnapshot;
 pub use joints::JointEdit;
 pub use placement::MAX_PLACEMENT_COPIES;
 pub use selection::{CloneMap, FieldEdit, FieldTarget, ObjectTarget, OverrideReset};

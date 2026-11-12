@@ -137,6 +137,7 @@ Render 的直接工程依赖只保留 Core 与资产数据；Scene 和 Store 的
 | 原生窗口句柄 | `raw-window-handle`、`raw-window-metal` | `engine/render` |
 | Shader 翻译 | `naga` | `engine/render`：WGSL 输入、MSL/SPIR-V 输出 |
 | 窗口与 UI | `winit`、`egui`、`egui-winit`、`egui_tiles` | 根 workspace、Application、Editor、Render |
+| 原生文本剪贴板 | `arboard = 3.7.0`，关闭默认及图片功能 | 根 workspace、Application 私有适配；macOS/Windows 系统 API、Linux X11 |
 | 静态模型导入 | `gltf`、`base64`、`percent-encoding` | `engine/asset/pipeline` |
 | PNG/JPEG 解码 | `image`、`png` | `engine/asset/pipeline` |
 | 窗口图标解码、验收截图编码 | `png` | `engine/application` / `engine/render`，不用于导入作者源 |
@@ -193,6 +194,8 @@ ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Pr
 单份复制与批量放置共用子树收集和实例引用映射，均接受作者实体、直接资源实例及混合选择。Scene 一次收集原始作者成员、分别生成每份 EntityId 映射；Editor Core 为显式实例和挂接实例生成独立 InstanceId 映射，保留源键、外部引用和未选中内容。`document/placement.rs` 负责世界间距和实际展开位移校验，结构复制留在 selection；完整展开及命令约束通过后，Document 统一发布一条历史。最外层作者根与未被作者副本覆盖的实例声明分别施加 n 倍世界间距，经各自挂接父级逆矩阵换回局部平移；被复制子树内的实例只继承父级位移。实例覆盖及嵌套关联不改写。发布前逐份复核作者成员与全部实际 Prefab 根的世界位移，拒绝非有限、奇异和精度不足的候选，包括源根平移吞掉实例增量的情况；零间距保留原值且不要求父级可逆，角色/导航唯一性仍需满足。份数沿用旧版 1～1000；复制与批量放置共用选择投影，保留所选实际根与每组主选顺序。放置草稿只由 UI Context 持有，文档世界、revision、选择意图、产品变化或失活使其失效，不进入作者文件或历史。
 
 原生 `.prefab` 与 `.scene` 使用同一文档、路径及候选流程；按后缀核对对应产品类型，比较规范化内容，并保留原始作者字节摘要供接纳复查。glTF/GLB 生成的 Prefab 产品不属于可写作者文档。编辑源时直接维护原始 EntityId、InstanceId 与多根层级，不额外实例化或插入虚拟根；Undo 只改文档，Save 原子写源，资源构建后才接纳新产品。Prefab 的 Play 同样使用独立世界，游戏换关仍只加载 Scene。
+
+实体剪贴板由 Editor 持有；Editor Core 的 `ObjectSnapshot` 只拥有选中作者子树和直接实例的不可变声明快照，不保存产品、GPU 对象或运行世界。剪贴板和“保存为 Prefab”复用 selection 中的声明捕获，随作者子树包含挂接实例、去重重叠选择、清除集合外父级并保留局部姿态；Prefab 捕获仍单独要求引用闭合，并允许读取当前预览。粘贴生成一份 EntityId／InstanceId 映射，重映射作者引用及父级，保留子源覆盖的词法作用域，经 Document 完整展开后统一发布。含组外 Local／InInstance 引用的快照绑定原 WorldId；即使另一文档恰有相同 UUID，也不跨世界绑定，显式 External 场景资产引用仍沿用原协议。Editor 在发布前复用 Product 的资源类型检查与 Store 的当前依赖闭包，读取产品并复查捕获的实际资源根元数据；被删除、类型变化或不可读的依赖拒绝粘贴，源根变化要求重新复制。Core 仅提供快照声明的只读视图，不接入 Store；失败保留剪贴板、选择、预览和历史。同项目文档切换保留剪贴板，成功切换项目才清空；Application 在窗口主线程持有纯文本系统剪贴板，接收 egui 的 CopyText，并在原生粘贴按键到达时读取文本；无系统后端时保留 egui 的窗口内文本剪贴板。适配只依赖 arboard 的文本能力，不让图片解码进入独立 App，退出时释放系统剪贴板。原生粘贴同时保留独立 Paste 按键意图，空或非文本内容不伪造空文本、不复用过期的窗口内文本；实体复制不写入系统剪贴板。Editor 合并消费原生与键盘事件，文本焦点、失活、Play、拖动及文档模态隔离实体命令。
 
 `create_scene` 与 `create_prefab` 共用 Pipeline 私有作者文件创建规则：项目锁、资源边界、固定后缀和排他创建；先原子预留 metadata，再原子发布空 ContentSource。已有合法 metadata 保留原字节与 UUID，失败重试可复用，两个文件不是同时提交。Editor 通过项目面板新建 Prefab；文档浏览器用明确的打开/新建场景/新建 Prefab 模式，创建后加载失败改为打开现成文件重试。新建资产不进入当前文档的撤销历史，打开后建立独立文档历史。
 

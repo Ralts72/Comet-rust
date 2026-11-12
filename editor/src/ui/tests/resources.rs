@@ -5,6 +5,7 @@ use comet_scene::{BodyMotion, ContentSource, PhysicsBody, PrefabInstance, SceneS
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 mod browser;
+mod clipboard;
 
 struct Case {
     _temp: tempfile::TempDir,

@@ -164,6 +164,7 @@ impl Editor {
         self.stop();
         if changed {
             self.console.reset();
+            self.clipboard = None;
         }
         self.picking.clear();
         self.paths = candidate.paths;

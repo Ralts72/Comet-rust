@@ -116,6 +116,7 @@ struct Host<A: Application> {
     worker: Option<RenderWorker>,
     window: Option<Arc<Window>>,
     state: Option<egui_winit::State>,
+    clipboard: Option<arboard::Clipboard>,
     options: HostOptions,
     app: A,
     assets: AssetStore,
@@ -143,6 +144,7 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         worker: None,
         window: None,
         state: None,
+        clipboard: None,
         options,
         app,
         assets,
@@ -234,6 +236,13 @@ impl<A: Application> Host<A> {
             None,
             Some(16384),
         ));
+        self.clipboard = match arboard::Clipboard::new() {
+            Ok(clipboard) => Some(clipboard),
+            Err(error) => {
+                eprintln!("系统剪贴板不可用，保留窗口内文本剪贴板：{error}");
+                None
+            }
+        };
         window.request_redraw();
         self.window = Some(window);
         Ok(())
@@ -356,6 +365,15 @@ impl<A: Application> Host<A> {
             primitives: vec![],
         };
         if let (Some(window), Some(state)) = (&self.window, &mut self.state) {
+            if let Some(clipboard) = &mut self.clipboard {
+                for command in &output.platform_output.commands {
+                    if let egui::OutputCommand::CopyText(text) = command
+                        && let Err(error) = clipboard.set_text(text.clone())
+                    {
+                        eprintln!("无法写入系统剪贴板：{error}");
+                    }
+                }
+            }
             state.handle_platform_output(window, output.platform_output.clone());
         }
         let Some((view, draws)) = prepared.context("application did not prepare a view")?? else {
@@ -413,7 +431,37 @@ impl<A: Application> ApplicationHandler for Host<A> {
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         if let (Some(window), Some(state)) = (&self.window, &mut self.state) {
+            let before = state.egui_input().events.len();
             let _ = state.on_window_event(window, &event);
+            if let WindowEvent::KeyboardInput {
+                event,
+                is_synthetic: false,
+                ..
+            } = &event
+                && event.state == winit::event::ElementState::Pressed
+            {
+                let raw = state.egui_input_mut();
+                let paste = crate::input::preserve_paste_shortcut(
+                    raw,
+                    &event.logical_key,
+                    event.physical_key,
+                    self.ctx.input(|input| input.modifiers),
+                    cfg!(windows),
+                );
+                if paste && let Some(clipboard) = &mut self.clipboard {
+                    // Replace only this key's fallback text. Empty/non-text OS contents must not
+                    // paste stale window-local text or delete a focused field's selection.
+                    let text = match clipboard.get_text() {
+                        Ok(text) => Some(text),
+                        Err(arboard::Error::ContentNotAvailable) => None,
+                        Err(error) => {
+                            eprintln!("无法读取系统剪贴板：{error}");
+                            None
+                        }
+                    };
+                    crate::input::replace_paste_text(raw, before, text);
+                }
+            }
         }
         match event {
             WindowEvent::CloseRequested => {
@@ -456,6 +504,7 @@ impl<A: Application> ApplicationHandler for Host<A> {
         }
     }
     fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.clipboard.take();
         self.shutdown_audio();
         if let Some(worker) = &mut self.worker
             && let Err(error) = worker.close()

@@ -50,6 +50,8 @@ def audit(target=None):
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "rune"}
         if name != "comet-editor":
             forbidden.add("egui_tiles")
+        if name not in {"comet-application", "comet-editor", "comet-app"}:
+            forbidden.add("arboard")
         if name not in {"comet-runtime", "comet-editor", "comet-app"}:
             forbidden.add("rapier3d")
             forbidden.add("landmass")
@@ -77,6 +79,8 @@ def audit(target=None):
         direct_packages={packages[d["pkg"]]["name"] for d in nodes[root]["deps"] if any(k["kind"] != "dev" for k in d["dep_kinds"])}
         if name != "comet-core" and "glam" in direct_packages:
             raise RuntimeError(f"{name} must use comet_core::math instead of depending directly on glam")
+        if name != "comet-application" and "arboard" in direct_packages:
+            raise RuntimeError(f"{name} must use the Application clipboard adapter instead of depending directly on arboard")
         if name != "comet-runtime" and "rhai" in direct_packages:
             raise RuntimeError(f"{name} must use the runtime script API instead of depending directly on rhai")
         if name != "comet-runtime" and "landmass" in direct_packages:
