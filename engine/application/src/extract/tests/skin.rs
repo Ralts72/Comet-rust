@@ -85,7 +85,7 @@ fn rig(products: &mut Products) -> Result<Rig> {
     let Product::Mesh(mut mesh) = mesh.payload.clone() else {
         unreachable!()
     };
-    mesh.version = 2;
+    mesh.version = comet_asset_data::product::MESH_VERSION;
     mesh.joints = Some(vec![[0, 1, 0, 0]; mesh.positions.len()]);
     mesh.weights = Some(vec![[0.25, 0.75, 0., 0.]; mesh.positions.len()]);
     products.write(products.mesh, Product::Mesh(mesh))?;

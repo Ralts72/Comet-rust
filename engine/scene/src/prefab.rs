@@ -7,7 +7,7 @@ use comet_core::{AssetId, EntityId, InstanceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CONTENT_VERSION: u32 = 2;
+pub const CONTENT_VERSION: u32 = 1;
 
 fn translated(value: [f32; 3], offset: [f32; 3]) -> Result<[f32; 3]> {
     let result = if offset == [0.; 3] {

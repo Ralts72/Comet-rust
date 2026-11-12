@@ -41,7 +41,7 @@ fn project_resource_drag_places_real_roots_once_and_rejects_changed_contexts() -
     assert!(
         comet_core::math::Vec3::from(placed.instances[0].translation).distance(expected) < 1e-3
     );
-    assert_eq!(placed.version, 2);
+    assert_eq!(placed.version, comet_scene::prefab::CONTENT_VERSION);
     assert_eq!(placed.instances.len(), 1);
     assert!(placed.base.entities.is_empty());
     assert_eq!(c.editor.document.history_len(), 1);

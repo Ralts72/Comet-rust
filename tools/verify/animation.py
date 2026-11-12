@@ -55,7 +55,7 @@ def _curve(author_assets):
 
 def inspect_package(products: Path, protocols: dict, read_product, author_assets: Path) -> dict:
     index = json.loads((products / "index.json").read_text(encoding="utf-8"))
-    assert index["version"] == protocols["index"] and protocols["scene"] == 12
+    assert index["version"] == protocols["index"] and protocols["scene"] == 1
     entries = index["products"]
     assert all("editor" not in entry for entry in entries.values()), "package retains editor provenance"
     kinds = {SOURCE: "prefab", SKELETON: "skeleton", SKIN: "skin", CLIP: "animation_clip",
@@ -71,7 +71,7 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert len(scene["instances"]) == 1 and scene["instances"][0]["id"] == INSTANCE
     assert scene["instances"][0]["prefab"] == SOURCE and scene["instances"][0]["overrides"] == []
     skeleton, skin, clip, mesh = (read(asset) for asset in (SKELETON, SKIN, CLIP, MESH))
-    assert skeleton["version"] == skin["version"] == 1 and clip["version"] == 3 and mesh["version"] == 2
+    assert skeleton["version"] == skin["version"] == 1 and clip["version"] == 1 and mesh["version"] == 1
     assert clip["events"] == [{"phase": 1.0, "name": "动作完成"}]
     nodes = {node["id"]: node for node in skeleton["nodes"]}
     assert set(nodes) == set(NODES) and skin["skeleton"] == clip["skeleton"] == SKELETON
@@ -197,7 +197,7 @@ def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect
     run("cubic_inspect", [assetc, "inspect", relocated / packaged_products, CLIP])
     protocols = json.loads(template.read_text())["identity"]["protocols"]
     clip = read_product(relocated / packaged_products, index["products"], CLIP, protocols)["data"]
-    assert clip["version"] == 3 and clip["duration"] == 2.
+    assert clip["version"] == 1 and clip["duration"] == 2.
     assert clip["channels"][0]["interpolation"] == "cubic_spline"
     assert clip["channels"][0]["values"]["data"] == values
     captures = []
@@ -224,5 +224,5 @@ def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect
             pose = next(pose for pose in runtime["animation_poses"] if pose["source"] == NODES[2])
             _close(pose["rotation"], expected)
             captures.append({"name": name, "sample_time": time, "png_sha256": png["sha256"]})
-    return {"status": "passed", "clip_version": 2, "package": str(relocated),
+    return {"status": "passed", "clip_version": 1, "package": str(relocated),
             "authoring_sources_absent": not project.exists(), "runtime_captures": captures}

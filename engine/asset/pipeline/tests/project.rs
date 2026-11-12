@@ -140,7 +140,7 @@ fn new_projects_publish_only_authoring_files_and_keep_the_entry_identity_on_rebu
         ]
     );
     let settings = ProjectSettings::load(&paths)?;
-    assert_eq!(settings.version, 2);
+    assert_eq!(settings.version, 1);
     let scene = paths.resolve_asset_path(DEFAULT_SCENE)?;
     let source = comet_scene::ContentSource::from_json(&fs::read(&scene)?)?;
     assert_eq!(source.base.version, comet_scene::scene::SCENE_VERSION);
@@ -189,14 +189,12 @@ fn invalid_project_versions_fields_and_paths_are_rejected_without_overwriting() 
     let configuration = paths.root().join("project.json");
     let id = comet_core::GameId::new();
     for invalid in [
-        serde_json::json!({"version":1,"game_id":id}),
+        serde_json::json!({"version":2,"game_id":id}),
+        serde_json::json!({"version":1}),
         serde_json::json!({"version":1,"game_id":null}),
-        serde_json::json!({"version":2}),
-        serde_json::json!({"version":2,"game_id":null}),
-        serde_json::json!({"version":2,"game_id":"00000000-0000-0000-0000-000000000000"}),
-        serde_json::json!({"version":2,"game_id":"bad"}),
-        serde_json::json!({"version":2,"game_id":id,"future":true}),
-        serde_json::json!({"version":3,"game_id":id}),
+        serde_json::json!({"version":1,"game_id":"00000000-0000-0000-0000-000000000000"}),
+        serde_json::json!({"version":1,"game_id":"bad"}),
+        serde_json::json!({"version":1,"game_id":id,"future":true}),
     ] {
         let bytes = serde_json::to_vec(&invalid)?;
         fs::write(&configuration, &bytes)?;

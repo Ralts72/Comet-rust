@@ -33,7 +33,7 @@ def inspect_package(products, protocols, read_product, author_assets):
         assert coordinator["parameters"]["next_scene"]["value"] == SCENES[1 - SCENES.index(scene)]
         assert {coordinator["parameters"][f"target_{i}"]["value"]["entity"] for i in (1, 2, 3)} == {e["id"] for e in targets}
     clip = read_product(products, entries, CLIP, protocols)["data"]
-    assert clip["version"] == 3 and clip["events"] == [{"phase": 1.0, "name": "动作完成"}]
+    assert clip["version"] == 1 and clip["events"] == [{"phase": 1.0, "name": "动作完成"}]
     source = (author_assets / "scripts/collection_level.rhai").read_text()
     assert read_product(products, entries, SCRIPT, protocols)["data"]["source"] == source
     controller = read_product(products, entries, CONTROLLER, protocols)["data"]
@@ -49,7 +49,7 @@ def inspect_package(products, protocols, read_product, author_assets):
     assert len(read_product(products, entries, controller["skeleton"], protocols)["data"]["nodes"]) == 67
     assert read_product(products, entries, FEEDBACK, protocols)["data"]["source"] == (author_assets / "scripts/character_feedback.rhai").read_text()
     return {"status": "passed", "scenes": list(SCENES), "independent_targets": 6,
-            "clip_event_version": 3, "controller_version": 1, "locomotion_clips": len(clips),
+            "clip_event_version": 1, "controller_version": 1, "locomotion_clips": len(clips),
             "script_sha256": hashlib.sha256(source.encode()).hexdigest()}
 
 

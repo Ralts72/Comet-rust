@@ -7,9 +7,9 @@ use comet_scene::{ContentSource, EntityRef, SceneSnapshot, schema};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const PRODUCT_VERSION: u32 = 6;
-pub const INDEX_VERSION: u32 = 7;
-pub const MESH_VERSION: u32 = 2;
+pub const PRODUCT_VERSION: u32 = 1;
+pub const INDEX_VERSION: u32 = 1;
+pub const MESH_VERSION: u32 = 1;
 pub const SCRIPT_VERSION: u32 = 1;
 pub const MAX_SCRIPT_BYTES: usize = 64 * 1024;
 pub const MAX_EDITOR_LABEL_BYTES: usize = 4 * 1024;

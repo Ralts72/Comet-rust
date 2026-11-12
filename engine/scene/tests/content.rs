@@ -632,7 +632,7 @@ fn instance_translation_versions_roots_and_detachment_preserve_scopes() -> Resul
     let bytes = source.to_json()?;
     assert_eq!(ContentSource::from_json(&bytes)?, source);
     let mut wire: serde_json::Value = serde_json::from_slice(&bytes)?;
-    wire["version"] = 1.into();
+    wire["version"] = (comet_scene::prefab::CONTENT_VERSION + 1).into();
     assert!(ContentSource::from_json(&serde_json::to_vec(&wire)?).is_err());
     wire["version"] = comet_scene::prefab::CONTENT_VERSION.into();
     wire["instances"][0]

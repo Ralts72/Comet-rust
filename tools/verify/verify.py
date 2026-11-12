@@ -320,7 +320,7 @@ def inspect_navigation_package(products, protocols):
     assert NAVIGATION_DATA in entries[NAVIGATION_SCENE]["dependencies"]
     assert entries[NAVIGATION_DATA]["dependencies"] == []
     source = read_product(products, entries, NAVIGATION_SCENE, protocols)["data"]
-    assert source["base"]["version"] == protocols["scene"] and protocols["scene"] == 12
+    assert source["base"]["version"] == protocols["scene"] and protocols["scene"] == 1
     region = next(entity["navigation_region"] for entity in source["base"]["entities"]
                   if entity.get("navigation_region"))
     assert region["data"] == NAVIGATION_DATA
@@ -586,7 +586,7 @@ def scaled_geometry_project(project, scale, normal_magnitude=1., *, gltf_missing
     transform = {"translation": [0., 0.7, 0.], "rotation": rotation, "scale": scale}
     material_data = {"version": 1, "base_color": [0.85, 0.18, 0.08, 1.],
                      "roughness": 0.6, "metallic": 0., "base_color_texture": None}
-    content = {"version": 2, "base": {"version": 12, "entities": []}, "instances": []}
+    content = {"version": 1, "base": {"version": 1, "entities": []}, "instances": []}
     identities = {"scene": scene}
     sources = {"main.scene": (scene, content)}
     if gltf_missing_normals:
@@ -621,14 +621,14 @@ def scaled_geometry_project(project, scale, normal_magnitude=1., *, gltf_missing
             "links": {"target": None, "connections": []},
         }]
         sources.update({
-            "triangle.mesh": (mesh, {"version": 2, "positions": positions, "normals": [normal] * 3,
+            "triangle.mesh": (mesh, {"version": 1, "positions": positions, "normals": [normal] * 3,
                                      "uvs": [[0., 0.], [1., 0.], [0.5, 1.]], "indices": [0, 1, 2]}),
             "red.material": (material, material_data),
         })
     for filename, (asset, value) in sources.items():
         (assets / filename).write_text(json.dumps(value, allow_nan=False) + "\n")
         (assets / f"{filename}.meta").write_text(json.dumps({"version": 1, "id": asset}) + "\n")
-    (project / "project.json").write_text(json.dumps({"version": 2, "game_icon": None, "game_id": str(uuid.uuid4())}) + "\n")
+    (project / "project.json").write_text(json.dumps({"version": 1, "game_icon": None, "game_id": str(uuid.uuid4())}) + "\n")
     return {**identities, "scale": scale, "rotation": rotation, "normal_magnitude": normal_magnitude,
             "normal_source": "generated" if gltf_missing_normals else "authored",
             "world_positions": scaled_world_positions(triangle, [1.] * 3, rotation),
@@ -786,7 +786,7 @@ def main():
         shutil.copyfile(ROOT / "editor/resources/icons/editor.png", project / "assets/icons/game.png")
         scene = "40000000-0000-4000-8000-000000000001"
         extra = "70000000-0000-4000-8000-000000000001"
-        (project / "assets/extra.scene").write_text(json.dumps({"version": 2, "base": {"version": 12, "entities": []}, "instances": []}))
+        (project / "assets/extra.scene").write_text(json.dumps({"version": 1, "base": {"version": 1, "entities": []}, "instances": []}))
         (project / "assets/extra.scene.meta").write_text(json.dumps({"version": 1, "id": extra}))
         verify_navigation_bake(case, assetc, editor, template, project, products)
         run("prepare", [assetc, "prepare", project, "--output", products])
@@ -852,12 +852,12 @@ def main():
         manifest_relative = products_relative.parent / "package.json"
         manifest = json.loads((built / manifest_relative).read_text())
         project_settings = json.loads((project / "project.json").read_text())
-        assert project_settings["version"] == 2 and uuid.UUID(project_settings["game_id"]).int != 0
-        assert manifest["version"] == 4 and manifest["game_id"] == project_settings["game_id"]
+        assert project_settings["version"] == 1 and uuid.UUID(project_settings["game_id"]).int != 0
+        assert manifest["version"] == 1 and manifest["game_id"] == project_settings["game_id"]
         assert set(manifest["scenes"]) == {scene, extra, DEMO_JOINT_SCENE, NAVIGATION_SCENE, audio_verification.AUDIO_SCENE, spatial_verification.SCENE, collect_verification.SCENE, animation_verification.SCENE, *TRAVEL_SCENES, *character_verification.SCENES, combat_verification.SCENE} and manifest["entry_scene"] == scene
         assert manifest["runtime"]["build_id"] == programs["build_id"]
         template_manifest = json.loads(template.read_text())
-        assert template_manifest["version"] == 4
+        assert template_manifest["version"] == 1
         icon = built / manifest_relative.parent / "app.icns"
         assert icon.read_bytes().startswith(b"icns")
         assert icon.read_bytes() != (ROOT / "app/resources/icons/app.icns").read_bytes()
@@ -922,7 +922,7 @@ def main():
         run("standalone_joint_scene", [assetc, "expand", relocated / products_relative, DEMO_JOINT_SCENE,
                                        "--output", joint_snapshot], cwd=empty)
         expanded = json.loads(joint_snapshot.read_text())
-        assert expanded["version"] == manifest["runtime"]["protocols"]["scene"] and manifest["runtime"]["protocols"]["scene"] == 12
+        assert expanded["version"] == manifest["runtime"]["protocols"]["scene"] and manifest["runtime"]["protocols"]["scene"] == 1
         for component in ("point_joint", "hinge_joint", "slider_joint"):
             assert sum(entity.get(component) is not None for entity in expanded["entities"]) == 1
         run("standalone_runtime_identity", [app, "--template-info"], cwd=empty)

@@ -170,7 +170,7 @@ fn animation_event_import_rejects_bad_tracks_before_replacing_the_accepted_produ
     let Product::AnimationClip(clip) = &old.payload else {
         panic!("animation clip")
     };
-    assert_eq!(clip.version, 3);
+    assert_eq!(clip.version, comet_asset_data::ANIMATION_CLIP_VERSION);
     assert_eq!(clip.events.len(), 1);
     for events in [
         serde_json::json!([{"phase":-0.1,"name":"bad"}]),
@@ -247,7 +247,7 @@ fn official_skin_builds_typed_products_and_scoped_bindings_then_loads_without_au
     };
     assert_eq!(
         (mesh.version, mesh.positions.len(), mesh.indices.len()),
-        (2, 10, 24)
+        (comet_asset_data::product::MESH_VERSION, 10, 24)
     );
     skin.validate_mesh(mesh)?;
     let clip = store.load(model().child("animation:index:0"))?;

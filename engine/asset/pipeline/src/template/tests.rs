@@ -19,7 +19,7 @@ fn templates_match_explicit_program_identity_and_verify_all_snapshot_inputs() ->
     fs::create_dir(root.join("icons"))?;
     fs::write(root.join("icons/app.icns"), b"app icon")?;
     let manifest = AppTemplateManifest {
-        version: 4,
+        version: 1,
         identity: identity.clone(),
         profile: "release".into(),
         app: "comet-app".into(),

@@ -38,7 +38,7 @@ def prepare_smoke_project(project: Path) -> None:
 
 def inspect_package(products: Path, protocols: dict, read_product, author_assets: Path) -> dict:
     index = json.loads((products / "index.json").read_text(encoding="utf-8"))
-    assert index["version"] == protocols["index"] and protocols["scene"] == 12
+    assert index["version"] == protocols["index"] and protocols["scene"] == 1
     entries = index["products"]
     assert all("editor" not in entry for entry in entries.values()), "package retains editor provenance"
     assert entries[SCENE]["kind"] == "scene" and entries[SCRIPT]["kind"] == "script"

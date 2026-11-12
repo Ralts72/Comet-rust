@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comet_asset::AssetStore;
-use comet_asset_data::product::{AssetKind, INDEX_VERSION, MAX_SCRIPT_BYTES, Product};
+use comet_asset_data::product::{AssetKind, MAX_SCRIPT_BYTES, Product};
 use comet_asset_pipeline::{
     DEFAULT_SCENE, SourceCatalog, SourceMeta, create_project, package, prepare,
 };
@@ -210,15 +210,16 @@ fn packaged_script_closure_loads_after_authoring_and_development_products_are_re
 }
 
 #[test]
-fn prepare_rejects_unsupported_and_corrupt_indexes_without_replacing_them() -> Result<()> {
+fn prepare_rebuilds_invalid_cache_from_sources_and_keeps_it_on_failed_builds() -> Result<()> {
     let fixture = Fixture::new()?;
     prepare(&fixture.root, &fixture.products)?;
     let path = fixture.products.join("index.json");
     let rebuilt = AssetStore::open(&fixture.products)?;
     let current = fs::read(&path)?;
+    let metadata = fs::read(SourceMeta::path(&fixture.source()))?;
     for bytes in [
         b"not json".to_vec(),
-        serde_json::to_vec(&serde_json::json!({"version":99,"products":{}}))?,
+        serde_json::to_vec(&serde_json::json!({"version":6,"products":[]}))?,
         {
             let mut bad = rebuilt.index().clone();
             bad.products.values_mut().next().unwrap().digest = "invalid".into();
@@ -236,19 +237,20 @@ fn prepare_rejects_unsupported_and_corrupt_indexes_without_replacing_them() -> R
         },
     ] {
         fs::write(&path, &bytes)?;
+        assert!(AssetStore::open(&fixture.products).is_err());
+        fs::write(fixture.source(), b"\0")?;
         assert!(prepare(&fixture.root, &fixture.products).is_err());
         assert_eq!(fs::read(&path)?, bytes);
+        fs::write(fixture.source(), SOURCE)?;
+        let report = prepare(&fixture.root, &fixture.products)?;
+        assert_eq!(report.changed, rebuilt.index().products.len());
+        assert_eq!(report.reused, 0);
+        assert_eq!(fs::read(&path)?, current);
+        assert_eq!(fs::read(SourceMeta::path(&fixture.source()))?, metadata);
     }
-    for version in 0..INDEX_VERSION {
-        let mut unsupported = rebuilt.index().clone();
-        unsupported.version = version;
-        let bytes = serde_json::to_vec(&unsupported)?;
-        fs::write(&path, &bytes)?;
-        assert!(prepare(&fixture.root, &fixture.products).is_err());
-        assert_eq!(fs::read(&path)?, bytes);
-    }
-    fs::write(&path, current)?;
-    prepare(&fixture.root, &fixture.products)?;
+    let report = prepare(&fixture.root, &fixture.products)?;
+    assert_eq!(report.changed, 0);
+    assert_eq!(report.reused, rebuilt.index().products.len());
     assert_eq!(digest(&fs::read(path)?), rebuilt.revision());
     Ok(())
 }

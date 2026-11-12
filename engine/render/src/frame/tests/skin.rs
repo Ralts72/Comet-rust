@@ -7,7 +7,7 @@ fn point_and_rectangle_follow_each_retained_pose_instead_of_the_bind_mesh() {
     let Product::Mesh(mesh) = &mut mesh.payload else {
         unreachable!()
     };
-    mesh.version = 2;
+    mesh.version = comet_asset_data::product::MESH_VERSION;
     mesh.joints = Some(vec![[0; 4]; 3]);
     mesh.weights = Some(vec![[1., 0., 0., 0.]; 3]);
     draw.skin = Some(Arc::new(
@@ -117,7 +117,7 @@ fn native_skinning_matches_static_geometry_normals_and_shadows() -> anyhow::Resu
         let Product::Mesh(mesh) = &mut product.payload else {
             unreachable!()
         };
-        mesh.version = 2;
+        mesh.version = comet_asset_data::product::MESH_VERSION;
         mesh.positions[2][2] = 0.8;
         mesh.normals
             .fill(Vec3::new(0., -0.4, 1.).normalize().to_array());

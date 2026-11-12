@@ -267,7 +267,7 @@ def prepare_programs(slot):
         shutil.copyfile(app_icon, template / "icons/app.icns")
         for name, source in notice_sources.items():
             shutil.copyfile(source, template / "licenses" / name)
-        manifest = {"version": 4, "identity": info["identity"], "profile": "release", "app": app.name,
+        manifest = {"version": 1, "identity": info["identity"], "profile": "release", "app": app.name,
                     "app_sha256": file_digest(template / app.name), "editor_sha256": file_digest(prepared_editor),
                     "app_icon_sha256": icns_digest(app_icon),
                     "notices": {name: file_digest(path) for name, path in notice_sources.items()}}

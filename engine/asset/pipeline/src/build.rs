@@ -288,12 +288,11 @@ fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error).context("read previous product index"),
     };
-    let previous: ProductIndex = serde_json::from_slice(&bytes)
-        .context("parse previous product index; the existing index is invalid")?;
-    previous
-        .validate()
-        .context("validate previous product index")?;
-    Ok(Some(previous))
+    // The index is only a comparison cache. Sources build a complete candidate independently;
+    // obsolete or damaged cache bytes must not prevent publishing that validated candidate.
+    Ok(serde_json::from_slice::<ProductIndex>(&bytes)
+        .ok()
+        .filter(|index| index.validate().is_ok()))
 }
 fn verify_snapshot(assets: &Path, paths: &[PathBuf], inputs: &[Input]) -> Result<()> {
     let mut current = vec![];

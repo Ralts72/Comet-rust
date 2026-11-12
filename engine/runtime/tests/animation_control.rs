@@ -194,7 +194,7 @@ fn animation_markers_cross_whole_loops_once_and_follow_pause_step_replay_and_wor
     animator.looping = true;
     animator.speed = 150.;
     let clip = Arc::make_mut(f.resources.animations.values_mut().next().unwrap());
-    clip.version = 3;
+    clip.version = comet_asset_data::ANIMATION_CLIP_VERSION;
     clip.events = [(0., "entry"), (0.5, "middle"), (1., "end")]
         .map(|(phase, name)| comet_asset_data::AnimationEvent {
             phase,
@@ -272,7 +272,7 @@ fn event_overflow_keeps_the_sample_atomic_and_failed_callbacks_do_not_publish_wo
         "#,
         );
         let clip = Arc::make_mut(f.resources.animations.values_mut().next().unwrap());
-        clip.version = 3;
+        clip.version = comet_asset_data::ANIMATION_CLIP_VERSION;
         clip.events = vec![comet_asset_data::AnimationEvent {
             phase: 0.,
             name: "hit".into(),

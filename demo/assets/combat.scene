@@ -1,7 +1,7 @@
 {
-  "version": 2,
+  "version": 1,
   "base": {
-    "version": 12,
+    "version": 1,
     "entities": [
       {
         "id": "c5950f6e-2172-500b-958c-e7455d3ad49e",

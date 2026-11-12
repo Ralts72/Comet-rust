@@ -4,7 +4,7 @@ use comet_core::{AssetId, GameId, validate_digest};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const PACKAGE_VERSION: u32 = 4;
+pub const PACKAGE_VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProtocolVersions {
@@ -77,7 +77,7 @@ pub struct AppTemplateManifest {
 impl AppTemplateManifest {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 4 && self.profile == "release",
+            self.version == 1 && self.profile == "release",
             "unsupported App template"
         );
         self.identity.validate()?;

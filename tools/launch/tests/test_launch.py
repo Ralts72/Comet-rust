@@ -117,7 +117,7 @@ class ProgramPreparation(unittest.TestCase):
                     self.assertEqual((first["template"].parent / "licenses/NotoSansSC-OFL.txt").read_text(), "font license")
                     self.assertEqual((first["template"].parent / "icons/app.icns").read_bytes(), icns())
                     manifest = json.loads(first["template"].read_text())
-                    self.assertEqual(manifest["version"], 4)
+                    self.assertEqual(manifest["version"], 1)
                     self.assertEqual(manifest["editor_sha256"], launch.file_digest(first["editor"]))
                     with patch.object(launch.shutil, "copy2", side_effect=AssertionError("unchanged pair was copied")):
                         self.assertEqual(first, prepare(first_cache))

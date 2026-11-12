@@ -125,7 +125,7 @@ fn prefab_script_asset_overrides_require_script_products() -> Result<()> {
 }
 
 #[test]
-fn product_and_index_versions_reject_old_readers_inputs() -> Result<()> {
+fn product_and_index_reject_non_current_versions() -> Result<()> {
     let id = AssetId::new();
     let mut product = ProductFile {
         version: PRODUCT_VERSION,
@@ -137,7 +137,7 @@ fn product_and_index_versions_reject_old_readers_inputs() -> Result<()> {
         }),
     };
     product.validate()?;
-    product.version = 1;
+    product.version = PRODUCT_VERSION + 1;
     assert!(product.validate().is_err());
     let mut index = ProductIndex {
         version: INDEX_VERSION,
@@ -152,7 +152,7 @@ fn product_and_index_versions_reject_old_readers_inputs() -> Result<()> {
         )]),
     };
     index.validate()?;
-    index.version = 1;
+    index.version = INDEX_VERSION + 1;
     assert!(index.validate().is_err());
     Ok(())
 }

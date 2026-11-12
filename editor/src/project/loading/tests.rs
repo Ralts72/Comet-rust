@@ -425,7 +425,7 @@ fn project_open_preserves_settings_across_failed_imports_and_retries() -> Result
     assert!(ProjectCandidate::load(root.clone(), products.clone(), "main.scene".into()).is_err());
     let paths = ProjectPaths::open(&root)?;
     let initialized = comet_asset_pipeline::ProjectSettings::load(&paths)?;
-    assert_eq!(initialized.version, 2);
+    assert_eq!(initialized.version, 1);
     assert_eq!(fs::read(&configuration)?, saved);
     fs::write(&buffer, bytes)?;
     let accepted = ProjectCandidate::load(root.clone(), products, "main.scene".into())?;

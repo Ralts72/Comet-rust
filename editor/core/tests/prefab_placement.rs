@@ -225,7 +225,7 @@ fn translated_physical_instances_roundtrip_copy_and_reject_failed_candidates_ato
     let initial = document.shared_source();
     let id = document.insert_prefab(None, branch, [10., 2., 3.], &mut library)?;
     let placed = document.shared_source();
-    assert_eq!(placed.version, 2);
+    assert_eq!(placed.version, comet_scene::prefab::CONTENT_VERSION);
     assert!(placed.base.entities.is_empty());
     assert_eq!(placed.instances[0].translation, [10., 2., 3.]);
     let expanded = document.expand(&mut library)?;

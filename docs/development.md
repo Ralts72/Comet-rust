@@ -118,6 +118,8 @@ Inspector 回归按行为边界组织，共同测试的场景准备归 `group/fi
 
 Editor 构造时默认禁用记录；headless、smoke、CLI 导出和普通测试不访问真实用户状态。记录回归使用独立临时文件，覆盖路径规则、格式/大小/符号链接拒绝、原子更新失败、最后文档更新和移除失效项目。目录及合成 UI 回归覆盖有界枚举、最新请求胜出、取消不等待、assets 越界拒绝、原生路径回填、新建父目录保名，以及成功接纳后记录失败仍保留新会话。三个平台的实际目录交互仍需分别人工验收。
 
+启动构建始终从当前作者源生成完整产品候选。既有产品索引只用于变更统计，非当前结构或损坏缓存不阻塞重建；失败保留旧索引和 metadata。Runtime 不读取历史格式，版本统一固定为 1；修改作者结构时直接同步源码、示例和 fixtures。
+
 ## 编辑器停靠布局
 
 拖动面板标签到目标边缘可分割布局，拖到标签栏或中心可合为标签组；拖动分隔线分别调整左右宽度和上下高度。检查层级、属性、项目和场景视口均能改变尺寸，属性编辑、视口拾取及 Gizmo 使用调整后的矩形。面板关闭后在“视图”重新打开，或选择“恢复默认布局”。“文件”提供新建/打开/最近项目，“编辑”提供撤销/重做，工具栏保留常用入口；空间不足时可横向滚动工具栏。
@@ -176,7 +178,7 @@ Scene/Core 回归检查当前格式、可空资产依赖、目标复制/删除/P
 
 官方 SimpleSkin 作者源只保留在 demo/assets/models/simple_skin，测试复制该目录到临时项目，不另存长期模型或二进制副本。来源为 [Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin)，锁定提交 8f492390ddc7a2ae221a1369ef560589cf8c70fb；Marco Hutter 的模型以 [CC0](https://github.com/KhronosGroup/glTF-Sample-Assets/blob/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin/README.md#legal) 发布。原 glTF 与四份 buffer 共 3242 字节，保持上游内容。
 
-资产回归覆盖稳定子身份、skin-local joint 顺序、逆绑定、四权重、骨架域、关键帧/时间/四元数、预算和不支持格式拒绝；失败保持索引与 metadata，包搬移并移走作者源后仍可读取完整产品。强引用有效时，明确未绑定及缺失/过期源键可构建并打开修复，原映射不会自动改写；“重建绑定表”是显式的一条可撤销操作。悬空 Local 强引用与失效 Prefab override 仍拒绝，不隐式清理或迁移。新增曲线回归检查非单位/零切线、非单位关键帧间隔、保留旋转符号、退化四元数失败及暂停/单步/重开。完整验收在临时项目中将同一 SimpleSkin 副本改为 CUBICSPLINE，导出搬移后移除作者源和开发产品，校验 Clip v2；`--gpu` / `--native` 另比较包内实际播放姿态与独立 Hermite 计算，并保存本次截图。Runtime、作者事务、真实着色与变形拾取分别验证；编译、CPU 数值、GPU 离屏、实际鼠标操作及三个平台运行不互相替代。
+资产回归覆盖稳定子身份、skin-local joint 顺序、逆绑定、四权重、骨架域、关键帧/时间/四元数、预算和不支持格式拒绝；失败保持索引与 metadata，包搬移并移走作者源后仍可读取完整产品。强引用有效时，明确未绑定及缺失/过期源键可构建并打开修复，原映射不会自动改写；“重建绑定表”是显式的一条可撤销操作。悬空 Local 强引用与失效 Prefab override 仍拒绝，不隐式清理或迁移。新增曲线回归检查非单位/零切线、非单位关键帧间隔、保留旋转符号、退化四元数失败及暂停/单步/重开。完整验收在临时项目中将同一 SimpleSkin 副本改为 CUBICSPLINE，导出搬移后移除作者源和开发产品，校验 Clip v1；`--gpu` / `--native` 另比较包内实际播放姿态与独立 Hermite 计算，并保存本次截图。Runtime、作者事务、真实着色与变形拾取分别验证；编译、CPU 数值、GPU 离屏、实际鼠标操作及三个平台运行不互相替代。
 
 角色控制器验证使用 `./start.sh --scene character.scene`：观察待机、WASD 走路、Shift 跑步、Ctrl 蹲伏/蹲行、Space 起跳、下落和着地；靠墙持续前进应按实际速度停步，空中与原地不播放脚步。脚步使用本工程合成提示音，模型与动作来自旧项目保留的 Quaternius GLB，详见 [资源说明](../demo/ASSET-CREDITS.txt)。两关共用 `animations/character.ani`，通过实例覆盖选择控制器，不复制骨架。参数与状态图目前编辑 JSON；属性面板负责控制器选择、骨骼和角色驱动绑定，支持撤销、保存及运行只读状态。
 
@@ -293,13 +295,13 @@ fn on_stop(ctx) { ctx.log("运行结束"); }
 
 ### 游戏数据表
 
-将 `*.data.json` 与 `.meta` 一起保留在 assets，使用旧版 `fields` / `rows` JSON 结构；刷新资源后，在脚本参数里选择“数据”并绑定数据源。`ctx.data_get(ctx.param("stats"), "player")` 读取独立记录，`ctx.data_ids(...)` 列出排序 ID；缺失记录为空值，未设置数据、缺失/错类型引用或查询超限会明确失败，不能以默认数值掩盖。修改副本仅改变自己的脚本状态，当前属性、Buff、冷却及存档仍由项目规则管理。格式、限制、Scene12 及引用语义见[游戏数据表](architecture.md#游戏数据表)。
+将 `*.data.json` 与 `.meta` 一起保留在 assets，使用旧版 `fields` / `rows` JSON 结构；刷新资源后，在脚本参数里选择“数据”并绑定数据源。`ctx.data_get(ctx.param("stats"), "player")` 读取独立记录，`ctx.data_ids(...)` 列出排序 ID；缺失记录为空值，未设置数据、缺失/错类型引用或查询超限会明确失败，不能以默认数值掩盖。修改副本仅改变自己的脚本状态，当前属性、Buff、冷却及存档仍由项目规则管理。格式、限制、Scene1 及引用语义见[游戏数据表](architecture.md#游戏数据表)。
 
 CSV 可保存为 `stats.csv`，例如 `id,health` 表头和 `player,120` 记录；同目录的 `stats.csv.schema.json` 写入 `{"fields":{"health":{"type":"integer","min":1}}}`。表头需要 id 和全部声明字段；字符串保留空白，嵌套 JSON 按 CSV 双引号转义，CSV 与 schema 各限 256 KiB。schema 随源提交，身份仅由 `stats.csv.meta` 保存；重命名时三者一起移动。普通 JSON 和 schema 文件不单独作为数据源扫描。格式和严格失败规则见架构说明，不接受旧 64 位资产 ID 的隐式转换。
 
 在“项目”面板选择“数据”资源，查看“记录”“字段”、ID 与各列，只读窗口支持横纵滚动和长值悬停。修改源文件或 schema 后停止 Play 并“刷新资源”；失败保留旧预览，成功后重新选择读取新版本。预览不生成场景撤销项，也不把源文件中的临时内容提前显示为已接纳产品。
 
-修改 demo 的 `data/combat.data.json` 中 player/guard 的 health、damage、range 或 cooldown，刷新资源并重新运行战斗，观察血量上限和实际命中；R 重开复用当前世界接纳的基础表，Stop 不修改数据源。自动回归覆盖严格协议、CSV 引号/多行/类型与预算、重复键/ID、类型闭包、Prefab 覆盖、schema 指纹/失败发布、搬移包、独立查询副本、真实战斗数值变化及预览刷新隔离。完整验收检查无作者源包中的规范化表、Scene12 参数、实际 HUD 和窗口，并显式运行数据表预览的 GPU 回归。完整旧数据消费者仍待迁移，人工交互与各平台 GPU 分别验收。
+修改 demo 的 `data/combat.data.json` 中 player/guard 的 health、damage、range 或 cooldown，刷新资源并重新运行战斗，观察血量上限和实际命中；R 重开复用当前世界接纳的基础表，Stop 不修改数据源。自动回归覆盖严格协议、CSV 引号/多行/类型与预算、重复键/ID、类型闭包、Prefab 覆盖、schema 指纹/失败发布、搬移包、独立查询副本、真实战斗数值变化及预览刷新隔离。完整验收检查无作者源包中的规范化表、Scene1 参数、实际 HUD 和窗口，并显式运行数据表预览的 GPU 回归。完整旧数据消费者仍待迁移，人工交互与各平台 GPU 分别验收。
 
 ### 运行实体销毁
 

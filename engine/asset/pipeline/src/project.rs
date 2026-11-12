@@ -132,7 +132,7 @@ impl ProjectSettings {
     /// Allocate identity only when creating a new authoring project.
     pub fn for_new_project() -> Self {
         Self {
-            version: 2,
+            version: 1,
             game_icon: None,
             game_id: GameId::new(),
         }
@@ -162,7 +162,7 @@ impl ProjectSettings {
         atomic_write(&destination, &serde_json::to_vec_pretty(self)?)
     }
     fn validate(&self) -> Result<()> {
-        ensure!(self.version == 2, "不支持的项目设置版本或游戏身份");
+        ensure!(self.version == 1, "不支持的项目设置版本或游戏身份");
         Ok(())
     }
 }

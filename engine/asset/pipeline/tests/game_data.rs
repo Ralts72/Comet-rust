@@ -80,7 +80,7 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     prepare(&root, &products)?;
     let mut store = AssetStore::open(&products)?;
     let expanded = store.expand_scene(scene)?;
-    assert_eq!(expanded.version, 12);
+    assert_eq!(expanded.version, comet_scene::scene::SCENE_VERSION);
     let mut unsupported = expanded.clone();
     unsupported.version = 11;
     assert!(store.scene_resources(&unsupported).is_err());

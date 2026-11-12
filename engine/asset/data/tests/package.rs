@@ -24,7 +24,7 @@ fn package(runtime: Option<RuntimeIdentity>) -> PackageManifest {
 
 fn template(identity: RuntimeIdentity) -> AppTemplateManifest {
     AppTemplateManifest {
-        version: 4,
+        version: 1,
         identity,
         profile: "release".into(),
         app: "CometApp".into(),

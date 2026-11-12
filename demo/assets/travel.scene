@@ -1,7 +1,7 @@
 {
-  "version": 2,
+  "version": 1,
   "base": {
-    "version": 12,
+    "version": 1,
     "entities": [
       {
         "id": "a2000000-0000-4000-8000-000000000001",

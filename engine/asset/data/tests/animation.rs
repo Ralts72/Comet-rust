@@ -209,7 +209,7 @@ fn cubic_clips_version_the_triplet_layout_and_validate_values_separately_from_ta
         serde_json::from_slice::<AnimationClipData>(&serde_json::to_vec(&clip)?)?,
         clip
     );
-    for version in [0, 1, 2, 4] {
+    for version in [0, comet_asset_data::ANIMATION_CLIP_VERSION + 1] {
         let mut bad = clip.clone();
         bad.version = version;
         assert!(bad.validate().is_err(), "version {version}");
@@ -243,7 +243,7 @@ fn static_meshes_omit_skin_fields_and_skin_attributes_require_an_explicit_versio
 -> Result<()> {
     let mut value = mesh();
     value.validate()?;
-    value.version = 1;
+    value.version = comet_asset_data::product::MESH_VERSION + 1;
     assert!(value.validate().is_err());
     value.version = comet_asset_data::product::MESH_VERSION;
     value.joints = None;

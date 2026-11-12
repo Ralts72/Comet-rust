@@ -10,7 +10,7 @@ use std::{
 pub mod controller;
 
 pub const ANIMATION_VERSION: u32 = 1;
-pub const ANIMATION_CLIP_VERSION: u32 = 3;
+pub const ANIMATION_CLIP_VERSION: u32 = 1;
 pub const MAX_ANIMATION_EVENTS: usize = 128;
 pub const MAX_SKIN_JOINTS: usize = 128;
 pub const MAX_ANIMATION_CHANNELS: usize = MAX_ANIMATOR_BINDINGS * 3;

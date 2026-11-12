@@ -12,7 +12,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-pub const SCENE_VERSION: u32 = 12;
+pub const SCENE_VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneSnapshot {
