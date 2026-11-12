@@ -4,6 +4,46 @@ use comet_asset_data::product::{MaterialData, MeshData, PRODUCT_VERSION, Product
 use comet_core::AssetId;
 mod rectangle;
 mod skin;
+#[test]
+fn orthographic_point_rays_are_parallel_and_share_the_rendered_clip_range() {
+    let mut draw = triangle();
+    draw.transform = DrawTransform::prepare(Mat4::from_translation(Vec3::new(1.5, 0., 0.)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        draw.world_bounds().unwrap().unwrap(),
+        [Vec3::new(0.5, -1., 0.), Vec3::new(2.5, 1., 0.)]
+    );
+    let expected = draw.entity;
+    let mut frame = packet(Arc::from([draw]));
+    frame.camera.projection = crate::Projection::Orthographic { height: 4. };
+    for (request, hit) in [
+        (PickRequest::Point([0.875, 0.5]), true),
+        (PickRequest::Point([0.5, 0.5]), false),
+        (
+            PickRequest::Rect {
+                min: [0.8, 0.45],
+                max: [0.95, 0.55],
+            },
+            true,
+        ),
+    ] {
+        frame.pick = Some(request);
+        frame.validate().unwrap();
+        assert_eq!(
+            pick(&frame).unwrap().entities,
+            if hit { vec![expected] } else { vec![] }
+        );
+    }
+    frame.pick = Some(PickRequest::Point([0.875, 0.5]));
+    for z in [3.98, -201.] {
+        Arc::make_mut(&mut frame.draws)[0].transform =
+            DrawTransform::prepare(Mat4::from_translation(Vec3::new(1.5, 0., z)))
+                .unwrap()
+                .unwrap();
+        assert!(pick(&frame).unwrap().entities.is_empty());
+    }
+}
 fn triangle() -> Draw {
     let mesh = Arc::new(ProductFile {
         version: PRODUCT_VERSION,
@@ -57,6 +97,7 @@ fn packet(draws: Arc<[Draw]>) -> FramePacket {
         camera: Camera {
             eye: Vec3::new(0., 0., 4.),
             target: Vec3::ZERO,
+            ..Default::default()
         },
         draws,
         ui: UiFrame::default(),
@@ -232,6 +273,7 @@ fn focus_plane_points_reproject_to_viewport_uv_and_reject_invalid_cameras() {
         Camera {
             eye: Vec3::new(-9., 8., -4.),
             target: Vec3::new(2., -1., 5.),
+            ..Default::default()
         },
     ] {
         for aspect in [0.5, 1., 2.4] {

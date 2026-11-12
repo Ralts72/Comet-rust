@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 pub(crate) struct Globals {
     pub view_projection: [[f32; 4]; 4],
     pub light_projection: [[f32; 4]; 4],
+    /// Homogeneous eye: w=1 is a position; w=0 is a fixed surface-to-camera direction.
     pub eye: [f32; 4],
     pub light: [f32; 4],
 }
@@ -23,7 +24,13 @@ impl Globals {
                 .view_projection(frame.viewport[2] as f32 / frame.viewport[3].max(1) as f32)
                 .to_cols_array_2d(),
             light_projection: crate::Camera::light_projection().to_cols_array_2d(),
-            eye: frame.camera.eye.extend(1.).to_array(),
+            eye: match frame.camera.projection {
+                crate::Projection::Perspective => frame.camera.eye.extend(1.),
+                crate::Projection::Orthographic { .. } => (frame.camera.eye - frame.camera.target)
+                    .normalize()
+                    .extend(0.),
+            }
+            .to_array(),
             light: comet_core::math::Vec3::new(6., 10., 5.)
                 .normalize()
                 .extend(0.)

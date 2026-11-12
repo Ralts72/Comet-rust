@@ -514,25 +514,6 @@ impl<A: Application> ApplicationHandler for Host<A> {
     }
 }
 
-/// Shared orbit math; the application decides when the viewport owns these gestures.
-pub fn orbit(camera: &mut Camera, response: &egui::Response) {
-    let mut offset = camera.eye - camera.target;
-    if response.dragged_by(egui::PointerButton::Secondary) {
-        let delta = response.ctx.input(|i| i.pointer.delta());
-        offset = comet_core::math::Quat::from_rotation_y(-delta.x * 0.006) * offset;
-        let right = offset.cross(comet_core::math::Vec3::Y).normalize_or_zero();
-        let candidate = comet_core::math::Quat::from_axis_angle(right, delta.y * 0.006) * offset;
-        if candidate.normalize().dot(comet_core::math::Vec3::Y).abs() < 0.96 {
-            offset = candidate;
-        }
-    }
-    if response.hovered() {
-        let scroll = response.ctx.input(|i| i.smooth_scroll_delta.y);
-        offset *= (-scroll * 0.002).exp().clamp(0.8, 1.2);
-    }
-    let distance = offset.length().clamp(1., 80.);
-    camera.eye = camera.target + offset.normalize() * distance;
-}
 pub fn parse_common(
     options: &mut HostOptions,
     argument: &str,

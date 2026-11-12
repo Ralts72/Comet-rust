@@ -20,6 +20,23 @@ use crate::test_support::fixture;
 use comet_application::{Application, FrameContext, ViewRequest};
 use std::fs;
 
+fn text_center(output: &egui::FullOutput, label: &str) -> Pos2 {
+    fn find(shape: &egui::epaint::Shape, label: &str) -> Option<Pos2> {
+        match shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text == label => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, label)),
+            _ => None,
+        }
+    }
+    output
+        .shapes
+        .iter()
+        .find_map(|shape| find(&shape.shape, label))
+        .unwrap_or_else(|| panic!("missing label: {label}"))
+}
+
 #[test]
 fn command_shortcuts_use_event_modifiers_even_when_released_before_the_frame() -> Result<()> {
     use comet_scene::{schema, schema::FieldValue};

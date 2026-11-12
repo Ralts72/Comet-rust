@@ -45,7 +45,7 @@ fn skin_normal(matrix:mat4x4<f32>,normal:vec3<f32>)->vec3<f32> {
 @vertex fn skinned_shadow_vs(v:SkinnedInput)->@builtin(position) vec4<f32> {return globals.light_projection*skin_position(v,skin_matrix(v));}
 @fragment fn scene_fs(v:Output)->@location(0) vec4<f32> {
     let color=object.color.rgb*textureSample(base_image,base_sampler,v.uv).rgb;
-    let n=safe_normalize(v.normal);let l=safe_normalize(globals.light.xyz);let view=safe_normalize(globals.eye.xyz-v.world);let h=safe_normalize(l+view);
+    let n=safe_normalize(v.normal);let l=safe_normalize(globals.light.xyz);let view=safe_normalize(globals.eye.xyz-v.world*globals.eye.w);let h=safe_normalize(l+view);
     let nl=max(dot(n,l),0.);let nv=max(dot(n,view),0.001);let nh=max(dot(n,h),0.);let hv=max(dot(h,view),0.);
     let roughness=clamp(object.parameters.x,0.05,1.);let metallic=object.parameters.y;let a=roughness*roughness;let a2=a*a;
     let d=a2/(3.14159265*pow(nh*nh*(a2-1.)+1.,2.)+0.00001);

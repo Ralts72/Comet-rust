@@ -314,6 +314,7 @@ fn spatial_intents_use_the_accepted_camera_and_do_not_open_a_device_while_paused
     let camera = Camera {
         eye: Vec3::new(3., 2., 4.),
         target: Vec3::new(-1., 1., 0.),
+        ..Default::default()
     };
     host.submit(&mut app, world, camera, true);
     let pose = host
@@ -371,21 +372,25 @@ fn camera_listener_uses_negative_z_forward_and_rejects_degenerate_views() -> Res
     let front = listener(Camera {
         eye: Vec3::Z,
         target: Vec3::ZERO,
+        ..Default::default()
     })?;
     assert!((Quat::from_array(front.rotation) * Vec3::NEG_Z - Vec3::NEG_Z).length() < 1e-6);
     let side = listener(Camera {
         eye: Vec3::X,
         target: Vec3::ZERO,
+        ..Default::default()
     })?;
     assert!((Quat::from_array(side.rotation) * Vec3::NEG_Z - Vec3::NEG_X).length() < 1e-6);
     for camera in [
         Camera {
             eye: Vec3::ZERO,
             target: Vec3::ZERO,
+            ..Default::default()
         },
         Camera {
             eye: Vec3::Y,
             target: Vec3::ZERO,
+            ..Default::default()
         },
         Camera {
             eye: Vec3::splat(f32::NAN),

@@ -195,7 +195,7 @@ fn typing_tool_letters_in_an_inspector_field_does_not_switch_tools() -> Result<(
             label(
                 &shape.shape,
                 "keyboard target",
-                Rect::from_min_max(view.viewport.right_top(), Pos2::new(1280., 800.)),
+                Rect::from_min_max(Pos2::new(view.viewport.right(), 0.), Pos2::new(1280., 800.)),
             )
         })
         .expect("selected object name field must be visible");

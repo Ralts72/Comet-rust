@@ -70,6 +70,7 @@ fn rectangle_clips_the_visible_triangle_before_any_perspective_division() {
         frame.camera = Camera {
             eye: Vec3::ZERO,
             target: -Vec3::Z,
+            ..Default::default()
         };
         assert_eq!(
             hits(&frame),
@@ -97,7 +98,7 @@ fn rectangle_returns_occluded_entities_once_in_stable_order_while_point_stays_ne
         frame.pick = Some(PickRequest::Point([0.5; 2]));
         assert_eq!(hits(&frame), [near.entity]);
     }
-    // Point deliberately retains its existing t > 0 contract, including beyond the far plane.
+    // Point and rectangle queries both respect the rendered depth range.
     let mut frame = rectangle(vec![far], [0.; 2], [1.; 2]);
     Arc::make_mut(&mut frame.draws)[0].transform =
         DrawTransform::prepare(Mat4::from_translation(Vec3::new(0., 0., -300.)))
@@ -105,7 +106,7 @@ fn rectangle_returns_occluded_entities_once_in_stable_order_while_point_stays_ne
             .unwrap();
     assert!(hits(&frame).is_empty());
     frame.pick = Some(PickRequest::Point([0.5; 2]));
-    assert_eq!(hits(&frame), [frame.draws[0].entity]);
+    assert!(hits(&frame).is_empty());
 }
 
 #[test]

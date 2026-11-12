@@ -1,3 +1,4 @@
+mod camera;
 use super::*;
 use comet_render::{FrameFeedback, PickFeedback, PickRequest, ViewToken};
 use std::sync::Arc;

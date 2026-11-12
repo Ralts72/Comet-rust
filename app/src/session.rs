@@ -233,7 +233,12 @@ impl Application for App {
         self.play
             .synchronize_host(input.active, input.activity_changed || menu_changed);
         if !self.menu_blocks_frame && !self.exit_requested {
-            comet_application::orbit(&mut self.camera, &response);
+            comet_application::navigate_camera(
+                &mut self.camera,
+                &response,
+                input.active && !input.activity_changed,
+                false,
+            );
             self.play.advance_with_input(
                 input.dt,
                 comet_application::sample_actions(&response, input.active, self.camera),

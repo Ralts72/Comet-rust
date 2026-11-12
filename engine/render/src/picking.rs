@@ -26,26 +26,19 @@ pub(crate) fn pick(frame: &FramePacket) -> Option<PickFeedback> {
 fn point(frame: &FramePacket, uv: [f32; 2]) -> Option<EntityId> {
     let aspect = frame.viewport[2] as f32 / frame.viewport[3] as f32;
     let inverse = frame.camera.view_projection(aspect).inverse();
-    let far = inverse.project_point3(Vec3::new(uv[0] * 2. - 1., 1. - uv[1] * 2., 1.));
-    let origin = frame.camera.eye.as_dvec3();
-    let direction = (far.as_dvec3() - origin).try_normalize()?;
-    let mut closest = f64::INFINITY;
+    let ndc = Vec3::new(uv[0] * 2. - 1., 1. - uv[1] * 2., 0.);
+    let origin = inverse.project_point3(ndc).as_dvec3();
+    let ray = inverse.project_point3(ndc.with_z(1.)).as_dvec3() - origin;
+    let direction = ray.try_normalize()?;
+    let mut closest = ray.length();
     let mut entity = None;
     for draw in frame.draws.iter() {
         let Product::Mesh(mesh) = &draw.mesh.payload else {
             continue;
         };
         for triangle in mesh.indices.as_chunks::<3>().0 {
-            let [a, b, c]: [DVec3; 3] = triangle.map(|i| {
-                match &draw.skin {
-                    Some(skin) => skin.position(mesh, i as usize),
-                    None => draw
-                        .transform
-                        .model()
-                        .transform_point3(Vec3::from_array(mesh.positions[i as usize])),
-                }
-                .as_dvec3()
-            });
+            let [a, b, c]: [DVec3; 3] =
+                triangle.map(|i| draw.world_position(mesh, i as usize).as_dvec3());
             if !a.is_finite() || !b.is_finite() || !c.is_finite() {
                 continue;
             }
@@ -64,7 +57,7 @@ fn point(frame: &FramePacket, uv: [f32; 2]) -> Option<EntityId> {
             let q = from.cross(ab);
             let v = direction.dot(q) * inv;
             let t = ac.dot(q) * inv;
-            if u >= 0. && v >= 0. && u + v <= 1. && t > 0. && t < closest {
+            if u >= 0. && v >= 0. && u + v <= 1. && t >= 0. && t < closest {
                 closest = t;
                 entity = Some(draw.entity);
             }

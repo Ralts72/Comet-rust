@@ -262,7 +262,7 @@ fn deleting_text_in_the_inspector_never_deletes_selected_objects() -> Result<()>
     let position = label(
         &output,
         &name,
-        Rect::from_min_max(view.viewport.right_top(), Pos2::new(1280., 800.)),
+        Rect::from_min_max(Pos2::new(view.viewport.right(), 0.), Pos2::new(1280., 800.)),
     );
     frame(
         &ctx,

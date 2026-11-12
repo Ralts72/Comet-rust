@@ -67,8 +67,47 @@ pub fn extract(
     store: &mut AssetStore,
     selected: &[EntityId],
 ) -> Result<Vec<Draw>> {
-    let transforms = world_transforms(snapshot)?;
     let highlighted = selected_descendants(snapshot, selected);
+    extract_draws(snapshot, store, &highlighted, false)
+}
+
+/// Resolve only selected geometry and descendants; unrelated missing products remain repairable.
+pub fn selection_bounds(
+    snapshot: &SceneSnapshot,
+    store: &mut AssetStore,
+    selected: &[EntityId],
+) -> Result<Option<[comet_core::math::Vec3; 2]>> {
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let highlighted = selected_descendants(snapshot, selected);
+    let draws = extract_draws(snapshot, store, &highlighted, true)?;
+    let mut bounds: Option<[comet_core::math::Vec3; 2]> = None;
+    for draw in draws {
+        if let Some([a, b]) = draw.world_bounds()? {
+            bounds = Some(bounds.map_or([a, b], |[min, max]| [min.min(a), max.max(b)]));
+        }
+    }
+    if bounds.is_none() {
+        // Empty author entities still have a meaningful pivot to frame.
+        let transforms = world_transforms(snapshot)?;
+        for id in selected {
+            if let Some(transform) = transforms.get(id) {
+                let p = transform.transform_point3(comet_core::math::Vec3::ZERO);
+                bounds = Some(bounds.map_or([p, p], |[min, max]| [min.min(p), max.max(p)]));
+            }
+        }
+    }
+    Ok(bounds)
+}
+
+fn extract_draws(
+    snapshot: &SceneSnapshot,
+    store: &mut AssetStore,
+    highlighted: &HashSet<EntityId>,
+    only_selected: bool,
+) -> Result<Vec<Draw>> {
+    let transforms = world_transforms(snapshot)?;
     let mut draws = vec![];
     let mut unbound = vec![];
     let entities: HashMap<_, _> = snapshot
@@ -77,6 +116,9 @@ pub fn extract(
         .map(|entity| (entity.id, entity))
         .collect();
     for e in &snapshot.entities {
+        if only_selected && !highlighted.contains(&e.id) {
+            continue;
+        }
         ensure!(
             comet_scene::schema::entity_references(e)
                 .iter()

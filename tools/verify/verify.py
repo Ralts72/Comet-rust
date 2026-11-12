@@ -1126,6 +1126,17 @@ def main():
             checks["editor_hierarchy_browser_evidence"] = {"status": "passed", "submitted_frames": 8,
                 "png_sha256": inspect_png(OUT / "editor-hierarchy-browser.png")["sha256"], "author_dirty": False,
                 "visible_rows": 2, "matches": 1, "draw_count": 6}
+            camera_view = offscreen_test("editor_camera_gpu",
+                "ui::tests::viewport::camera::headless_orthographic_camera_frames_selected_prefab_descendants_without_editing",
+                "editor-camera.json")
+            assert camera_view["application"]["error"] is None and not camera_view["application"]["dirty"]
+            assert camera_view["application"]["history"] == 0 and camera_view["submitted_frames"] == 8
+            assert camera_view["application"]["camera_projection"] == "orthographic"
+            assert len(camera_view["application"]["selected"]) == 1
+            assert all(frame["draw_count"] == 5 for frame in camera_view["frames"])
+            checks["editor_camera_evidence"] = {"status": "passed", "submitted_frames": 8,
+                "png_sha256": inspect_png(OUT / "editor-camera.png")["sha256"], "author_dirty": False,
+                "projection": "orthographic", "draw_count": 5}
             menu = offscreen_test("app_pause_menu_gpu",
                 "session::tests::menu::headless_pause_menu_draws_without_advancing_the_world_or_touching_player_data",
                 "app-pause-menu.json", package="comet-app")

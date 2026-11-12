@@ -1,23 +1,6 @@
 use super::*;
 mod browser;
 
-fn text_center(output: &egui::FullOutput, label: &str) -> Pos2 {
-    fn find(shape: &egui::epaint::Shape, label: &str) -> Option<Pos2> {
-        match shape {
-            egui::epaint::Shape::Text(text) if text.galley.job.text == label => {
-                Some(text.pos + text.galley.rect.center().to_vec2())
-            }
-            egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, label)),
-            _ => None,
-        }
-    }
-    output
-        .shapes
-        .iter()
-        .find_map(|shape| find(&shape.shape, label))
-        .unwrap_or_else(|| panic!("missing label: {label}"))
-}
-
 #[test]
 fn hierarchy_drag_reparents_and_root_drop_undoes_as_one_command() -> Result<()> {
     let (_temp, mut editor, mut assets) = fixture()?;

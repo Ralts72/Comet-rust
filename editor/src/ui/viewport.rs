@@ -10,6 +10,7 @@ use comet_render::PickRequest;
 use egui::{Color32, Pos2, Rect, Vec2};
 
 const DRAG_THRESHOLD: f32 = 3.;
+mod camera;
 
 fn gesture_id() -> egui::Id {
     egui::Id::unique("viewport-selection-gesture")
@@ -184,6 +185,7 @@ pub(super) fn show(
         gesture = None;
     }
     gizmo::controls(editor, ui, gesture.is_none() && !resource_drag);
+    let camera_action = camera::controls(editor, ui, gesture.is_none() && !resource_drag && active);
     let viewport = ui.available_rect_before_wrap();
     if viewport.width() <= 1. || viewport.height() <= 1. {
         return ViewportResponse::hidden(ui);
@@ -205,8 +207,31 @@ pub(super) fn show(
         response.request_focus();
     }
     result.response = Some(response.clone());
-    if !resource_drag {
-        comet_application::orbit(&mut editor.camera, &response);
+    camera::apply(
+        editor,
+        ui,
+        assets,
+        &response,
+        camera_action,
+        active && gesture.is_none() && !resource_drag,
+    );
+    if !resource_drag
+        && gesture.is_none()
+        && editor.drag_origin.is_none()
+        && !editor.document.is_editing()
+        && !editor.documents.is_blocking()
+        && !editor.is_busy()
+    {
+        let before = editor.camera;
+        comet_application::navigate_camera(
+            &mut editor.camera,
+            &response,
+            active,
+            editor.play.is_none(),
+        );
+        if before != editor.camera {
+            editor.picking.clear();
+        }
     }
     if editor.play.is_some() && !resource_drag {
         result.actions = comet_application::sample_actions(&response, active, editor.camera);
@@ -214,7 +239,14 @@ pub(super) fn show(
     ui.painter().text(
         viewport.left_top() + Vec2::new(18., 16.),
         egui::Align2::LEFT_TOP,
-        "透视 / 光照",
+        if matches!(
+            editor.camera.projection,
+            comet_application::Projection::Orthographic { .. }
+        ) {
+            "正交 / 光照"
+        } else {
+            "透视 / 光照"
+        },
         egui::FontId::proportional(12.),
         Color32::from_gray(190),
     );
@@ -222,9 +254,21 @@ pub(super) fn show(
         viewport.left_bottom() + Vec2::new(18., -18.),
         egui::Align2::LEFT_BOTTOM,
         if editor.play.is_some() {
-            "WASD：移动 · 空格：跳跃 · Shift：跑步 · Ctrl：蹲伏 · 右键：环绕"
+            if matches!(
+                editor.camera.projection,
+                comet_application::Projection::Orthographic { .. }
+            ) {
+                "WASD：移动 · 空格：跳跃 · Shift：跑步 · Ctrl：蹲伏 · 滚轮：缩放"
+            } else {
+                "WASD：移动 · 空格：跳跃 · Shift：跑步 · Ctrl：蹲伏 · 右键：环绕"
+            }
+        } else if matches!(
+            editor.camera.projection,
+            comet_application::Projection::Orthographic { .. }
+        ) {
+            "中键：平移 · 滚轮：缩放 · F：聚焦 · 拖动手柄：变换 · 左键拖动：框选"
         } else {
-            "右键拖动：环绕 · 滚轮：缩放 · 拖动手柄：变换 · 左键拖动：框选"
+            "右键：环绕 · 中键：平移 · 滚轮：缩放 · F：聚焦 · 拖动手柄：变换 · 左键拖动：框选"
         },
         egui::FontId::proportional(11.),
         Color32::from_gray(160),

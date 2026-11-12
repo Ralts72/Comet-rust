@@ -1,5 +1,6 @@
+use crate::Camera;
 use crate::DrawTransform;
-use comet_asset_data::product::ProductFile;
+use comet_asset_data::product::{MeshData, Product, ProductFile};
 use comet_core::math::{Mat4, Vec3};
 use comet_core::{EntityId, WorldId};
 use serde::Serialize;
@@ -10,54 +11,6 @@ pub struct ViewToken {
     pub world: WorldId,
     pub view: u64,
     pub target_generation: u64,
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Camera {
-    pub eye: Vec3,
-    pub target: Vec3,
-}
-impl Default for Camera {
-    fn default() -> Self {
-        Self {
-            eye: Vec3::new(5., 3.5, 7.),
-            target: Vec3::new(0., 0.7, 0.),
-        }
-    }
-}
-impl Camera {
-    /// Map viewport UV to the plane through the camera target, perpendicular to the view.
-    pub fn focus_plane_point(self, uv: [f32; 2], aspect: f32) -> Option<Vec3> {
-        if !aspect.is_finite()
-            || aspect <= 0.
-            || !uv
-                .into_iter()
-                .all(|v| v.is_finite() && (0. ..=1.).contains(&v))
-        {
-            return None;
-        }
-        let projection = self.view_projection(aspect);
-        let target = projection * self.target.extend(1.);
-        if !target.is_finite() || target.w <= 0. || target.z < 0. || target.z > target.w {
-            return None;
-        }
-        let point = projection.inverse()
-            * comet_core::math::Vec4::new(
-                uv[0] * 2. - 1.,
-                1. - uv[1] * 2.,
-                target.z / target.w,
-                1.,
-            );
-        let result = point.truncate() / point.w;
-        result.is_finite().then_some(result)
-    }
-    pub fn view_projection(self, aspect: f32) -> Mat4 {
-        comet_core::math::perspective(45_f32.to_radians(), aspect.max(0.01), 0.05, 200.)
-            * comet_core::math::look_at(self.eye, self.target, Vec3::Y)
-    }
-    pub fn light_projection() -> Mat4 {
-        comet_core::math::orthographic(-7., 7., -7., 7., 0.1, 30.)
-            * comet_core::math::look_at(Vec3::new(6., 10., 5.), Vec3::ZERO, Vec3::Y)
-    }
 }
 #[derive(Clone)]
 pub struct Draw {
@@ -71,6 +24,31 @@ pub struct Draw {
     pub texture_revision: Option<String>,
     pub roughness: f32,
     pub selected: bool,
+}
+impl Draw {
+    pub(crate) fn world_position(&self, mesh: &MeshData, index: usize) -> Vec3 {
+        match &self.skin {
+            Some(skin) => skin.position(mesh, index),
+            None => self
+                .transform
+                .model()
+                .transform_point3(Vec3::from_array(mesh.positions[index])),
+        }
+    }
+
+    /// Bounds use the submitted pose, including skinned world-space vertices.
+    pub fn world_bounds(&self) -> anyhow::Result<Option<[Vec3; 2]>> {
+        let Product::Mesh(mesh) = &self.mesh.payload else {
+            anyhow::bail!("draw bounds require a mesh");
+        };
+        let mut bounds: Option<[Vec3; 2]> = None;
+        for index in 0..mesh.positions.len() {
+            let p = self.world_position(mesh, index);
+            anyhow::ensure!(p.is_finite(), "draw bounds contain a non-finite vertex");
+            bounds = Some(bounds.map_or([p, p], |[min, max]| [min.min(p), max.max(p)]));
+        }
+        Ok(bounds)
+    }
 }
 #[derive(Default)]
 pub struct UiFrame {
@@ -134,20 +112,7 @@ impl FramePacket {
                 && y.checked_add(h).is_some_and(|v| v <= self.size[1]),
             "viewport exceeds target"
         );
-        anyhow::ensure!(
-            self.camera.eye.is_finite()
-                && self.camera.target.is_finite()
-                && self.camera.eye.distance_squared(self.camera.target) > 0.0001,
-            "invalid view camera"
-        );
-        anyhow::ensure!(
-            (self.camera.eye - self.camera.target)
-                .normalize()
-                .dot(Vec3::Y)
-                .abs()
-                < 0.9999,
-            "view camera is parallel to its up axis"
-        );
+        self.camera.validate()?;
         if let Some(request) = self.pick {
             request.validate()?;
         }

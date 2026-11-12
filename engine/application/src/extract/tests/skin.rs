@@ -109,6 +109,73 @@ fn near(left: Mat4, right: Mat4) {
 }
 
 #[test]
+fn selection_bounds_follow_descendants_and_the_current_skin_pose_without_loading_unselected_products()
+-> Result<()> {
+    let mut products = Products::new()?;
+    let rig = rig(&mut products)?;
+    let mut store = products.store()?;
+    let mut scene = rig.snapshot.as_ref().clone();
+    let mut unrelated = products.model("unavailable unrelated model", None);
+    unrelated.model.as_mut().unwrap().mesh = AssetId::new();
+    let mut empty = EntityData::new("empty pivot");
+    empty.transform.translation = [20., 30., 40.];
+    let empty_id = empty.id;
+    scene.entities.extend([unrelated, empty]);
+    let actor = &scene
+        .entities
+        .iter()
+        .find(|e| e.id == rig.actor)
+        .unwrap()
+        .transform;
+    let matrix = Mat4::from_scale_rotation_translation(
+        Vec3::from_array(actor.scale),
+        Quat::from_array(actor.rotation),
+        Vec3::from_array(actor.translation),
+    );
+    for moved in [false, true] {
+        if moved {
+            scene
+                .entities
+                .iter_mut()
+                .find(|e| e.id == rig.bone)
+                .unwrap()
+                .transform
+                .translation[0] = 2.;
+        }
+        let bounds =
+            super::super::selection_bounds(&scene, &mut store, &[rig.actor, rig.model])?.unwrap();
+        let shift = if moved { 0.75 } else { 0. };
+        let points = [[-0.5, 0., 0.], [0.5, 0., 0.], [0., 1., 0.]]
+            .map(|p| matrix.transform_point3(Vec3::from_array(p) + Vec3::X * shift));
+        let min = points
+            .into_iter()
+            .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+        let max = points
+            .into_iter()
+            .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+        assert!(bounds[0].distance(min) < 1e-5 && bounds[1].distance(max) < 1e-5);
+    }
+    assert_eq!(
+        super::super::selection_bounds(&scene, &mut store, &[empty_id])?,
+        Some([Vec3::new(20., 30., 40.); 2])
+    );
+    assert!(super::super::selection_bounds(&scene, &mut store, &[])?.is_none());
+    assert!(extract(&scene, &mut store, &[]).is_err());
+    scene
+        .entities
+        .iter_mut()
+        .find(|e| e.id == rig.actor)
+        .unwrap()
+        .animator
+        .as_mut()
+        .unwrap()
+        .bindings
+        .clear();
+    assert!(super::super::selection_bounds(&scene, &mut store, &[rig.actor]).is_err());
+    Ok(())
+}
+
+#[test]
 fn world_palettes_include_the_actor_once_and_reuse_idle_and_selection_batches() -> Result<()> {
     let mut products = Products::new()?;
     let rig = rig(&mut products)?;
