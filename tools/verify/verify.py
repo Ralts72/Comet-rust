@@ -1116,6 +1116,16 @@ def main():
             checks["editor_resource_tree_evidence"] = {"status": "passed", "submitted_frames": 8,
                 "png_sha256": inspect_png(OUT / "editor-resource-tree.png")["sha256"], "author_dirty": True,
                 "query": "Amber", "draw_count": 20, "contents": "clipboard-pasted linked physical prefab copies, directory and matching material subasset"}
+            hierarchy_browser = offscreen_test("editor_hierarchy_browser_gpu",
+                "ui::hierarchy::browser::tests::headless_filtered_hierarchy_draws_selected_path_without_editing_authoring",
+                "editor-hierarchy-browser.json")
+            assert hierarchy_browser["application"]["error"] is None and not hierarchy_browser["application"]["dirty"]
+            assert hierarchy_browser["application"]["history"] == 0 and hierarchy_browser["submitted_frames"] == 8
+            assert hierarchy_browser["application"]["hierarchy_visible_rows"] == 2 and hierarchy_browser["application"]["hierarchy_matches"] == 1
+            assert all(frame["draw_count"] == 6 for frame in hierarchy_browser["frames"])
+            checks["editor_hierarchy_browser_evidence"] = {"status": "passed", "submitted_frames": 8,
+                "png_sha256": inspect_png(OUT / "editor-hierarchy-browser.png")["sha256"], "author_dirty": False,
+                "visible_rows": 2, "matches": 1, "draw_count": 6}
             menu = offscreen_test("app_pause_menu_gpu",
                 "session::tests::menu::headless_pause_menu_draws_without_advancing_the_world_or_touching_player_data",
                 "app-pause-menu.json", package="comet-app")

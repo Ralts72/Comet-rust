@@ -42,14 +42,14 @@ impl Group {
             .find(|(text, pos)| pos.x > 970. && text.starts_with(label))
             .context("common flag control")?
             .1;
-        for _ in 0..64 {
+        let mut visited = std::collections::HashSet::new();
+        loop {
             self.frame(vec![
                 key(egui::Key::Tab, true, Default::default()),
                 key(egui::Key::Tab, false, Default::default()),
             ]);
-            if self
-                .ctx
-                .memory(|memory| memory.focused())
+            let focused = self.ctx.memory(|memory| memory.focused());
+            if focused
                 .and_then(|id| self.ctx.read_response(id))
                 .is_some_and(|response| {
                     response.rect.left() > 970. && response.rect.y_range().contains(position.y)
@@ -57,8 +57,10 @@ impl Group {
             {
                 return Ok(());
             }
+            if focused.is_none_or(|id| !visited.insert(id)) {
+                anyhow::bail!("common control did not receive keyboard focus");
+            }
         }
-        anyhow::bail!("common control did not receive keyboard focus")
     }
 }
 

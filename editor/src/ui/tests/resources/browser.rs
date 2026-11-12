@@ -162,10 +162,10 @@ fn nested_model() -> Result<Case> {
 }
 
 fn search(c: &mut Case, query: &str) {
-    c.press("清除", Rect::EVERYTHING);
+    c.press("清除", resources());
     let output = c.frame(vec![]);
     c.click(
-        position(&output, "搜索文件...", Rect::EVERYTHING),
+        position(&output, "搜索文件...", resources()),
         Default::default(),
     );
     c.frame(vec![egui::Event::Text(query.into())]);

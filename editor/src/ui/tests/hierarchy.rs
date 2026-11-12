@@ -1,4 +1,5 @@
 use super::*;
+mod browser;
 
 fn text_center(output: &egui::FullOutput, label: &str) -> Pos2 {
     fn find(shape: &egui::epaint::Shape, label: &str) -> Option<Pos2> {

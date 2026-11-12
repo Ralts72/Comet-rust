@@ -6,8 +6,10 @@ use comet_asset::AssetStore;
 use comet_asset_data::product::AssetKind;
 use comet_asset_pipeline::SourceCatalog;
 use comet_core::{EntityId, WorldId};
-use comet_scene::{ContentSource, EntityData};
-use std::collections::{BTreeMap, BTreeSet};
+use comet_scene::ContentSource;
+use std::collections::BTreeSet;
+mod browser;
+use browser::{Browser, Index, Row};
 
 #[derive(Clone, Copy)]
 enum Action {
@@ -97,12 +99,15 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
         .weak(),
     );
     ui.add_space(10.);
-    let snapshot = editor.last_snapshot.clone();
-    // Build the child lookup once, rather than scanning the scene at every node.
-    let mut children: BTreeMap<Option<EntityId>, Vec<&EntityData>> = BTreeMap::new();
-    for entity in &snapshot.entities {
-        children.entry(entity.parent).or_default().push(entity);
-    }
+    let mut browser = Browser::load(
+        ui.ctx(),
+        editor.world(),
+        editor.last_snapshot.clone(),
+        &editor.selection,
+    );
+    ui.push_id(editor.world(), |ui| browser.controls(ui, &editor.selection));
+    let index = browser.index.clone();
+    let view = browser.view.clone();
     let authored: BTreeSet<_> = editor
         .document
         .shared_source()
@@ -111,7 +116,7 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
         .iter()
         .map(|entity| entity.id)
         .collect();
-    let world = editor.document.world_id();
+    let world = editor.world();
     let before = editor.selection.generation();
     let mut action = None;
     let can_edit = editor.play.is_none() && !editor.is_busy();
@@ -133,33 +138,47 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
             editor.selection.clear();
         }
     }
-    let mut visible = Vec::new();
-    fn flatten(
-        children: &BTreeMap<Option<EntityId>, Vec<&EntityData>>,
-        parent: Option<EntityId>,
-        ids: &mut Vec<EntityId>,
-    ) {
-        for entity in children.get(&parent).into_iter().flatten() {
-            ids.push(entity.id);
-            flatten(children, Some(entity.id), ids);
-        }
-    }
-    flatten(&children, None, &mut visible);
-    ui.small("Ctrl/Cmd 多选 · Shift 范围选择");
+    ui.small("Ctrl/Cmd 多选 · Shift 范围选择")
+        .on_hover_text("Shift 只选择展开及筛选后的行；Ctrl/Cmd-A 仍全选场景。搜索与折叠不改变选择，复制和删除仍作用于完整子树。");
     let source = editor.document.shared_source();
+    let row_height = ui.spacing().interact_size.y;
+    let indent = ui.spacing().indent;
+    let width = ui.available_width().max(view.depth as f32 * indent + 180.);
     let tree = Tree {
         source: &source,
         sources: &editor.sources,
-        children: &children,
+        index: &index,
         authored: &authored,
         world,
         can_edit,
         can_paste: editor.clipboard.is_some(),
-        visible: &visible,
+        visible: &view.ids,
+        width,
+        row_height,
     };
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        tree.show(ui, None, &mut editor.selection, &mut action, assets);
+    let mut scroll = egui::ScrollArea::both()
+        .id_salt(("hierarchy-rows", world))
+        .auto_shrink([false, false]);
+    if let Some(offset) = browser.scroll(ui, row_height) {
+        scroll = scroll.scroll_offset(offset);
+    }
+    scroll.show_rows(ui, row_height, view.rows.len(), |ui, range| {
+        ui.set_min_width(width);
+        for row in &view.rows[range] {
+            tree.show(
+                ui,
+                row,
+                &mut browser,
+                &mut editor.selection,
+                &mut action,
+                assets,
+            );
+        }
+        if view.rows.is_empty() {
+            ui.weak("没有匹配的实体。");
+        }
     });
+    browser.store(ui.ctx());
     if before != editor.selection.generation() {
         editor.picking.clear();
         editor.drag_origin = None;
@@ -203,34 +222,76 @@ pub(super) fn draw(editor: &mut Editor, ui: &mut egui::Ui, assets: &mut AssetSto
 struct Tree<'a> {
     source: &'a ContentSource,
     sources: &'a SourceCatalog,
-    children: &'a BTreeMap<Option<EntityId>, Vec<&'a EntityData>>,
+    index: &'a Index,
     authored: &'a BTreeSet<EntityId>,
     world: WorldId,
     can_edit: bool,
     can_paste: bool,
     visible: &'a [EntityId],
+    width: f32,
+    row_height: f32,
 }
 impl Tree<'_> {
     fn show(
         &self,
         ui: &mut egui::Ui,
-        parent: Option<EntityId>,
+        row: &Row,
+        browser: &mut Browser,
         selected: &mut Selection,
         action: &mut Option<Action>,
         assets: &mut AssetStore,
     ) {
-        for entity in self.children.get(&parent).into_iter().flatten() {
-            ui.push_id(entity.id, |ui| {
+        let entity = self.index.entity(row.id);
+        ui.push_id((self.world, entity.id), |ui| {
+            ui.horizontal(|ui| {
+                let indent = row.depth as f32 * ui.spacing().indent;
+                ui.add_space(indent);
+                if row.branch {
+                    let arrow = ui
+                        .add_enabled_ui(!browser.filtered(), |ui| {
+                            let arrow =
+                                ui.add_sized([18., self.row_height], egui::Button::new("").small());
+                            let mut icon = arrow.clone();
+                            icon.rect = egui::Rect::from_center_size(
+                                arrow.rect.center(),
+                                egui::vec2(12., 12.),
+                            );
+                            egui::collapsing_header::paint_default_icon(
+                                ui,
+                                if row.open { 1. } else { 0. },
+                                &icon,
+                            );
+                            arrow
+                        })
+                        .inner;
+                    if arrow.clicked() {
+                        browser.toggle(entity.id);
+                    }
+                } else {
+                    ui.allocate_exact_size(egui::vec2(18., self.row_height), egui::Sense::hover());
+                }
+
                 let authored = self.can_edit && self.authored.contains(&entity.id);
-                let response = ui.add(
-                    egui::Button::selectable(selected.contains(entity.id), &entity.name).sense(
-                        if authored {
+                let name = if entity.name.is_empty() {
+                    "未命名实体"
+                } else {
+                    &entity.name
+                };
+                let response = ui.add_sized(
+                    [self.width - indent - 24., self.row_height],
+                    egui::Button::selectable(selected.contains(entity.id), "")
+                        .left_text(name)
+                        .truncate()
+                        .sense(if authored {
                             egui::Sense::click_and_drag()
                         } else {
                             egui::Sense::click()
-                        },
-                    ),
+                        }),
                 );
+                let response = response.on_hover_text(format!("{}\n{}", name, entity.id));
+                if response.double_clicked() && row.branch {
+                    browser.toggle(entity.id);
+                }
                 if response.clicked() {
                     let modifiers = super::click_modifiers(ui, egui::PointerButton::Primary);
                     if modifiers.shift {
@@ -374,11 +435,8 @@ impl Tree<'_> {
                         }
                     });
                 });
-                ui.indent("children", |ui| {
-                    self.show(ui, Some(entity.id), selected, action, assets);
-                });
             });
-        }
+        });
     }
 }
 
