@@ -143,18 +143,8 @@ impl Editor {
         let owners = self.operation_roots(entity, assets)?;
         let targets: Vec<_> = owners.iter().map(|(id, owner)| owner.target(*id)).collect();
         let map = self.document.clone_selection(&targets, assets)?;
-        let mut selected = Vec::new();
-        for (entity, owner) in owners {
-            match owner {
-                Owner::Authored => selected.push(map.entities[&entity]),
-                Owner::Instance { id, roots, .. } => selected.extend(
-                    roots
-                        .iter()
-                        .map(|root| root.in_instance(map.instances[&id])),
-                ),
-            }
-        }
-        self.selection.replace(selected);
+        self.selection
+            .replace(copied_selection(&owners, std::slice::from_ref(&map)));
         self.status = "已复制实体".into();
         Ok(())
     }
@@ -172,23 +162,14 @@ impl Editor {
             "请先结束当前字段编辑，再批量放置"
         );
         let owners = self.operation_roots(entity, assets)?;
-        ensure!(
-            owners
-                .iter()
-                .all(|(_, owner)| matches!(owner, Owner::Authored)),
-            "请选择作者实体或资源的作者容器；Prefab 实际根请先解除关联"
-        );
-        let roots: Vec<_> = owners.iter().map(|(id, _)| *id).collect();
+        let targets: Vec<_> = owners.iter().map(|(id, owner)| owner.target(*id)).collect();
         let maps = self
             .document
-            .place_copies(&roots, copies, world_step, assets)
+            .place_copies(&targets, copies, world_step, assets)
             .context("无法批量放置；请检查份数、间距、父级变换和角色/导航区域的唯一性")?;
         self.picking.clear();
         self.drag_origin = None;
-        self.selection.replace(
-            maps.iter()
-                .flat_map(|map| roots.iter().map(|id| map.entities[id])),
-        );
+        self.selection.replace(copied_selection(&owners, &maps));
         self.status = format!("已放置 {copies} 份副本");
         Ok(())
     }
@@ -327,6 +308,24 @@ impl Editor {
         }
         Ok(roots)
     }
+}
+
+fn copied_selection(
+    owners: &[(EntityId, Owner)],
+    maps: &[comet_editor_core::CloneMap],
+) -> Vec<EntityId> {
+    let mut selected = Vec::new();
+    for map in maps {
+        for (entity, owner) in owners {
+            match owner {
+                Owner::Authored => selected.push(map.entities[entity]),
+                Owner::Instance { id, roots, .. } => {
+                    selected.extend(roots.iter().map(|root| root.in_instance(map.instances[id])))
+                }
+            }
+        }
+    }
+    selected
 }
 
 fn instance_owners(

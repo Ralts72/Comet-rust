@@ -10,11 +10,11 @@ use std::{collections::VecDeque, path::Path, sync::Arc};
 pub const HISTORY_CAPACITY: usize = 256;
 mod hierarchy;
 mod joints;
+mod placement;
 mod selection;
 pub use joints::JointEdit;
-pub use selection::{
-    CloneMap, FieldEdit, FieldTarget, MAX_PLACEMENT_COPIES, ObjectTarget, OverrideReset,
-};
+pub use placement::MAX_PLACEMENT_COPIES;
+pub use selection::{CloneMap, FieldEdit, FieldTarget, ObjectTarget, OverrideReset};
 #[derive(Clone)]
 struct State {
     id: u64,
@@ -413,16 +413,18 @@ impl Document {
         ensure!(self.preview.is_none(), "transaction active");
         let mut next = self.source();
         let result = edit(&mut next)?;
-        self.publish_change(next, resolver)?;
+        self.publish_change(next, resolver, |_| Ok(()))?;
         Ok(result)
     }
     fn publish_change(
         &mut self,
         next: ContentSource,
         resolver: &mut impl PrefabResolver,
+        validate: impl FnOnce(&SceneSnapshot) -> Result<()>,
     ) -> Result<()> {
         let before = self.current.clone();
-        self.expand_source(&next, resolver)?;
+        let expanded = self.expand_source(&next, resolver)?;
+        validate(&expanded)?;
         self.apply(next)?;
         if before.source != self.current.source {
             self.record(before);

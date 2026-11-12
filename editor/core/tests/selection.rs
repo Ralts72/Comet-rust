@@ -1302,7 +1302,7 @@ fn placement_keeps_world_intervals_and_per_copy_local_and_instance_references_in
     let world_id = f.doc.world_id();
     let old_world = comet_scene::world_transforms(&f.doc.expand(&mut f.library)?)?;
     let maps = f.doc.place_copies(
-        &[f.root, f.child, f.observer, f.root],
+        &[f.root, f.child, f.observer, f.root].map(ObjectTarget::Authored),
         3,
         [2., -1., 3.],
         &mut f.library,
@@ -1431,7 +1431,12 @@ fn invalid_placement_keeps_preview_savepoint_and_redo_and_zero_spacing_needs_no_
     ] {
         assert!(
             f.doc
-                .place_copies(&[f.root], copies, step, &mut f.library)
+                .place_copies(
+                    &[ObjectTarget::Authored(f.root)],
+                    copies,
+                    step,
+                    &mut f.library
+                )
                 .is_err()
         );
         assert!(Arc::ptr_eq(&before, &f.doc.shared_source()));
@@ -1442,7 +1447,12 @@ fn invalid_placement_keeps_preview_savepoint_and_redo_and_zero_spacing_needs_no_
     f.library.fail = true;
     assert!(
         f.doc
-            .place_copies(&[f.root], 3, [2., 0., 0.], &mut f.library)
+            .place_copies(
+                &[ObjectTarget::Authored(f.root)],
+                3,
+                [2., 0., 0.],
+                &mut f.library
+            )
             .is_err()
     );
     f.library.fail = false;
@@ -1452,7 +1462,12 @@ fn invalid_placement_keeps_preview_savepoint_and_redo_and_zero_spacing_needs_no_
     let preview = f.doc.shared_source();
     assert!(
         f.doc
-            .place_copies(&[f.root], 3, [2., 0., 0.], &mut f.library)
+            .place_copies(
+                &[ObjectTarget::Authored(f.root)],
+                3,
+                [2., 0., 0.],
+                &mut f.library
+            )
             .is_err()
     );
     assert!(Arc::ptr_eq(&preview, &f.doc.shared_source()));
@@ -1478,11 +1493,16 @@ fn invalid_placement_keeps_preview_savepoint_and_redo_and_zero_spacing_needs_no_
             [1e-30, 0., 0.]
         };
         assert!(
-            doc.place_copies(&[f.child], 2, step, &mut f.library)
+            doc.place_copies(&[ObjectTarget::Authored(f.child)], 2, step, &mut f.library)
                 .is_err()
         );
         assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
-        let maps = doc.place_copies(&[f.child], 1000, [0.; 3], &mut f.library)?;
+        let maps = doc.place_copies(
+            &[ObjectTarget::Authored(f.child)],
+            1000,
+            [0.; 3],
+            &mut f.library,
+        )?;
         assert_eq!(maps.len(), 1000);
         assert_eq!(doc.history_len(), 1);
     }

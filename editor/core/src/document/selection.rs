@@ -1,9 +1,6 @@
 use super::Document;
 use anyhow::{Context, Result, ensure};
-use comet_core::{
-    EntityId, InstanceId,
-    math::{Mat4, Vec3},
-};
+use comet_core::{EntityId, InstanceId};
 use comet_scene::{
     ContentSource, FieldOverride, PrefabResolver,
     schema::{self, FieldKey, FieldValue},
@@ -15,8 +12,6 @@ pub enum ObjectTarget {
     Authored(EntityId),
     Prefab(InstanceId),
 }
-
-pub const MAX_PLACEMENT_COPIES: u32 = 1000;
 
 #[derive(Default, Debug)]
 pub struct CloneMap {
@@ -235,71 +230,6 @@ impl Document {
         })
     }
 
-    /// Place copies of authored subtrees by a world-space step, publishing one history state.
-    pub fn place_copies(
-        &mut self,
-        roots: &[EntityId],
-        copies: u32,
-        world_step: [f32; 3],
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<Vec<CloneMap>> {
-        ensure!(
-            (1..=MAX_PLACEMENT_COPIES).contains(&copies),
-            "copies must be in 1..={MAX_PLACEMENT_COPIES}"
-        );
-        let step = Vec3::from(world_step);
-        ensure!(step.is_finite(), "placement step must be finite");
-        self.change(resolver, |next| {
-            let original: BTreeMap<_, _> = next
-                .base
-                .entities
-                .iter()
-                .map(|entity| (entity.id, (entity.parent, entity.transform.translation)))
-                .collect();
-            let world = comet_scene::world_transforms(&next.base)?;
-            let targets: Vec<_> = roots.iter().copied().map(ObjectTarget::Authored).collect();
-            let maps = clone_objects(next, &targets, copies as usize)?;
-            let first = &maps[0].entities;
-            let mut translations = BTreeMap::new();
-            for (&id, &(parent, translation)) in &original {
-                if !first.contains_key(&id)
-                    || parent.is_some_and(|parent| first.contains_key(&parent))
-                {
-                    continue;
-                }
-                let parent_world = parent.map_or(Mat4::IDENTITY, |parent| world[&parent]);
-                let local_step = if step == Vec3::ZERO {
-                    step
-                } else {
-                    comet_scene::checked_transform_inverse(parent_world)?.transform_vector3(step)
-                };
-                for (index, map) in maps.iter().enumerate() {
-                    let position =
-                        Vec3::from(translation) + local_step * (index + 1) as f32;
-                    ensure!(
-                        position.is_finite(),
-                        "placement translation is out of range"
-                    );
-                    if step != Vec3::ZERO {
-                        // Finite local sums can still round away the requested world displacement.
-                        let expected = step.as_dvec3() * (index + 1) as f64;
-                        let actual = parent_world.transform_point3(position).as_dvec3()
-                            - world[&id].w_axis.truncate().as_dvec3();
-                        ensure!(actual.is_finite() && actual.distance(expected) <= expected.length() * 2e-5,
-                            "cannot preserve world placement interval for {id}; transform precision is insufficient");
-                    }
-                    translations.insert(map.entities[&id], position.to_array());
-                }
-            }
-            for entity in &mut next.base.entities {
-                if let Some(translation) = translations.get(&entity.id) {
-                    entity.transform.translation = *translation;
-                }
-            }
-            Ok(maps)
-        })
-    }
-
     pub fn remove_selection(
         &mut self,
         selection: &[ObjectTarget],
@@ -388,7 +318,7 @@ impl Document {
         ensure!(self.preview.is_none(), "transaction active");
         let mut next = self.source();
         next.detach_instance(id, self.prefab_asset, resolver)?;
-        self.publish_change(next, resolver)
+        self.publish_change(next, resolver, |_| Ok(()))
     }
 }
 
@@ -467,7 +397,7 @@ fn initial_field_value(
     }
 }
 
-fn clone_objects(
+pub(super) fn clone_objects(
     source: &mut ContentSource,
     selection: &[ObjectTarget],
     copies: usize,

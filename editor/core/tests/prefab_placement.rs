@@ -277,3 +277,287 @@ fn translated_physical_instances_roundtrip_copy_and_reject_failed_candidates_ato
     assert_eq!(document.expand(&mut library)?, expanded);
     Ok(())
 }
+
+#[test]
+fn mixed_batch_placement_keeps_nested_links_world_intervals_and_one_saved_history() -> Result<()> {
+    use comet_core::math::{Mat4, Quat, Vec3};
+    use comet_editor_core::ObjectTarget;
+    use comet_scene::{
+        EntityRef, FieldOverride,
+        schema::{self, FieldValue},
+    };
+
+    let leaf = AssetId::new();
+    let physical = AssetId::new();
+    let wrapper = AssetId::new();
+    let mut first = EntityData::new("first source root");
+    first.transform.translation = [1., 2., 3.];
+    let mut second = EntityData::new("second source root");
+    second.transform.translation = [-2., 1., 0.];
+    first.links.target = Some(EntityRef::local(second.id));
+    let leaf_id = first.id;
+    let mut physical_first = body("physical first", BodyMotion::Fixed);
+    let physical_second = body("physical second", BodyMotion::Dynamic);
+    physical_first.links.target = Some(EntityRef::local(physical_second.id));
+    let physical_ids = [physical_first.id, physical_second.id];
+    let nested_source = nested(physical);
+    let inner = nested_source.instances[0].id;
+    let mut library = Library(BTreeMap::from([
+        (leaf, content(vec![first, second])),
+        (physical, content(vec![physical_first, physical_second])),
+        (wrapper, nested_source),
+    ]));
+    let sources = library.0.clone();
+    let mut parent = EntityData::new("rotated mirrored attachment");
+    parent.transform.translation = [8., 4., -3.];
+    parent.transform.rotation = Quat::from_rotation_y(0.7).to_array();
+    parent.transform.scale = [-2., 3., 0.5];
+    let mut author = EntityData::new("author root");
+    author.parent = Some(parent.id);
+    author.transform.translation = [1., 2., 3.];
+    let mut child = EntityData::new("author child");
+    child.parent = Some(author.id);
+    child.links.target = Some(EntityRef::local(author.id));
+    let mut observer = EntityData::new("observer");
+    let attached = InstanceId::new();
+    let direct = InstanceId::new();
+    let unparented = InstanceId::new();
+    author.links.target = Some(EntityRef::in_instance(attached, leaf_id));
+    observer.links.target = Some(EntityRef::in_instance(direct, leaf_id));
+    let (parent_id, author_id, child_id, observer_id) =
+        (parent.id, author.id, child.id, observer.id);
+    let mut document = Document::open_source(ContentSource {
+        base: SceneSnapshot {
+            entities: vec![parent, author, child, observer],
+            ..Default::default()
+        },
+        instances: vec![
+            PrefabInstance {
+                id: attached,
+                prefab: leaf,
+                parent: Some(child_id),
+                translation: [0.5, 1., 2.],
+                overrides: vec![FieldOverride {
+                    entity: leaf_id,
+                    field: schema::TRANSLATION,
+                    value: FieldValue::Vec3([4., 0., 0.]),
+                }],
+            },
+            PrefabInstance {
+                id: direct,
+                prefab: leaf,
+                parent: Some(parent_id),
+                translation: [3., 1., 0.],
+                overrides: vec![],
+            },
+            PrefabInstance {
+                id: unparented,
+                prefab: wrapper,
+                parent: None,
+                translation: [7., 1., 0.],
+                overrides: vec![],
+            },
+        ],
+        ..Default::default()
+    })?;
+    let before = document.shared_source();
+    let world_id = document.world_id();
+    let original = comet_scene::world_transforms(&document.expand(&mut library)?)?;
+    let maps = document.place_copies(
+        &[
+            ObjectTarget::Authored(author_id),
+            ObjectTarget::Authored(child_id),
+            ObjectTarget::Authored(observer_id),
+            ObjectTarget::Prefab(attached),
+            ObjectTarget::Prefab(direct),
+            ObjectTarget::Prefab(unparented),
+            ObjectTarget::Prefab(unparented),
+        ],
+        2,
+        [2., -1., 3.],
+        &mut library,
+    )?;
+    let after = document.shared_source();
+    let expanded = document.expand(&mut library)?;
+    let placed = comet_scene::world_transforms(&expanded)?;
+    assert_eq!(document.world_id(), world_id);
+    assert_eq!(document.history_len(), 1);
+    assert_eq!(after.base.entities.len(), before.base.entities.len() + 6);
+    assert_eq!(after.instances.len(), before.instances.len() + 6);
+    for (index, map) in maps.iter().enumerate() {
+        let shift = Mat4::from_translation(Vec3::new(2., -1., 3.) * (index + 1) as f32);
+        assert_eq!(map.entities.len(), 3);
+        assert_eq!(map.instances.len(), 3);
+        for (&old, &new) in &map.entities {
+            assert!(placed[&new].abs_diff_eq(shift * original[&old], 3e-5));
+        }
+        for (&old, &new) in &map.instances {
+            let source = before.instances.iter().find(|i| i.id == old).unwrap();
+            let copy = after.instances.iter().find(|i| i.id == new).unwrap();
+            assert_eq!(copy.prefab, source.prefab);
+            assert_eq!(copy.overrides, source.overrides);
+            assert_eq!(
+                copy.parent,
+                source
+                    .parent
+                    .map(|id| map.entities.get(&id).copied().unwrap_or(id))
+            );
+            if old == attached {
+                assert_eq!(copy.translation, source.translation);
+            }
+            for root in library.prefab(source.prefab)?.prefab_roots(&mut library)? {
+                assert!(
+                    placed[&root.in_instance(new)]
+                        .abs_diff_eq(shift * original[&root.in_instance(old)], 3e-5)
+                );
+            }
+        }
+        let author = after
+            .base
+            .entities
+            .iter()
+            .find(|e| e.id == map.entities[&author_id])
+            .unwrap();
+        assert_eq!(
+            author.links.target,
+            Some(EntityRef::in_instance(map.instances[&attached], leaf_id))
+        );
+        let observer = after
+            .base
+            .entities
+            .iter()
+            .find(|e| e.id == map.entities[&observer_id])
+            .unwrap();
+        assert_eq!(
+            observer.links.target,
+            Some(EntityRef::in_instance(map.instances[&direct], leaf_id))
+        );
+        let scope = inner.in_instance(map.instances[&unparented]);
+        let physical = expanded
+            .entities
+            .iter()
+            .find(|e| e.id == physical_ids[0].in_instance(scope))
+            .unwrap();
+        assert!(physical.parent.is_none());
+        assert_eq!(
+            physical.links.target,
+            Some(EntityRef::local(physical_ids[1].in_instance(scope)))
+        );
+    }
+    for entity in &before.base.entities {
+        assert_eq!(
+            after.base.entities.iter().find(|e| e.id == entity.id),
+            Some(entity)
+        );
+    }
+    for instance in &before.instances {
+        assert_eq!(
+            after.instances.iter().find(|i| i.id == instance.id),
+            Some(instance)
+        );
+    }
+    assert_eq!(library.0, sources);
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("batch.scene");
+    document.save(&path)?;
+    assert_eq!(Document::load(&path)?.expand(&mut library)?, expanded);
+    document.undo()?;
+    assert!(Arc::ptr_eq(&before, &document.shared_source()));
+    assert!(document.is_dirty());
+    document.redo()?;
+    assert!(Arc::ptr_eq(&after, &document.shared_source()));
+    assert!(!document.is_dirty());
+    Ok(())
+}
+
+#[test]
+fn instance_batches_reject_unrepresentable_roots_and_unique_components_without_losing_state()
+-> Result<()> {
+    use comet_editor_core::ObjectTarget;
+    for unique_region in [false, true] {
+        let prefab = AssetId::new();
+        let mut root = EntityData::new("source root");
+        if unique_region {
+            root.navigation_region = Some(Default::default());
+        } else {
+            root.transform.translation = [1e20, 0., 0.];
+        }
+        let mut library = Library(BTreeMap::from([(
+            prefab,
+            content(vec![root, EntityData::new("small root")]),
+        )]));
+        let anchor = EntityData::new("author");
+        let anchor_id = anchor.id;
+        let mut document = Document::open_source(content(vec![anchor]))?;
+        let instance = document.insert_prefab(None, prefab, [0.; 3], &mut library)?;
+        document.begin()?;
+        document.preview_name(anchor_id, "redo name".into())?;
+        document.commit()?;
+        let redo = document.shared_source();
+        document.undo()?;
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("stable.scene");
+        document.save(&path)?;
+        let bytes = fs::read(&path)?;
+        let before = document.shared_source();
+        let state = (
+            document.revision(),
+            document.state_id(),
+            document.history_len(),
+        );
+        let result = document.place_copies(
+            &[ObjectTarget::Prefab(instance)],
+            2,
+            [1., 0., 0.],
+            &mut library,
+        );
+        let error = format!("{:#}", result.unwrap_err());
+        assert!(
+            error.contains(if unique_region {
+                "multiple navigation regions"
+            } else {
+                "precision"
+            }),
+            "{error}"
+        );
+        assert!(Arc::ptr_eq(&before, &document.shared_source()));
+        assert_eq!(
+            (
+                document.revision(),
+                document.state_id(),
+                document.history_len()
+            ),
+            state
+        );
+        assert!(!document.is_dirty());
+        assert_eq!(fs::read(&path)?, bytes);
+        document.begin()?;
+        document.preview_name(anchor_id, "valid preview".into())?;
+        let preview = document.shared_source();
+        assert!(
+            document
+                .place_copies(
+                    &[ObjectTarget::Prefab(instance)],
+                    1,
+                    [2., 0., 0.],
+                    &mut library
+                )
+                .is_err()
+        );
+        assert!(Arc::ptr_eq(&preview, &document.shared_source()));
+        document.cancel()?;
+        document.redo()?;
+        assert!(Arc::ptr_eq(&redo, &document.shared_source()));
+        document.undo()?;
+        let result =
+            document.place_copies(&[ObjectTarget::Prefab(instance)], 2, [0.; 3], &mut library);
+        if unique_region {
+            assert!(result.is_err());
+            assert!(Arc::ptr_eq(&before, &document.shared_source()));
+        } else {
+            assert_eq!(result?.len(), 2);
+            assert_eq!(document.shared_source().instances.len(), 3);
+        }
+    }
+    Ok(())
+}

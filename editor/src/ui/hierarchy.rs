@@ -259,6 +259,13 @@ impl Tree<'_> {
                 }
                 response.context_menu(|ui| {
                     ui.add_enabled_ui(self.can_edit, |ui| {
+                        let resource = if self.authored.contains(&entity.id) {
+                            Ok(None)
+                        } else {
+                            crate::objects::resource_at_root(self.source, entity.id, assets)
+                        };
+                        let placeable =
+                            self.authored.contains(&entity.id) || matches!(&resource, Ok(Some(_)));
                         for (label, operation) in [
                             ("创建子实体", Action::CreateChild(entity.id)),
                             ("复制", Action::Duplicate(entity.id)),
@@ -270,13 +277,10 @@ impl Tree<'_> {
                             }
                         }
                         if ui
-                            .add_enabled(
-                                self.authored.contains(&entity.id),
-                                egui::Button::new("批量放置..."),
-                            )
-                            .on_hover_text("按世界坐标间距复制作者子树及挂接实例。")
+                            .add_enabled(placeable, egui::Button::new("批量放置..."))
+                            .on_hover_text("按世界坐标间距复制作者子树或资源实例，保留关联。")
                             .on_disabled_hover_text(
-                                "请选择作者实体或资源的作者容器；直接 Prefab 根请先解除关联。",
+                                "请选择作者实体或资源实例的实际根；内部结构请在源 Prefab 中编辑。",
                             )
                             .clicked()
                         {
@@ -298,7 +302,7 @@ impl Tree<'_> {
                             ui.close();
                         }
                         if !self.authored.contains(&entity.id) {
-                            match crate::objects::resource_at_root(self.source, entity.id, assets) {
+                            match resource {
                                 Ok(Some(prefab)) => {
                                     let model = self
                                         .sources

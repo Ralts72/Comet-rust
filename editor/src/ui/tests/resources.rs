@@ -540,6 +540,57 @@ fn exercise_physics_resource(nested: bool) -> Result<()> {
     // Both physical roots belong to one declaration. Detach one level per click,
     // including a wrapper containing only nested instances.
     c.editor.selection.replace(roots);
+    let batch_before = c.editor.document.shared_source();
+    let batch_world = comet_scene::world_transforms(&c.editor.snapshot(&mut c.assets)?)?;
+    let batch_history = c.editor.document.history_len();
+    c.context_menu("落体乙");
+    c.press("批量放置...", Rect::EVERYTHING);
+    c.press("放置", Rect::EVERYTHING);
+    assert!(c.editor.error.is_none(), "{:?}", c.editor.error);
+    let batch = c.editor.document.shared_source();
+    assert!(batch.base.entities.is_empty());
+    assert_eq!(batch.instances.len(), 4);
+    assert_eq!(c.editor.document.history_len(), batch_history + 1);
+    assert_eq!(c.editor.selection.len(), 6);
+    let active = c.editor.selection.active().unwrap();
+    let snapshot = c.editor.snapshot(&mut c.assets)?;
+    let placed = comet_scene::world_transforms(&snapshot)?;
+    let mut offsets = Vec::new();
+    for copy in batch.instances.iter().filter(|i| i.id != instance) {
+        let copied_roots = c.roots(copy.id);
+        offsets.push(copy.translation[0]);
+        for (old, new) in roots.into_iter().zip(copied_roots) {
+            let actual = placed[&new].w_axis.truncate() - batch_world[&old].w_axis.truncate();
+            assert!(actual.abs_diff_eq(
+                comet_core::math::Vec3::new(copy.translation[0], 0., 0.),
+                1e-5
+            ));
+            assert!(c.editor.selection.contains(new));
+        }
+        if copy.translation[0] == 6. {
+            assert_eq!(active, copied_roots[1]);
+        }
+    }
+    offsets.sort_by(f32::total_cmp);
+    assert_eq!(offsets, [2., 4., 6.]);
+    c.key(egui::Key::S, egui::Modifiers::COMMAND);
+    comet_asset_pipeline::prepare(c.editor.project_root(), &c.editor.products)?;
+    let mut standalone = AssetStore::open(&c.editor.products)?;
+    let identity = comet_asset_pipeline::SourceMeta::load(&c.editor.source)?.id;
+    assert_eq!(standalone.expand_scene(identity)?, snapshot);
+    c.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert!(Arc::ptr_eq(
+        &batch_before,
+        &c.editor.document.shared_source()
+    ));
+    c.key(
+        egui::Key::Z,
+        egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT),
+    );
+    assert!(Arc::ptr_eq(&batch, &c.editor.document.shared_source()));
+    c.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    c.key(egui::Key::S, egui::Modifiers::COMMAND);
+    c.editor.selection.replace(roots);
     let before_detach = c.editor.snapshot(&mut c.assets)?;
     let depth = if nested { 2 } else { 1 };
     for level in 0..depth {

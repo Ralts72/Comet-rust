@@ -288,7 +288,8 @@ mod tests {
 
     #[test]
     #[ignore = "requires a native offscreen GPU; tools/verify/verify.py --gpu runs this test"]
-    fn headless_project_tree_draws_translated_prefab_and_filtered_material() -> anyhow::Result<()> {
+    fn headless_project_tree_draws_linked_prefab_copies_and_filtered_material() -> anyhow::Result<()>
+    {
         let (_temp, mut editor, mut assets) = crate::test_support::fixture()?;
         let directory = editor.project_root().join("assets/模型 集");
         fs::create_dir(&directory)?;
@@ -336,7 +337,10 @@ mod tests {
             .focus_plane_point([0.75, 0.4], 780. / 520.)
             .unwrap();
         editor.place_resource(id, "放置实例", position.to_array(), &mut assets)?;
-        assert_eq!(editor.document.shared_source().version, 2);
+        let root = editor.selection.active().unwrap();
+        editor.place_copies(root, 2, [-3., 0., 0.], &mut assets)?;
+        assert_eq!(editor.document.shared_source().instances.len(), 4);
+        assert_eq!(editor.selection.len(), 2);
         let physical_bytes = fs::read(&physical)?;
         for (_, tile) in editor.workspace.tree.tiles.iter_mut() {
             if let egui_tiles::Tile::Container(egui_tiles::Container::Linear(split)) = tile
@@ -363,13 +367,13 @@ mod tests {
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(out.join("editor-resource-tree.json"))?)?;
         assert_eq!(report["application"]["dirty"], true);
-        assert_eq!(report["application"]["history"], 1);
+        assert_eq!(report["application"]["history"], 2);
         assert!(
             report["frames"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|frame| frame["draw_count"] == 10)
+                .all(|frame| frame["draw_count"] == 20)
         );
         assert!(report["application"]["error"].is_null());
         assert_eq!(report["submitted_frames"], 8);

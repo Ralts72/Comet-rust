@@ -1108,13 +1108,13 @@ def main():
                 "png_sha256": inspect_png(OUT / "editor-workspace.png")["sha256"], "author_dirty": False,
                 "draw_count": 5, "layout": "three resized splitters"}
             resource_tree = offscreen_test("editor_resource_tree_gpu",
-                "ui::resources::browser::tests::headless_project_tree_draws_translated_prefab_and_filtered_material",
+                "ui::resources::browser::tests::headless_project_tree_draws_linked_prefab_copies_and_filtered_material",
                 "editor-resource-tree.json")
             assert resource_tree["application"]["error"] is None and resource_tree["application"]["dirty"]
-            assert resource_tree["application"]["history"] == 1 and resource_tree["submitted_frames"] == 8
+            assert resource_tree["application"]["history"] == 2 and resource_tree["submitted_frames"] == 8
             checks["editor_resource_tree_evidence"] = {"status": "passed", "submitted_frames": 8,
                 "png_sha256": inspect_png(OUT / "editor-resource-tree.png")["sha256"], "author_dirty": True,
-                "query": "Amber", "draw_count": 10, "contents": "translated physical prefab, directory and matching material subasset"}
+                "query": "Amber", "draw_count": 20, "contents": "linked physical prefab copies, directory and matching material subasset"}
             menu = offscreen_test("app_pause_menu_gpu",
                 "session::tests::menu::headless_pause_menu_draws_without_advancing_the_world_or_touching_player_data",
                 "app-pause-menu.json", package="comet-app")
