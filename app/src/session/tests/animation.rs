@@ -1,7 +1,7 @@
 use super::*;
 use comet_asset_data::{
-    ANIMATION_VERSION, AnimationChannel, AnimationClipData, AnimationInterpolation,
-    AnimationValues, SkeletonData, SkeletonNode,
+    ANIMATION_CLIP_VERSION, ANIMATION_VERSION, AnimationChannel, AnimationClipData,
+    AnimationInterpolation, AnimationValues, SkeletonData, SkeletonNode,
 };
 use comet_scene::{
     Animator, ContentSource, EntityData, EntityRef, SceneSnapshot, scene::SCENE_VERSION,
@@ -63,7 +63,7 @@ fn scene_handoff_and_shutdown_report_keep_the_current_published_animation_state(
             clip,
             Product::AnimationClip(AnimationClipData {
                 events: vec![],
-                version: ANIMATION_VERSION,
+                version: ANIMATION_CLIP_VERSION,
                 skeleton,
                 duration: 1.,
                 channels: vec![AnimationChannel {

@@ -55,7 +55,7 @@ def _curve(author_assets):
 
 def inspect_package(products: Path, protocols: dict, read_product, author_assets: Path) -> dict:
     index = json.loads((products / "index.json").read_text(encoding="utf-8"))
-    assert index["version"] == protocols["index"] and protocols["scene"] >= 9
+    assert index["version"] == protocols["index"] and protocols["scene"] == 12
     entries = index["products"]
     assert all("editor" not in entry for entry in entries.values()), "package retains editor provenance"
     kinds = {SOURCE: "prefab", SKELETON: "skeleton", SKIN: "skin", CLIP: "animation_clip",
@@ -67,7 +67,7 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert entries[SKIN]["dependencies"] == entries[CLIP]["dependencies"] == [SKELETON]
     read = lambda asset: read_product(products, entries, asset, protocols)["data"]
     scene, prefab = read(SCENE), read(SOURCE)
-    assert scene["base"]["version"] == prefab["base"]["version"] == 9
+    assert scene["base"]["version"] == prefab["base"]["version"] == protocols["scene"]
     assert len(scene["instances"]) == 1 and scene["instances"][0]["id"] == INSTANCE
     assert scene["instances"][0]["prefab"] == SOURCE and scene["instances"][0]["overrides"] == []
     skeleton, skin, clip, mesh = (read(asset) for asset in (SKELETON, SKIN, CLIP, MESH))
@@ -172,11 +172,11 @@ def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect
     for bound in ("min", "max"):
         source["accessors"][6].pop(bound, None)
     source["animations"][0]["samplers"][0]["interpolation"] = "CUBICSPLINE"
-    source["animations"][0].pop("extras", None)  # Retain event-free v2 compatibility coverage.
+    source["animations"][0].pop("extras", None)  # Exercise event-free cubic sampling.
     path.write_text(json.dumps(source))
     scene_path = project / "assets/main.scene"
     scene = json.loads(scene_path.read_text())
-    scene["instances"] = [{"id": INSTANCE, "prefab": SOURCE, "parent": None, "overrides": []}]
+    scene["instances"] = [{"id": INSTANCE, "prefab": SOURCE, "parent": None, "translation": [0., 0., 0.], "overrides": []}]
     scene_path.write_text(json.dumps(scene))
     run("cubic_prepare", [assetc, "prepare", project, "--output", products])
     built = case / ("cubic-game.app" if sys.platform == "darwin" else "cubic-game")
@@ -197,7 +197,7 @@ def verify_cubic(case, assetc, editor, template, args, run, run_capture, inspect
     run("cubic_inspect", [assetc, "inspect", relocated / packaged_products, CLIP])
     protocols = json.loads(template.read_text())["identity"]["protocols"]
     clip = read_product(relocated / packaged_products, index["products"], CLIP, protocols)["data"]
-    assert clip["version"] == 2 and clip["duration"] == 2.
+    assert clip["version"] == 3 and clip["duration"] == 2.
     assert clip["channels"][0]["interpolation"] == "cubic_spline"
     assert clip["channels"][0]["values"]["data"] == values
     captures = []

@@ -8,7 +8,7 @@ fn mesh() -> Arc<ProductFile> {
         id: AssetId::new(),
         source_digest: "0".repeat(64),
         payload: Product::Mesh(MeshData {
-            version: 2,
+            version: comet_asset_data::product::MESH_VERSION,
             positions: vec![[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
             normals: vec![[0., 0., 1.]; 3],
             uvs: vec![[0.; 2]; 3],

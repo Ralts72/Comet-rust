@@ -70,7 +70,6 @@ fn prefab() -> ContentSource {
     let skeleton = skeleton();
     let controller = EntityId::in_asset(model(), "animation:controller");
     let mut content = ContentSource::default();
-    content.base.version = 9;
     content.base.entities = skeleton
         .nodes
         .iter()
@@ -159,7 +158,7 @@ fn resources(author: &SceneSnapshot) -> Result<SceneResources> {
             phase: 1.,
             name: "动作完成".into(),
         }],
-        version: 3,
+        version: comet_asset_data::ANIMATION_CLIP_VERSION,
         skeleton: animator.skeleton,
         duration: values[11],
         channels: vec![AnimationChannel {

@@ -29,16 +29,7 @@ fn pair() -> SceneSnapshot {
 }
 
 #[test]
-fn joint_protocol_preserves_legacy_versions_and_all_three_ecs_components() -> Result<()> {
-    for version in 1..=4 {
-        let legacy = SceneSnapshot {
-            version,
-            entities: vec![EntityData::new("legacy")],
-        };
-        let bytes = legacy.to_json()?;
-        assert!(!String::from_utf8_lossy(&bytes).contains("joint"));
-        assert_eq!(SceneSnapshot::from_json(&bytes)?, legacy);
-    }
+fn joint_protocol_preserves_all_three_ecs_components() -> Result<()> {
     let mut original = pair();
     original.entities[0].hinge_joint.as_mut().unwrap().motor = Some(JointMotor::Position {
         target: 0.5,
@@ -593,9 +584,6 @@ fn prefab_joint_overrides_keep_scoped_connections_and_inherit_unmodified_fields(
         }],
         ..Default::default()
     };
-    source.base.version = 4;
-    assert!(source.validate().is_err());
-    source.base.version = 5;
     let first = source.expand(&mut library)?;
     let entity = first
         .entities

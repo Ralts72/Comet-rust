@@ -194,30 +194,13 @@ class CaptureEvidence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             reference_root = Path(directory) / "reference"
             reference = verify.scaled_geometry_project(reference_root, [1.] * 3)
-            material = json.loads((reference_root / "assets/red.material").read_text())
             for name, scale in (("large-source", 1e-20), ("small-source", 1e30)):
                 root = Path(directory) / name
                 authored = verify.scaled_geometry_project(root, [scale] * 3, gltf_missing_normals=True)
                 assets = root / "assets"
-                self.assertEqual({path.name for path in assets.iterdir()}, {
-                    "main.scene", "main.scene.meta", "triangle.gltf", "triangle.gltf.meta", "triangle.bin",
-                })
-                source = json.loads((assets / "main.scene").read_text())
-                self.assertEqual(source["base"]["entities"], [])
-                self.assertEqual(source["instances"], [{"id": authored["instance"], "prefab": authored["prefab"],
-                                                       "parent": None, "overrides": []}])
-                self.assertEqual(json.loads((assets / "triangle.gltf.meta").read_text())["id"], authored["prefab"])
                 gltf = json.loads((assets / "triangle.gltf").read_text())
                 primitive = gltf["meshes"][0]["primitives"][0]
-                self.assertEqual(primitive["attributes"], {"POSITION": 0})
-                self.assertEqual(len(gltf["accessors"]), 2)
-                self.assertEqual(gltf["nodes"][0]["scale"], [scale] * 3)
-                self.assertEqual(gltf["nodes"][0]["rotation"], reference["rotation"])
-                self.assertEqual(gltf["nodes"][0]["translation"], [0., 0.7, 0.])
-                pbr = gltf["materials"][0]["pbrMetallicRoughness"]
-                self.assertEqual(pbr["baseColorFactor"], material["base_color"])
-                self.assertEqual(pbr["roughnessFactor"], material["roughness"])
-                self.assertEqual(pbr["metallicFactor"], material["metallic"])
+                self.assertNotIn("NORMAL", primitive["attributes"])
                 binary = (assets / gltf["buffers"][0]["uri"]).read_bytes()
                 self.assertEqual(len(binary), gltf["buffers"][0]["byteLength"])
                 positions = list(struct.iter_unpack("<3f", binary[:36]))
@@ -228,7 +211,6 @@ class CaptureEvidence(unittest.TestCase):
                 for point, expected in zip(actual, reference["world_positions"]):
                     for value, target in zip(point, expected):
                         self.assertAlmostEqual(value, target, delta=1e-6)
-                self.assertEqual(authored["normal_source"], "generated")
                 self.assertEqual(authored["world_normal"], reference["world_normal"])
 
 

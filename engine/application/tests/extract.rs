@@ -177,7 +177,7 @@ fn visible_world_geometry_is_extracted_despite_tiny_or_huge_authoring_scales() -
         (-1e20, 1e-20, -1.),
     ] {
         let mesh_data = MeshData {
-            version: 1,
+            version: comet_asset_data::product::MESH_VERSION,
             positions: vec![
                 [-author_size, -author_size, 0.],
                 [author_size, -author_size, 0.],

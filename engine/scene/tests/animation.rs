@@ -49,31 +49,9 @@ fn rig() -> (SceneSnapshot, EntityId, EntityId, EntityId, EntityId) {
 #[test]
 fn versioned_animation_components_round_trip_ecs_and_publish_only_valid_field_batches() -> Result<()>
 {
-    let (mut snapshot, owner, _, mesh, _) = rig();
-    for version in 1..9 {
-        snapshot.version = version;
-        assert!(snapshot.validate().is_err());
-        let mut old = snapshot.clone();
-        old.entities.iter_mut().for_each(|e| {
-            e.animator = None;
-            e.skin = None;
-        });
-        old.validate()?;
-    }
-    snapshot.version = 9;
+    let (snapshot, owner, _, mesh, _) = rig();
     let mut scene = Scene::open(SceneSnapshot::from_json(&snapshot.to_json()?)?)?;
     let original = scene.shared_snapshot();
-    for field in [
-        schema::ANIMATOR_SKELETON,
-        schema::ANIMATOR_CLIP,
-        schema::ANIMATOR_BINDINGS,
-        schema::ANIMATOR_LOOPING,
-        schema::ANIMATOR_SPEED,
-        schema::SKIN_ASSET,
-        schema::SKIN_ANIMATOR,
-    ] {
-        assert_eq!(schema::required_scene_version(field), 9);
-    }
     let revision = scene.revision();
     assert!(
         scene
@@ -293,7 +271,7 @@ fn source_node_keys_survive_clone_delete_and_two_nested_instance_namespaces() ->
         (
             asset,
             ContentSource {
-                version: 1,
+                version: comet_scene::prefab::CONTENT_VERSION,
                 base: before,
                 instances: vec![],
             },

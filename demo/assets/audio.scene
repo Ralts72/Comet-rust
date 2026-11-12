@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "base": {
-    "version": 7,
+    "version": 12,
     "entities": [
       {
         "id": "b2000000-0000-4000-8000-000000000001",
@@ -34,7 +34,10 @@
           "clip": "a0000000-0000-4000-8000-000000000009",
           "gain": 0.18,
           "looping": true,
-          "autoplay": true
+          "autoplay": true,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         }
       },
       {
@@ -68,7 +71,10 @@
           "clip": "a0000000-0000-4000-8000-00000000000a",
           "gain": 0.65,
           "looping": false,
-          "autoplay": false
+          "autoplay": false,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         },
         "script": {
           "asset": "a0000000-0000-4000-8000-00000000000b",

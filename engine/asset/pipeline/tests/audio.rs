@@ -1,9 +1,8 @@
 use anyhow::Result;
 use comet_asset::AssetStore;
 use comet_asset_data::{
-    NavigationData,
     audio::MAX_AUDIO_SAMPLES,
-    product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product, ProductIndex},
+    product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product},
 };
 use comet_asset_pipeline::{
     DEFAULT_SCENE, SourceCatalog, SourceMeta, create_project, package, prepare,
@@ -201,7 +200,7 @@ fn prefab_clip_overrides_package_their_dependencies_and_load_without_any_authori
         &prefab_path,
         &ContentSource {
             base: SceneSnapshot {
-                version: 7,
+                version: comet_scene::scene::SCENE_VERSION,
                 entities: vec![owner],
             },
             ..Default::default()
@@ -215,7 +214,7 @@ fn prefab_clip_overrides_package_their_dependencies_and_load_without_any_authori
         &scene_path,
         &ContentSource {
             base: SceneSnapshot {
-                version: 7,
+                version: comet_scene::scene::SCENE_VERSION,
                 ..Default::default()
             },
             instances: vec![PrefabInstance {
@@ -258,8 +257,9 @@ fn prefab_clip_overrides_package_their_dependencies_and_load_without_any_authori
     assert_eq!(store.dependency_closure(scene)?.len(), 4);
     let snapshot = store.expand_scene(scene)?;
     assert_eq!(
-        snapshot.version, 7,
-        "2D declarations retain their author protocol"
+        snapshot.version,
+        comet_scene::scene::SCENE_VERSION,
+        "all scenes use the current protocol"
     );
     assert_eq!(
         snapshot.entities[0].audio_source.as_ref().unwrap().clip,
@@ -269,57 +269,5 @@ fn prefab_clip_overrides_package_their_dependencies_and_load_without_any_authori
         panic!("audio")
     };
     assert_eq!(&*audio.samples, &[1, 2, 3, 4]);
-    Ok(())
-}
-
-#[test]
-fn old_indexes_rebuild_without_changing_author_ids_but_cannot_smuggle_audio() -> Result<()> {
-    let f = Fixture::new()?;
-    fs::write(f.project.join("assets/cached.rhai"), "let cached = true;")?;
-    fs::write(
-        f.project.join("assets/cached.nav"),
-        serde_json::to_vec(&NavigationData {
-            version: 1,
-            input_digest: "0".repeat(64),
-            vertices: vec![[-1., 0., -1.], [1., 0., -1.], [0., 0., 1.]],
-            polygons: vec![vec![0, 1, 2]],
-        })?,
-    )?;
-    prepare(&f.project, &f.products)?;
-    let index_path = f.products.join("index.json");
-    let current: ProductIndex = serde_json::from_slice(&fs::read(&index_path)?)?;
-    let metadata = fs::read(SourceMeta::path(&f.source()))?;
-    for version in 1..=4 {
-        let mut legacy = current.clone();
-        legacy.version = version;
-        legacy.products.retain(|_, entry| {
-            entry.kind != AssetKind::Audio
-                && (version >= 2 || entry.kind != AssetKind::Script)
-                && (version >= 4 || entry.kind != AssetKind::Navigation)
-        });
-        if version < 3 {
-            for entry in legacy.products.values_mut() {
-                entry.editor = None;
-            }
-        }
-        fs::write(&index_path, serde_json::to_vec(&legacy)?)?;
-        assert!(AssetStore::open(&f.products).is_err());
-        prepare(&f.project, &f.products)?;
-        let mut store = AssetStore::open(&f.products)?;
-        assert_eq!(store.index().version, INDEX_VERSION);
-        assert_eq!(store.load(f.clip)?.version, PRODUCT_VERSION);
-        assert_eq!(fs::read(SourceMeta::path(&f.source()))?, metadata);
-        legacy
-            .products
-            .insert(f.clip, current.products[&f.clip].clone());
-        if version < 3 {
-            legacy.products.get_mut(&f.clip).unwrap().editor = None;
-        }
-        let bad = serde_json::to_vec(&legacy)?;
-        fs::write(&index_path, &bad)?;
-        let error = prepare(&f.project, &f.products).unwrap_err();
-        assert!(format!("{error:#}").contains("newer audio asset kind"));
-        assert_eq!(fs::read(&index_path)?, bad);
-    }
     Ok(())
 }

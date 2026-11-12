@@ -322,7 +322,6 @@ fn physics_parameter_drag_keeps_its_preview_and_commits_one_history_item() -> Re
     use comet_scene::{BodyMotion, Character, ColliderShape, PhysicsBody};
     let (_temp, mut editor, mut assets) = fixture()?;
     let mut source = editor.document.source();
-    source.base.version = 2;
     let mut entity = EntityData::new("角色");
     let id = entity.id;
     entity.physics = Some(PhysicsBody {
@@ -551,7 +550,6 @@ fn editor_play_simulates_physics_and_restores_authoring_after_stop() -> Result<(
     use comet_scene::{BodyMotion, Character, ColliderShape, PhysicsBody};
     let (_temp, mut editor, mut assets) = fixture()?;
     let mut source = editor.document.source();
-    source.base.version = 2;
     let mut floor = EntityData::new("floor");
     floor.transform.translation = [0., -0.5, 0.];
     floor.physics = Some(PhysicsBody {

@@ -322,16 +322,7 @@ pub(super) fn import(
             .transpose()?
             .unwrap_or_default();
         let data = AnimationClipData {
-            version: if !events.is_empty() {
-                comet_asset_data::ANIMATION_CLIP_VERSION
-            } else if channels
-                .iter()
-                .any(|channel| channel.interpolation == AnimationInterpolation::CubicSpline)
-            {
-                2
-            } else {
-                1
-            },
+            version: comet_asset_data::ANIMATION_CLIP_VERSION,
             skeleton: skeleton_id,
             duration,
             channels,
@@ -427,7 +418,6 @@ pub(super) fn import(
         }
     }
     source.base.entities.push(owner);
-    source.base.version = 9;
     products.push(ImportedProduct {
         id: skeleton_id,
         payload: Product::Skeleton(skeleton),

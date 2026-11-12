@@ -28,7 +28,7 @@ fn fixture(owner: EntityData) -> Result<(Document, Library, EntityId, InstanceId
     let owner_id = owner.id;
     let source = ContentSource {
         base: SceneSnapshot {
-            version: 2,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![owner],
         },
         instances: vec![PrefabInstance {
@@ -44,7 +44,7 @@ fn fixture(owner: EntityData) -> Result<(Document, Library, EntityId, InstanceId
         asset,
         ContentSource {
             base: SceneSnapshot {
-                version: 9,
+                version: comet_scene::scene::SCENE_VERSION,
                 entities: vec![target],
             },
             ..Default::default()
@@ -113,7 +113,7 @@ fn component(
 }
 
 #[test]
-fn component_references_upgrade_by_value_and_preserve_history_on_failed_candidates() -> Result<()> {
+fn component_references_preserve_history_on_failed_candidates() -> Result<()> {
     for kind in 0..5 {
         let mut owner = EntityData::new("owner");
         if kind == 1 {
@@ -153,7 +153,6 @@ fn component_references_upgrade_by_value_and_preserve_history_on_failed_candidat
             EntityRef::in_instance(instance, target),
             &mut library,
         )?;
-        assert_eq!(doc.shared_source().base.version, 10);
         doc.expand(&mut library)?.validate_expanded()?;
         doc.commit()?;
         assert_eq!(doc.history_len(), 1);
@@ -176,9 +175,6 @@ fn component_references_upgrade_by_value_and_preserve_history_on_failed_candidat
         assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
         assert_eq!(doc.revision(), revision);
         doc.cancel()?;
-        let mut legacy = doc.source();
-        legacy.base.version = 9;
-        assert!(Document::open_source(legacy).is_err());
     }
     Ok(())
 }
@@ -197,14 +193,12 @@ fn field_and_insert_commands_share_reference_protocol_without_upgrading_on_open(
         }],
         &mut library,
     )?;
-    assert_eq!(doc.shared_source().base.version, 10);
     doc.commit()?;
     doc.undo()?;
     assert!(Arc::ptr_eq(&original, &doc.shared_source()));
     let mut inserted = EntityData::new("linked object");
     inserted.links.target = Some(reference);
     doc.insert_entity(inserted, &mut library)?;
-    assert_eq!(doc.shared_source().base.version, 10);
     doc.undo()?;
     assert!(Arc::ptr_eq(&original, &doc.shared_source()));
     Ok(())

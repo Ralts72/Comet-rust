@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "base": {
-    "version": 10,
+    "version": 12,
     "entities": [
       {
         "id": "b4000000-0000-4000-8000-000000000001",
@@ -51,7 +51,10 @@
           "clip": "a0000000-0000-4000-8000-00000000000a",
           "gain": 0.65,
           "looping": false,
-          "autoplay": false
+          "autoplay": false,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         },
         "script": {
           "asset": "a0000000-0000-4000-8000-00000000000f",
@@ -135,7 +138,9 @@
           "gravity": 9.81,
           "max_slope_degrees": 45.0,
           "step_height": 0.3,
-          "snap_distance": 0.15
+          "snap_distance": 0.15,
+          "crouch_speed": 2.0,
+          "crouch_height_ratio": 0.6
         }
       },
       {
@@ -462,6 +467,11 @@
             "value": false
           }
         }
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
       ]
     }
   ]

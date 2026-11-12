@@ -15,12 +15,11 @@ impl PrefabResolver for Library {
 }
 
 #[test]
-fn script_component_transactions_upgrade_legacy_content_and_keep_history_and_savepoints()
--> Result<()> {
+fn script_component_transactions_keep_history_and_savepoints() -> Result<()> {
     let entity = EntityData::new("author");
     let id = entity.id;
     let mut doc = Document::open(SceneSnapshot {
-        version: 3,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let mut library = Library(AssetId::new(), Default::default());
@@ -38,7 +37,6 @@ fn script_component_transactions_upgrade_legacy_content_and_keep_history_and_sav
     );
     doc.begin()?;
     doc.preview_script(id, Some(script.clone()), &mut library)?;
-    assert_eq!(doc.source().base.version, 4);
     script.enabled = false;
     doc.preview_script(id, Some(script), &mut library)?;
     assert_eq!(doc.history_len(), 0);
@@ -60,7 +58,6 @@ fn script_component_transactions_upgrade_legacy_content_and_keep_history_and_sav
     doc.preview_script(id, None, &mut library)?;
     doc.commit()?;
     assert!(doc.source().base.entities[0].script.is_none());
-    assert_eq!(doc.source().base.version, 4);
     doc.undo()?;
     assert_eq!(doc.shared_source(), after);
     Ok(())

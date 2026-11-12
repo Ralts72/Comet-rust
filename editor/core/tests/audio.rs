@@ -15,7 +15,7 @@ fn audio_component_preview_rejects_bad_candidates_and_preserves_history_savepoin
     let entity = EntityData::new("audio");
     let id = entity.id;
     let mut document = Document::open(SceneSnapshot {
-        version: 6,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let initial = document.shared_source();
@@ -23,7 +23,6 @@ fn audio_component_preview_rejects_bad_candidates_and_preserves_history_savepoin
     source.autoplay = true;
     document.begin()?;
     document.preview_audio_source(id, Some(source.clone()), &mut Empty)?;
-    assert_eq!(document.shared_source().base.version, 7);
     let preview = document.shared_source();
     let mut bad = source.clone();
     bad.gain = f32::NAN;
@@ -59,15 +58,14 @@ fn audio_component_preview_rejects_bad_candidates_and_preserves_history_savepoin
 }
 
 #[test]
-fn spatial_previews_upgrade_v7_atomically_and_returning_to_the_baseline_restores_protocol_and_redo()
--> Result<()> {
+fn spatial_previews_returning_to_the_baseline_restore_savepoint_and_redo() -> Result<()> {
     use comet_editor_core::{FieldEdit, FieldTarget};
     use comet_scene::schema::{self, FieldValue};
     let mut entity = EntityData::new("old sound");
     let id = entity.id;
     entity.audio_source = Some(AudioSource::new(AssetId::new()));
     let mut document = Document::open(SceneSnapshot {
-        version: 7,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let original = document.shared_source();
@@ -92,7 +90,6 @@ fn spatial_previews_upgrade_v7_atomically_and_returning_to_the_baseline_restores
         }],
         &mut Empty,
     )?;
-    assert_eq!(document.shared_source().base.version, 8);
     let accepted = document.shared_source();
     assert!(
         document
@@ -119,7 +116,6 @@ fn spatial_previews_upgrade_v7_atomically_and_returning_to_the_baseline_restores
     document.commit()?;
     assert_eq!(document.history_len(), history);
     document.redo()?;
-    assert_eq!(document.shared_source().base.version, 7);
     let mut spatial = document.shared_source().base.entities[0]
         .audio_source
         .clone()
@@ -128,9 +124,7 @@ fn spatial_previews_upgrade_v7_atomically_and_returning_to_the_baseline_restores
     document.begin()?;
     document.preview_audio_source(id, Some(spatial), &mut Empty)?;
     document.commit()?;
-    assert_eq!(document.shared_source().base.version, 8);
     document.undo()?;
-    assert_eq!(document.shared_source().base.version, 7);
     document.redo()?;
     let temp = tempfile::tempdir()?;
     let path = temp.path().join("spatial.scene");
@@ -143,6 +137,5 @@ fn spatial_previews_upgrade_v7_atomically_and_returning_to_the_baseline_restores
             .unwrap()
             .spatial
     );
-    assert_eq!(saved.shared_source().base.version, 8);
     Ok(())
 }

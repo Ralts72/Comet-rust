@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "base": {
-    "version": 4,
+    "version": 12,
     "entities": [
       {
         "id": "60000000-0000-4000-8000-000000000001",
@@ -232,7 +232,9 @@
           "gravity": 9.81,
           "max_slope_degrees": 45.0,
           "step_height": 0.3,
-          "snap_distance": 0.15
+          "snap_distance": 0.15,
+          "crouch_speed": 2.0,
+          "crouch_height_ratio": 0.6
         },
         "script": {
           "asset": "90000000-0000-4000-8000-000000000001",
@@ -395,7 +397,12 @@
       "id": "50000000-0000-4000-8000-000000000001",
       "prefab": "40000000-0000-4000-8000-000000000002",
       "parent": null,
-      "overrides": []
+      "overrides": [],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
     }
   ]
 }

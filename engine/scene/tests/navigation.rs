@@ -42,24 +42,11 @@ fn fixture() -> SceneSnapshot {
 }
 
 #[test]
-fn navigation_versions_ecs_and_atomic_validation_preserve_legacy_protocols() -> Result<()> {
+fn navigation_ecs_and_invalid_fields_preserve_atomic_publication() -> Result<()> {
     let snapshot = fixture();
     snapshot.validate()?;
     let mut scene = Scene::open(snapshot.clone())?;
     assert_eq!(scene.shared_snapshot().to_json()?, snapshot.to_json()?);
-    let mut legacy = snapshot.clone();
-    legacy.version = 5;
-    assert!(legacy.validate().is_err());
-    legacy.entities.iter_mut().for_each(|e| {
-        e.navigation_region = None;
-        e.navigation_agent = None;
-    });
-    let json = legacy.to_json()?;
-    assert!(!String::from_utf8_lossy(&json).contains("navigation"));
-    assert_eq!(SceneSnapshot::from_json(&json)?, {
-        legacy.canonicalize();
-        legacy
-    });
     let mut bad = snapshot.clone();
     let region = bad.entities[0].id;
     let npc = bad.entities[1].id;
@@ -213,9 +200,6 @@ fn prefab_navigation_overrides_keep_source_references_and_root_constraints() -> 
             .iter()
             .any(|e| e.id == r.in_instance(id) && e.parent.is_none())
     }));
-    source.base.version = 5;
-    assert!(source.validate().is_err());
-    source.base.version = 6;
     let mount = EntityData::new("invalid container");
     source.instances[0].parent = Some(mount.id);
     source.base.entities.push(mount);

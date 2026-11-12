@@ -38,7 +38,7 @@ def prepare_smoke_project(project: Path) -> None:
 
 def inspect_package(products: Path, protocols: dict, read_product, author_assets: Path) -> dict:
     index = json.loads((products / "index.json").read_text(encoding="utf-8"))
-    assert index["version"] == protocols["index"] and protocols["scene"] >= 10
+    assert index["version"] == protocols["index"] and protocols["scene"] == 12
     entries = index["products"]
     assert all("editor" not in entry for entry in entries.values()), "package retains editor provenance"
     assert entries[SCENE]["kind"] == "scene" and entries[SCRIPT]["kind"] == "script"
@@ -51,8 +51,8 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert entries[CUE]["kind"] == "audio" and entries[SCRIPT]["dependencies"] == []
     assert entries[NEXT_SCENE]["kind"] == "scene"
     scene = read_product(products, entries, SCENE, protocols)["data"]
-    assert scene["version"] == 1 and scene["base"]["version"] == 10
-    assert scene["instances"] == [{"id": RIG_INSTANCE, "prefab": SOURCE, "parent": RIG_PARENT,
+    assert scene["version"] == protocols["content"] and scene["base"]["version"] == protocols["scene"]
+    assert scene["instances"] == [{"id": RIG_INSTANCE, "prefab": SOURCE, "parent": RIG_PARENT, "translation": [0., 0., 0.],
         "overrides": [{"entity": SOURCE_CONTROLLER, "field": {"component": 13, "field": 4},
                        "value": {"type": "bool", "value": False}}]}]
     entities = {entity["id"]: entity for entity in scene["base"]["entities"]}
@@ -79,7 +79,7 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     container = entities[RIG_PARENT]
     assert container["parent"] is None and container["transform"]["translation"] == [1.8, 0., -0.5]
     prefab = read_product(products, entries, SOURCE, protocols)["data"]
-    assert prefab["base"]["version"] == 9 and prefab["instances"] == []
+    assert prefab["base"]["version"] == protocols["scene"] and prefab["instances"] == []
     rig = {entity["id"]: entity for entity in prefab["base"]["entities"]}
     assert len(rig) == 5
     controller = rig[SOURCE_CONTROLLER]

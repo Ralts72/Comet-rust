@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "base": {
-    "version": 11,
+    "version": 12,
     "entities": [
       {
         "id": "e12b0501-e63f-535e-b1f0-c43c5731648a",
@@ -52,7 +52,9 @@
           "gravity": 9.81,
           "max_slope_degrees": 45.0,
           "step_height": 0.3,
-          "snap_distance": 0.15
+          "snap_distance": 0.15,
+          "crouch_speed": 2.0,
+          "crouch_height_ratio": 0.6
         }
       },
       {
@@ -143,7 +145,9 @@
           "gain": 0.6,
           "looping": false,
           "autoplay": false,
-          "spatial": true
+          "spatial": true,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         },
         "script": {
           "asset": "e4266474-5bd6-5c3b-b0a7-a83ac42133ba",
@@ -304,7 +308,10 @@
           "clip": "a0000000-0000-4000-8000-00000000000a",
           "gain": 0.65,
           "looping": false,
-          "autoplay": false
+          "autoplay": false,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         },
         "script": {
           "asset": "a0000000-0000-4000-8000-00000000000f",
@@ -511,7 +518,10 @@
           "clip": "a0000000-0000-4000-8000-00000000000a",
           "gain": 0.65,
           "looping": false,
-          "autoplay": false
+          "autoplay": false,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         },
         "script": {
           "asset": "a0000000-0000-4000-8000-00000000000f",
@@ -718,7 +728,10 @@
           "clip": "a0000000-0000-4000-8000-00000000000a",
           "gain": 0.65,
           "looping": false,
-          "autoplay": false
+          "autoplay": false,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 30.0
         },
         "script": {
           "asset": "a0000000-0000-4000-8000-00000000000f",
@@ -1207,6 +1220,11 @@
             "value": false
           }
         }
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
       ]
     },
     {
@@ -1225,6 +1243,11 @@
             "value": false
           }
         }
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
       ]
     },
     {
@@ -1243,6 +1266,11 @@
             "value": false
           }
         }
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
       ]
     },
     {
@@ -1272,6 +1300,11 @@
             "value": "412ab660-dc19-5a08-95f2-8e0439de26ca"
           }
         }
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
       ]
     }
   ]

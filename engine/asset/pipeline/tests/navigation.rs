@@ -2,7 +2,7 @@ use anyhow::Result;
 use comet_asset::AssetStore;
 use comet_asset_data::{
     NavigationData, NavigationInput,
-    product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product, ProductIndex},
+    product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product},
 };
 use comet_asset_pipeline::{
     NavigationTarget, SourceMeta, bake_navigation, bake_navigation_source, create_project, package,
@@ -309,8 +309,7 @@ fn navigation_targets_reject_bad_identity_existing_unidentified_sources_and_outs
 }
 
 #[test]
-fn old_index_versions_cannot_smuggle_navigation_and_invalid_nav_keeps_the_accepted_index()
--> Result<()> {
+fn invalid_navigation_keeps_the_accepted_index() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let project = temp.path().join("project");
     let paths = create_project(&project)?;
@@ -321,21 +320,6 @@ fn old_index_versions_cannot_smuggle_navigation_and_invalid_nav_keeps_the_accept
     prepare(&project, &products)?;
     let index_path = products.join("index.json");
     let before = fs::read(&index_path)?;
-    let current: ProductIndex = serde_json::from_slice(&before)?;
-    for version in 1..=3 {
-        let mut old = current.clone();
-        old.version = version;
-        if version < 3 {
-            for entry in old.products.values_mut() {
-                entry.editor = None;
-            }
-        }
-        let bytes = serde_json::to_vec(&old)?;
-        fs::write(&index_path, &bytes)?;
-        assert!(prepare(&project, &products).is_err());
-        assert_eq!(fs::read(&index_path)?, bytes);
-    }
-    fs::write(&index_path, &before)?;
     let mut invalid = data.clone();
     invalid.polygons[0].reverse();
     fs::write(target.path(), serde_json::to_vec(&invalid)?)?;

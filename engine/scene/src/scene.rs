@@ -48,7 +48,7 @@ impl SceneSnapshot {
 
     pub(crate) fn validate_structure(&self) -> Result<()> {
         ensure!(
-            (1..=SCENE_VERSION).contains(&self.version),
+            self.version == SCENE_VERSION,
             "unsupported scene version {}",
             self.version
         );
@@ -73,12 +73,6 @@ impl SceneSnapshot {
             ensure!(
                 parents.insert(e.id, e.parent).is_none(),
                 "duplicate entity {}",
-                e.id
-            );
-            let required = e.required_scene_version();
-            ensure!(
-                self.version >= required,
-                "entity {} requires scene version {required}",
                 e.id
             );
             schema::validate(e)?;
@@ -268,7 +262,6 @@ pub struct Scene {
     world: World,
     id: WorldId,
     generation: u64,
-    version: u32,
     revision: u64,
     cached: Option<Arc<SceneSnapshot>>,
 }
@@ -278,7 +271,6 @@ impl Scene {
             world: World::new(),
             id: WorldId::new(),
             generation: 0,
-            version: snapshot.version,
             revision: 0,
             cached: None,
         };
@@ -298,7 +290,6 @@ impl Scene {
             .revision
             .checked_add(1)
             .context("scene revision exhausted")?;
-        let version = snapshot.version;
         let mut world = World::new();
         for e in snapshot.entities {
             let mut entity = world.spawn((
@@ -352,7 +343,6 @@ impl Scene {
         }
         self.revision = revision;
         self.cached = None;
-        self.version = version;
         self.world = world;
         self.generation = generation;
         Ok(())
@@ -538,7 +528,7 @@ impl Scene {
             .collect();
         entities.sort_by_key(|e| e.id);
         let snapshot = Arc::new(SceneSnapshot {
-            version: self.version,
+            version: SCENE_VERSION,
             entities,
         });
         self.cached = Some(snapshot.clone());

@@ -221,13 +221,12 @@ pub struct AnimationClipData {
     pub skeleton: AssetId,
     pub duration: f32,
     pub channels: Vec<AnimationChannel>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<AnimationEvent>,
 }
 impl AnimationClipData {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            (1..=ANIMATION_CLIP_VERSION).contains(&self.version),
+            self.version == ANIMATION_CLIP_VERSION,
             "unsupported animation clip version"
         );
         ensure!(
@@ -235,9 +234,8 @@ impl AnimationClipData {
             "invalid animation duration"
         );
         ensure!(
-            self.events.len() <= MAX_ANIMATION_EVENTS
-                && (self.events.is_empty() || (self.version >= 3 && self.duration > 0.)),
-            "animation events require clip version 3, positive duration and at most {MAX_ANIMATION_EVENTS} markers"
+            self.events.is_empty() || self.duration > 0.,
+            "animation events require positive duration"
         );
         validate_events(&self.events)?;
         ensure!(
@@ -250,8 +248,8 @@ impl AnimationClipData {
         for channel in &self.channels {
             let cubic = channel.interpolation == AnimationInterpolation::CubicSpline;
             ensure!(
-                !cubic || (self.version >= 2 && channel.times.len() >= 2),
-                "cubic animation requires clip version 2 and at least two keys"
+                !cubic || channel.times.len() >= 2,
+                "cubic animation requires at least two keys"
             );
             total = total
                 .checked_add(channel.times.len())

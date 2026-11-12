@@ -7,23 +7,8 @@ use comet_scene::{
 };
 
 #[test]
-fn audio_protocol_requires_scene_seven_and_preserves_required_clip_identity_and_overrides()
--> Result<()> {
+fn audio_protocol_preserves_clip_identity_and_overrides() -> Result<()> {
     let clip = AssetId::new();
-    for version in 1..=6 {
-        let mut source = SceneSnapshot {
-            version,
-            entities: vec![EntityData::new("old")],
-        };
-        let json = source.to_json()?;
-        assert!(!String::from_utf8(json.clone())?.contains("audio_source"));
-        assert_eq!(SceneSnapshot::from_json(&json)?, source);
-        source.entities[0].audio_source = Some(AudioSource::new(clip));
-        assert!(source.validate().is_err());
-        let mut value: serde_json::Value = serde_json::from_slice(&json)?;
-        value["entities"][0]["audio_source"] = serde_json::Value::Null;
-        assert!(SceneSnapshot::from_json(&serde_json::to_vec(&value)?).is_err());
-    }
     let mut entity = EntityData::new("sound");
     entity.audio_source = Some(AudioSource::new(clip));
     let id = entity.id;
@@ -45,7 +30,7 @@ fn audio_protocol_requires_scene_seven_and_preserves_required_clip_identity_and_
             value: FieldValue::Scalar(0.3),
         }],
     };
-    let mut author = ContentSource {
+    let author = ContentSource {
         instances: vec![instance],
         ..Default::default()
     };
@@ -66,63 +51,31 @@ fn audio_protocol_requires_scene_seven_and_preserves_required_clip_identity_and_
         expanded.entities[0].audio_source.as_ref().unwrap().clip,
         clip
     );
-    author.base.version = 6;
-    assert!(author.validate().is_err());
+
     Ok(())
 }
 
 #[test]
-fn spatial_audio_preserves_compact_v7_sources_and_uses_v8_only_for_explicit_spatial_configuration()
--> Result<()> {
-    let mut entity = EntityData::new("legacy sound");
+fn spatial_audio_rejects_invalid_distances_and_expands_prefab_overrides() -> Result<()> {
+    let mut entity = EntityData::new("sound");
     let id = entity.id;
     entity.audio_source = Some(AudioSource::new(AssetId::new()));
-    let legacy = SceneSnapshot {
-        version: 7,
+    let baseline = SceneSnapshot {
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     };
-    let bytes = legacy.to_json()?;
-    let json = String::from_utf8(bytes.clone())?;
-    assert!(
-        !json.contains("spatial")
-            && !json.contains("min_distance")
-            && !json.contains("max_distance")
-    );
-    assert_eq!(SceneSnapshot::from_json(&bytes)?, legacy);
-    for name in ["spatial", "min_distance", "max_distance"] {
-        for version in [7, 8] {
-            let mut raw: serde_json::Value = serde_json::from_slice(&bytes)?;
-            raw["version"] = version.into();
-            raw["entities"][0]["audio_source"][name] = serde_json::Value::Null;
-            assert!(
-                SceneSnapshot::from_json(&serde_json::to_vec(&raw)?).is_err(),
-                "{version}/{name}"
-            );
-        }
+    let bytes = baseline.to_json()?;
+    assert_eq!(SceneSnapshot::from_json(&bytes)?, baseline);
+    for field in ["spatial", "min_distance", "max_distance"] {
+        let mut wire = serde_json::to_value(&baseline)?;
+        wire["entities"][0]["audio_source"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(SceneSnapshot::from_json(&serde_json::to_vec(&wire)?).is_err());
     }
-    for (field, value) in [
-        (schema::AUDIO_SPATIAL, FieldValue::Bool(true)),
-        (schema::AUDIO_MIN_DISTANCE, FieldValue::Scalar(0.)),
-        (schema::AUDIO_MAX_DISTANCE, FieldValue::Scalar(50.)),
-    ] {
-        assert_eq!(schema::required_scene_version(field), 8);
-        let mut source = legacy.clone();
-        assert!(source.set_field(&[id], field, value.clone()).is_err());
-        assert_eq!(source, legacy);
-        source.version = 8;
-        source.set_field(&[id], field, value)?;
-        assert_eq!(
-            source.entities[0]
-                .audio_source
-                .as_ref()
-                .unwrap()
-                .required_scene_version(),
-            8
-        );
-    }
-    assert_eq!(schema::required_scene_version(schema::AUDIO_CLIP), 7);
-    let mut source = legacy.clone();
-    source.version = 8;
+    let mut source = baseline.clone();
+
     for (min, max) in [
         (-1., 30.),
         (1., 1.),
@@ -147,7 +100,7 @@ fn spatial_audio_preserves_compact_v7_sources_and_uses_v8_only_for_explicit_spat
                 ])
                 .is_err()
         );
-        assert_eq!(source.entities, legacy.entities);
+        assert_eq!(source.entities, baseline.entities);
     }
     source.set_field(&[id], schema::AUDIO_MIN_DISTANCE, FieldValue::Scalar(0.))?;
     source.validate()?;
@@ -158,12 +111,12 @@ fn spatial_audio_preserves_compact_v7_sources_and_uses_v8_only_for_explicit_spat
         }
     }
     let prefab = ContentSource {
-        base: legacy,
+        base: baseline,
         ..Default::default()
     };
-    let mut author = ContentSource {
+    let author = ContentSource {
         base: SceneSnapshot {
-            version: 7,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![],
         },
         instances: vec![PrefabInstance {
@@ -179,14 +132,9 @@ fn spatial_audio_preserves_compact_v7_sources_and_uses_v8_only_for_explicit_spat
         }],
         ..Default::default()
     };
-    assert!(
-        author.validate().is_err(),
-        "an explicit new field declaration requires v8 even at its default value"
-    );
-    author.base.version = 8;
     let expanded = author.expand(&mut Resolver(prefab))?;
     assert!(!expanded.entities[0].audio_source.as_ref().unwrap().spatial);
-    assert_eq!(expanded.version, 8);
+    assert_eq!(expanded.version, comet_scene::scene::SCENE_VERSION);
     Ok(())
 }
 

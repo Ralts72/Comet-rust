@@ -15,18 +15,16 @@ impl PrefabResolver for Empty {
 }
 
 #[test]
-fn component_previews_upgrade_only_the_required_protocol_and_reject_bad_animation_atomically()
--> Result<()> {
+fn component_previews_reject_bad_animation_atomically() -> Result<()> {
     let entity = EntityData::new("component protocols");
     let id = entity.id;
     let mut document = Document::open(SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let original = document.shared_source();
     document.begin()?;
     document.preview_physics(id, Some(PhysicsBody::default()), None, &mut Empty)?;
-    assert_eq!(document.shared_source().base.version, 2);
     document.commit()?;
     document.undo()?;
     assert_eq!(document.shared_source(), original);
@@ -49,7 +47,6 @@ fn component_previews_upgrade_only_the_required_protocol_and_reject_bad_animatio
         }),
         &mut Empty,
     )?;
-    assert_eq!(document.shared_source().base.version, 3);
     document.cancel()?;
     assert!(Arc::ptr_eq(&document.shared_source(), &physical));
     let animator = Animator {
@@ -62,7 +59,6 @@ fn component_previews_upgrade_only_the_required_protocol_and_reject_bad_animatio
     };
     document.begin()?;
     document.preview_animation(id, Some(animator.clone()), None, &mut Empty)?;
-    assert_eq!(document.shared_source().base.version, 9);
     let accepted = document.shared_source();
     let mut invalid = animator;
     invalid.speed = f32::NAN;
@@ -95,7 +91,7 @@ fn removing_a_skinned_model_retires_its_skin_in_the_same_undoable_candidate() ->
         animator: None,
     });
     let mut document = Document::open(SceneSnapshot {
-        version: 9,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let original = document.shared_source();
@@ -140,7 +136,7 @@ fn removing_a_controller_unbinds_its_skins_without_clearing_other_entity_links()
     model.links.target = Some(reference.clone());
     let mesh_id = model.id;
     let mut document = Document::open(SceneSnapshot {
-        version: 9,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![controller, model],
     })?;
     let original = document.shared_source();

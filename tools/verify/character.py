@@ -19,7 +19,7 @@ def inspect_package(products, protocols, read_product, author_assets):
     entries = json.loads((products / "index.json").read_text())["products"]
     for name, scene, _, _ in LEVELS:
         content = read_product(products, entries, scene, protocols)["data"]
-        assert len(content["instances"]) == 4 and content["base"]["version"] == 11
+        assert len(content["instances"]) == 4 and content["base"]["version"] == protocols["scene"]
         avatar = next(instance for instance in content["instances"] if instance["prefab"] == MODEL)
         driver = next(e for e in content["base"]["entities"] if e.get("character_animation"))
         assert driver["character_animation"]["animator"]["instance"] == avatar["id"]

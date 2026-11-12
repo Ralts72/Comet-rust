@@ -10,17 +10,8 @@ pub struct AudioSource {
     pub gain: f32,
     pub looping: bool,
     pub autoplay: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
     pub spatial: bool,
-    #[serde(
-        default = "default_min_distance",
-        skip_serializing_if = "is_default_min_distance"
-    )]
     pub min_distance: f32,
-    #[serde(
-        default = "default_max_distance",
-        skip_serializing_if = "is_default_max_distance"
-    )]
     pub max_distance: f32,
 }
 impl AudioSource {
@@ -31,18 +22,8 @@ impl AudioSource {
             looping: false,
             autoplay: false,
             spatial: false,
-            min_distance: default_min_distance(),
-            max_distance: default_max_distance(),
-        }
-    }
-    pub fn required_scene_version(&self) -> u32 {
-        if self.spatial
-            || !is_default_min_distance(&self.min_distance)
-            || !is_default_max_distance(&self.max_distance)
-        {
-            8
-        } else {
-            7
+            min_distance: 1.,
+            max_distance: 30.,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -62,23 +43,7 @@ impl AudioSource {
     }
 }
 
-fn is_false(value: &bool) -> bool {
-    !value
-}
-fn default_min_distance() -> f32 {
-    1.
-}
-fn default_max_distance() -> f32 {
-    30.
-}
-fn is_default_min_distance(value: &f32) -> bool {
-    *value == default_min_distance()
-}
-fn is_default_max_distance(value: &f32) -> bool {
-    *value == default_max_distance()
-}
-
-// Missing components are omitted; an explicit null must not bypass the scene version gate.
+// An absent component is omitted; an explicit null is not a component configuration.
 pub(crate) fn deserialize_source<'de, D: serde::Deserializer<'de>>(
     value: D,
 ) -> std::result::Result<Option<AudioSource>, D::Error> {

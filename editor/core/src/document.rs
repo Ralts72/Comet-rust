@@ -185,10 +185,6 @@ impl Document {
         ensure!(self.preview.is_some(), "no edit transaction");
         let mut next = self.source();
         comet_scene::schema::descriptor(key)?;
-        next.base.version = next
-            .base
-            .version
-            .max(comet_scene::schema::required_scene_version(key));
         let edits: Vec<_> = selection
             .iter()
             .map(|id| FieldEdit {
@@ -219,12 +215,6 @@ impl Document {
         ensure!(self.preview.is_some(), "no edit transaction");
         let mut next = self.source();
         edit(&mut next)?;
-        next.base.version = next
-            .base
-            .entities
-            .iter()
-            .map(EntityData::required_scene_version)
-            .fold(next.base.version, u32::max);
         self.expand_source(&next, resolver)?;
         self.apply(next)
     }
@@ -428,17 +418,10 @@ impl Document {
     }
     fn publish_change(
         &mut self,
-        mut next: ContentSource,
+        next: ContentSource,
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
         let before = self.current.clone();
-        next.version = next.version.max(next.required_version());
-        next.base.version = next
-            .base
-            .entities
-            .iter()
-            .map(EntityData::required_scene_version)
-            .fold(next.base.version, u32::max);
         self.expand_source(&next, resolver)?;
         self.apply(next)?;
         if before.source != self.current.source {

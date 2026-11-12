@@ -32,7 +32,7 @@ fn shaders_and_layouts_compile_for_both_backends() {
 #[test]
 fn uploaded_normals_preserve_huge_tiny_and_subnormal_directions_and_leave_zero_unchanged() {
     let mesh = MeshData {
-        version: 1,
+        version: comet_asset_data::product::MESH_VERSION,
         positions: vec![[0.; 3]; 4],
         normals: vec![
             [1e38, -2e38, 3e38],
@@ -76,7 +76,7 @@ fn object_uniforms_reuse_the_prepared_normal_for_a_huge_model() -> Result<()> {
         transform: crate::DrawTransform::prepare(model)?.unwrap(),
         skin: None,
         mesh: product(Product::Mesh(MeshData {
-            version: 1,
+            version: comet_asset_data::product::MESH_VERSION,
             positions: vec![[0.; 3]; 3],
             normals: vec![[0., 1., 0.]; 3],
             uvs: vec![[0.; 2]; 3],

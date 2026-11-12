@@ -164,7 +164,7 @@ impl ExportController {
         let project = paths.root().to_owned();
         let settings = comet_asset_pipeline::ProjectSettings::load(paths)?;
         ensure!(
-            settings.game_id == Some(expected_game_id),
+            settings.game_id == expected_game_id,
             "项目游戏身份已变化，请重新打开项目"
         );
         let products = products.to_owned();

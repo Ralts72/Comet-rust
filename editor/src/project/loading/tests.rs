@@ -6,6 +6,10 @@ use std::{
 
 fn empty_project(root: &Path) -> Result<ProjectPaths> {
     fs::create_dir_all(root.join("assets"))?;
+    fs::write(
+        root.join("project.json"),
+        serde_json::to_vec(&comet_asset_pipeline::ProjectSettings::for_new_project())?,
+    )?;
     ProjectPaths::open(root)
 }
 
@@ -19,6 +23,10 @@ fn prefab_fixture(root: &Path) -> Result<()> {
 
 fn copy_fixture(root: &Path, name: &str, excluded: &[&str]) -> Result<()> {
     fs::create_dir_all(root.join("assets"))?;
+    fs::write(
+        root.join("project.json"),
+        serde_json::to_vec(&comet_asset_pipeline::ProjectSettings::for_new_project())?,
+    )?;
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../tests/fixtures")
         .join(name)
@@ -404,34 +412,26 @@ fn failed_load_preserves_an_accepted_store_and_retry_reuses_the_same_project_cac
 }
 
 #[test]
-fn explicit_project_open_preserves_its_initialized_game_identity_across_failed_imports_and_retries()
--> Result<()> {
-    for legacy_file in [false, true] {
-        let temp = tempfile::tempdir()?;
-        let root = temp.path().join("project");
-        fixture(&root)?;
-        let configuration = root.join("project.json");
-        if legacy_file {
-            fs::write(&configuration, br#"{"version":1,"game_icon":null}"#)?;
-        }
-        let buffer = root.join("assets/showcase.bin");
-        let bytes = fs::read(&buffer)?;
-        fs::write(&buffer, b"invalid source buffer")?;
-        let products = temp.path().join("products");
-        assert!(
-            ProjectCandidate::load(root.clone(), products.clone(), "main.scene".into()).is_err()
-        );
-        let paths = ProjectPaths::open(&root)?;
-        let initialized = comet_asset_pipeline::ProjectSettings::load(&paths)?;
-        assert_eq!(initialized.version, 2);
-        assert!(initialized.game_id.is_some());
-        let saved = fs::read(&configuration)?;
-        fs::write(&buffer, bytes)?;
-        let accepted = ProjectCandidate::load(root.clone(), products, "main.scene".into())?;
-        assert_eq!(accepted.panel.game_id(), initialized.game_id);
-        accepted.verify_current()?;
-        assert_eq!(fs::read(&configuration)?, saved);
-    }
+fn project_open_preserves_settings_across_failed_imports_and_retries() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("project");
+    fixture(&root)?;
+    let configuration = root.join("project.json");
+    let saved = fs::read(&configuration)?;
+    let buffer = root.join("assets/showcase.bin");
+    let bytes = fs::read(&buffer)?;
+    fs::write(&buffer, b"invalid source buffer")?;
+    let products = temp.path().join("products");
+    assert!(ProjectCandidate::load(root.clone(), products.clone(), "main.scene".into()).is_err());
+    let paths = ProjectPaths::open(&root)?;
+    let initialized = comet_asset_pipeline::ProjectSettings::load(&paths)?;
+    assert_eq!(initialized.version, 2);
+    assert_eq!(fs::read(&configuration)?, saved);
+    fs::write(&buffer, bytes)?;
+    let accepted = ProjectCandidate::load(root.clone(), products, "main.scene".into())?;
+    assert_eq!(accepted.panel.game_id(), initialized.game_id);
+    accepted.verify_current()?;
+    assert_eq!(fs::read(&configuration)?, saved);
     Ok(())
 }
 
@@ -451,7 +451,8 @@ fn project_identity_changes_during_resource_preparation_cannot_be_accepted() -> 
             if stage == "正在构建项目资源" {
                 fs::write(
                     &configuration,
-                    serde_json::to_vec(&comet_asset_pipeline::ProjectSettings::new()).unwrap(),
+                    serde_json::to_vec(&comet_asset_pipeline::ProjectSettings::for_new_project())
+                        .unwrap(),
                 )
                 .unwrap();
                 changed = true;
@@ -610,7 +611,7 @@ fn completed_candidates_reject_later_source_metadata_and_settings_changes() -> R
                 root.join("project.json"),
                 serde_json::to_vec(&comet_asset_pipeline::ProjectSettings {
                     game_icon: Some(AssetId::new()),
-                    ..Default::default()
+                    ..candidate.panel.settings.clone()
                 })?,
             )?,
         }

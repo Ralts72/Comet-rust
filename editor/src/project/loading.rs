@@ -172,8 +172,7 @@ impl ProjectCandidate {
             "作者文件必须使用 .scene 或 .prefab 后缀"
         );
         let panel = ProjectPanel::from_settings(
-            comet_asset_pipeline::ProjectSettings::ensure_game_id(&paths)
-                .context("初始化项目游戏身份失败")?,
+            comet_asset_pipeline::ProjectSettings::load(&paths).context("读取项目设置失败")?,
         );
         let prefab = source
             .extension()

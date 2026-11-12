@@ -13,7 +13,7 @@ DRAW_COUNT = 10
 def inspect_package(products, protocols, read_product, author_assets):
     entries = json.loads((products / "index.json").read_text())["products"]
     scene = read_product(products, entries, SCENE, protocols)["data"]
-    assert scene["base"]["version"] == 12 and len(scene["instances"]) == 3
+    assert scene["base"]["version"] == protocols["scene"] and len(scene["instances"]) == 3
     actors = [entity for entity in scene["base"]["entities"] if entity.get("character")]
     assert len(actors) == 3 and sum(actor["character"]["player_controlled"] for actor in actors) == 1
     assert sum(bool(actor.get("navigation_agent")) for actor in actors) == 2

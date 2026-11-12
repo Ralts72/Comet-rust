@@ -15,6 +15,10 @@ pub(crate) fn fixture() -> Result<(tempfile::TempDir, Editor, AssetStore)> {
             std::fs::copy(file.path(), project.join("assets").join(file.file_name()))?;
         }
     }
+    std::fs::write(
+        project.join("project.json"),
+        serde_json::to_vec(&comet_asset_pipeline::ProjectSettings::for_new_project())?,
+    )?;
     let (editor, assets) = open(project, temp.path().join("products"), "main.scene".into())?;
     Ok((temp, editor, assets))
 }

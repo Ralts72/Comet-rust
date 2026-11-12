@@ -9,12 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const CONTENT_VERSION: u32 = 2;
 
-fn zero_translation(value: &[f32; 3]) -> bool {
-    *value == [0.; 3]
-}
-
 fn translated(value: [f32; 3], offset: [f32; 3]) -> Result<[f32; 3]> {
-    let result = if zero_translation(&offset) {
+    let result = if offset == [0.; 3] {
         value
     } else {
         std::array::from_fn(|axis| value[axis] + offset[axis])
@@ -41,7 +37,6 @@ pub struct PrefabInstance {
     /// Attachment in this source's base scene; None attaches at the source root.
     pub parent: Option<EntityId>,
     /// Local to the attachment: offsets all actual roots without adding a parent entity.
-    #[serde(default, skip_serializing_if = "zero_translation")]
     pub translation: [f32; 3],
     pub overrides: Vec<FieldOverride>,
 }
@@ -50,14 +45,6 @@ impl PrefabInstance {
         if self.overrides.is_empty() {
             return Ok(());
         }
-        source.base.version = self
-            .overrides
-            .iter()
-            .fold(source.base.version, |version, value| {
-                version
-                    .max(schema::required_scene_version(value.field))
-                    .max(schema::required_value_scene_version(&value.value))
-            });
         let updates: Vec<_> = self
             .overrides
             .iter()
@@ -84,7 +71,7 @@ pub struct ContentSource {
 impl Default for ContentSource {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: CONTENT_VERSION,
             base: SceneSnapshot::default(),
             instances: vec![],
         }
@@ -188,12 +175,9 @@ impl ContentSource {
                 Ok(())
             })?;
         }
-        candidate.base.version = candidate.base.version.max(content.base.version);
-        candidate.version = candidate.version.max(content.version);
         candidate.base.entities.extend(content.base.entities);
         candidate.instances.retain(|instance| instance.id != id);
         candidate.instances.extend(content.instances);
-        candidate.version = candidate.version.max(candidate.required_version());
         candidate.expand_content(root, resolver, None)?;
         candidate.canonicalize();
         *self = candidate;
@@ -222,13 +206,9 @@ impl ContentSource {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            (1..=CONTENT_VERSION).contains(&self.version),
+            self.version == CONTENT_VERSION,
             "unsupported content version {}",
             self.version
-        );
-        ensure!(
-            self.version >= self.required_version(),
-            "prefab translation requires content version 2"
         );
         self.base.validate()?;
         let mut ids = BTreeSet::new();
@@ -253,13 +233,6 @@ impl ContentSource {
             let mut overrides = BTreeSet::new();
             for o in &instance.overrides {
                 schema::descriptor(o.field)?;
-                let required_version = schema::required_scene_version(o.field)
-                    .max(schema::required_value_scene_version(&o.value));
-                ensure!(
-                    required_version <= 2 || self.base.version >= required_version,
-                    "prefab override requires scene version {}",
-                    required_version
-                );
                 ensure!(
                     overrides.insert((o.entity, o.field.component, o.field.field)),
                     "duplicate prefab override"
@@ -278,17 +251,6 @@ impl ContentSource {
             }
         }
         Ok(())
-    }
-    pub fn required_version(&self) -> u32 {
-        if self
-            .instances
-            .iter()
-            .any(|instance| !zero_translation(&instance.translation))
-        {
-            2
-        } else {
-            1
-        }
     }
     pub fn dependencies(&self) -> BTreeSet<AssetId> {
         let mut deps = self.base.asset_dependencies();
@@ -355,7 +317,6 @@ fn expand(
     output: &mut Expansion<'_>,
 ) -> Result<()> {
     source.validate()?;
-    output.scene.version = output.scene.version.max(source.base.version);
     ensure!(stack.len() < 64, "prefab nesting exceeds 64 levels");
     let map: BTreeMap<_, _> = source
         .base

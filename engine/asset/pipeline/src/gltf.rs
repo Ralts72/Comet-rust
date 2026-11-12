@@ -239,7 +239,7 @@ pub(crate) fn import(path: &Path, bytes: &[u8], id: AssetId) -> Result<Imported>
             products.push(ImportedProduct {
                 id: mesh_id,
                 payload: Product::Mesh(MeshData {
-                    version: if joints.is_some() { 2 } else { 1 },
+                    version: comet_asset_data::product::MESH_VERSION,
                     joints,
                     weights,
                     positions,

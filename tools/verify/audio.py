@@ -27,14 +27,14 @@ def inspect_package(products: Path, protocols: dict, read_product, author_assets
     assert {LOOP, CUE, SCRIPT} <= set(entries[AUDIO_SCENE]["dependencies"])
     assert all(entries[asset]["dependencies"] == [] for asset in (LOOP, CUE, SCRIPT))
     source = read_product(products, entries, AUDIO_SCENE, protocols)["data"]
-    assert protocols["scene"] >= 7
-    assert source["version"] == 1 and source["base"]["version"] == 7, "2D author scene changed protocol"
+    assert protocols["scene"] == 12
+    assert source["version"] == protocols["content"] and source["base"]["version"] == protocols["scene"], "2D scene must use the current protocol"
     owners = {entity["id"]: entity for entity in source["base"]["entities"] if entity.get("audio_source")}
     assert set(owners) == {_LOOP_ENTITY, CUE_ENTITY}
     assert owners[_LOOP_ENTITY]["audio_source"] == {
-        "clip": LOOP, "gain": 0.18, "looping": True, "autoplay": True}
+        "clip": LOOP, "gain": 0.18, "looping": True, "autoplay": True, "spatial": False, "min_distance": 1., "max_distance": 30.}
     assert owners[CUE_ENTITY]["audio_source"] == {
-        "clip": CUE, "gain": 0.65, "looping": False, "autoplay": False}
+        "clip": CUE, "gain": 0.65, "looping": False, "autoplay": False, "spatial": False, "min_distance": 1., "max_distance": 30.}
     binding = owners[CUE_ENTITY]["script"]
     assert binding["asset"] == SCRIPT and binding["enabled"] is True and binding["parameters"] == {}
     script = read_product(products, entries, SCRIPT, protocols)["data"]

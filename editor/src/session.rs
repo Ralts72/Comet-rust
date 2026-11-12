@@ -158,12 +158,9 @@ impl Editor {
         action: crate::export::ExportAction,
     ) -> Result<()> {
         ensure!(!self.is_busy(), "已有后台任务正在进行");
-        let game_id = self
-            .project
-            .game_id()
-            .context("项目缺少游戏身份，请重新打开项目")?;
+        let game_id = self.project.game_id();
         ensure!(
-            comet_asset_pipeline::ProjectSettings::load(&self.paths)?.game_id == Some(game_id),
+            comet_asset_pipeline::ProjectSettings::load(&self.paths)?.game_id == game_id,
             "项目游戏身份已改变，请重新打开项目后再导出"
         );
         for scene in std::iter::once(action.entry).chain(action.additional.iter().copied()) {

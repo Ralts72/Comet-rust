@@ -222,7 +222,6 @@ fn two_dimensional_audio_distances_stay_disabled_and_missing_components_hide_com
     let mut f = Group::new()?;
     f.audio()?;
     let mut source = f.editor.document.source();
-    source.base.version = 7;
     for entity in &mut source.base.entities {
         entity.audio_source.as_mut().unwrap().spatial = false;
     }
@@ -233,7 +232,6 @@ fn two_dimensional_audio_distances_stay_disabled_and_missing_components_hide_com
     assert_eq!(f.editor.document.shared_source(), before);
     assert!(!f.editor.document.is_editing());
     f.click_flag("空间音效")?;
-    assert_eq!(f.editor.document.shared_source().base.version, 8);
     f.editor.document.undo()?;
     assert_eq!(f.editor.document.shared_source(), before);
     let mut source = f.editor.document.source();
@@ -380,11 +378,10 @@ fn common_script_navigation_and_animation_fields_preserve_bindings_and_commit_se
 }
 
 #[test]
-fn common_prefab_flags_keep_lexical_identity_and_undo_spatial_version_upgrade() -> Result<()> {
+fn common_prefab_flags_keep_lexical_identity_and_undo_spatial_changes() -> Result<()> {
     let mut f = Group::new()?;
     f.audio()?;
     let mut source = f.editor.document.source();
-    source.base.version = 7;
     for entity in &mut source.base.entities {
         entity.audio_source.as_mut().unwrap().spatial = false;
     }
@@ -402,7 +399,7 @@ fn common_prefab_flags_keep_lexical_identity_and_undo_spatial_version_upgrade() 
         &prefab,
         ContentSource {
             base: SceneSnapshot {
-                version: 7,
+                version: comet_scene::scene::SCENE_VERSION,
                 entities: vec![node],
             },
             ..Default::default()
@@ -429,7 +426,6 @@ fn common_prefab_flags_keep_lexical_identity_and_undo_spatial_version_upgrade() 
     f.click_flag("空间音效")?;
     assert_eq!(f.flag_values(schema::AUDIO_SPATIAL)?, [true; 2]);
     let edited = f.editor.document.shared_source();
-    assert_eq!(edited.base.version, 8);
     assert_eq!(edited.instances[0].overrides.len(), 1);
     assert_eq!(edited.instances[0].overrides[0].entity, source_node);
     assert_eq!(

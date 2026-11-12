@@ -11,40 +11,7 @@ fn body() -> EntityData {
     e
 }
 #[test]
-fn legacy_scenes_roundtrip_without_silent_version_or_identity_changes() -> Result<()> {
-    let e = EntityData::new("legacy");
-    let id = e.id;
-    let old = SceneSnapshot {
-        version: 1,
-        entities: vec![e],
-    };
-    let json = old.to_json()?;
-    assert!(!String::from_utf8_lossy(&json).contains("physics"));
-    let loaded = SceneSnapshot::from_json(&json)?;
-    let mut world = Scene::open(loaded.clone())?;
-    assert_eq!(world.snapshot(), old);
-    assert_eq!(world.snapshot().entities[0].id, id);
-    let mut physics = old;
-    physics.entities[0].physics = Some(PhysicsBody::default());
-    assert!(physics.validate().is_err());
-    physics.version = 2;
-    assert_eq!(SceneSnapshot::from_json(&physics.to_json()?)?, physics);
-    let source = ContentSource {
-        base: loaded,
-        ..Default::default()
-    };
-    struct Empty;
-    impl comet_scene::PrefabResolver for Empty {
-        fn prefab(&mut self, _: comet_core::AssetId) -> Result<ContentSource> {
-            unreachable!()
-        }
-    }
-    assert_eq!(source.expand(&mut Empty)?.version, 1);
-    Ok(())
-}
-
-#[test]
-fn crouch_configuration_has_explicit_legacy_defaults_and_atomic_schema_validation() -> Result<()> {
+fn crouch_configuration_rejects_invalid_fields_atomically() -> Result<()> {
     let mut entity = body();
     entity.physics.as_mut().unwrap().motion = BodyMotion::Kinematic;
     entity.physics.as_mut().unwrap().shape = ColliderShape::Capsule {
@@ -54,28 +21,18 @@ fn crouch_configuration_has_explicit_legacy_defaults_and_atomic_schema_validatio
     entity.character = Some(Character::default());
     let id = entity.id;
     let snapshot = SceneSnapshot {
-        version: 2,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     };
-    assert!(!String::from_utf8_lossy(&snapshot.to_json()?).contains("crouch"));
-    let mut legacy: serde_json::Value = serde_json::from_slice(&snapshot.to_json()?)?;
-    legacy["entities"][0]["character"]
-        .as_object_mut()
-        .unwrap()
-        .remove("crouch_speed");
-    legacy["entities"][0]["character"]
-        .as_object_mut()
-        .unwrap()
-        .remove("crouch_height_ratio");
-    let mut loaded = SceneSnapshot::from_json(&serde_json::to_vec(&legacy)?)?;
-    assert_eq!(loaded, snapshot);
-    assert!(
-        loaded
-            .set_field(&[id], schema::CROUCH_SPEED, FieldValue::Scalar(1.2))
-            .is_err()
-    );
-    assert_eq!(loaded, snapshot);
-    loaded.version = 3;
+    for field in ["crouch_speed", "crouch_height_ratio"] {
+        let mut wire = serde_json::to_value(&snapshot)?;
+        wire["entities"][0]["character"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(SceneSnapshot::from_json(&serde_json::to_vec(&wire)?).is_err());
+    }
+    let mut loaded = snapshot.clone();
     let accepted = loaded.clone();
     for (field, value) in [
         (schema::CROUCH_SPEED, 0.),
@@ -100,8 +57,7 @@ fn crouch_configuration_has_explicit_legacy_defaults_and_atomic_schema_validatio
 }
 
 #[test]
-fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_version() -> Result<()>
-{
+fn crouch_prefab_overrides_preserve_nested_expansion() -> Result<()> {
     use comet_core::{AssetId, InstanceId};
     use comet_scene::{FieldOverride, PrefabInstance, PrefabResolver};
     let asset = AssetId::new();
@@ -116,7 +72,7 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
     let id = entity.id;
     let prefab = ContentSource {
         base: SceneSnapshot {
-            version: 2,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![entity],
         },
         ..Default::default()
@@ -127,9 +83,9 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
             Ok(self.0[&id].clone())
         }
     }
-    let mut source = ContentSource {
+    let source = ContentSource {
         base: SceneSnapshot {
-            version: 2,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![],
         },
         instances: vec![PrefabInstance {
@@ -145,19 +101,9 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
         }],
         ..Default::default()
     };
-    assert!(source.validate().is_err());
-    source.base.version = 3;
     let mut library = Library(std::collections::BTreeMap::from([(asset, prefab.clone())]));
-    // Existing v1 containers could already override physics fields in a v2 prefab.
-    let mut legacy = source.clone();
-    legacy.base.version = 1;
-    legacy.instances[0].overrides[0].field = schema::MASS;
-    legacy.instances[0].overrides[0].value = FieldValue::Scalar(2.);
-    let legacy = ContentSource::from_json(&legacy.to_json()?)?.expand(&mut library)?;
-    assert_eq!(legacy.version, 2);
-    assert_eq!(legacy.entities[0].physics.as_ref().unwrap().mass, 2.);
     let expanded = source.expand(&mut library)?;
-    assert_eq!(expanded.version, 3);
+    assert_eq!(expanded.version, comet_scene::scene::SCENE_VERSION);
     assert_eq!(expanded.entities[0].id, id.in_instance(instance));
     assert_eq!(
         expanded.entities[0]
@@ -171,7 +117,7 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
     let parent_asset = AssetId::new();
     let outer = ContentSource {
         base: SceneSnapshot {
-            version: 1,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![],
         },
         instances: vec![PrefabInstance {
@@ -184,7 +130,10 @@ fn crouch_prefab_overrides_require_v3_and_nested_expansion_keeps_the_newest_vers
         ..Default::default()
     };
     library.0.insert(parent_asset, source);
-    assert_eq!(outer.expand(&mut library)?.version, 3);
+    assert_eq!(
+        outer.expand(&mut library)?.version,
+        comet_scene::scene::SCENE_VERSION
+    );
     assert_eq!(library.0[&asset], prefab);
     Ok(())
 }

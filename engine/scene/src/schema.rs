@@ -127,27 +127,6 @@ pub const SCRIPT_PARAMETERS: FieldKey = FieldKey {
     component: 6,
     field: 3,
 };
-/// Minimum scene protocol that can describe a field or a prefab override.
-pub fn required_scene_version(key: FieldKey) -> u32 {
-    match key {
-        ANIMATOR_CONTROLLER | CHARACTER_ANIMATION_CHARACTER | CHARACTER_ANIMATION_ANIMATOR => 11,
-        FieldKey {
-            component: 13..=14, ..
-        } => 9,
-        AUDIO_SPATIAL | AUDIO_MIN_DISTANCE | AUDIO_MAX_DISTANCE => 8,
-        FieldKey { component: 12, .. } => 7,
-        FieldKey {
-            component: 10..=11, ..
-        } => 6,
-        FieldKey {
-            component: 7..=9, ..
-        } => 5,
-        SCRIPT_ASSET | SCRIPT_ENABLED | SCRIPT_PARAMETERS => 4,
-        CROUCH_SPEED | CROUCH_HEIGHT_RATIO => 3,
-        MASS | FRICTION | MOVE_SPEED | JUMP_SPEED => 2,
-        _ => 1,
-    }
-}
 fn nonnegative_scalar(v: &FieldValue) -> Result<()> {
     ensure!(
         matches!(v,FieldValue::Scalar(x) if x.is_finite() && *x>=0.),
@@ -555,18 +534,6 @@ pub fn value_entity_references(value: &FieldValue) -> Vec<&EntityRef> {
             .collect(),
         _ => vec![],
     }
-}
-/// A field's old component version alone cannot describe a newer reference inside its value.
-pub fn required_value_scene_version(value: &FieldValue) -> u32 {
-    if matches!(value, FieldValue::ScriptParameters(parameters) if parameters.values().any(|v| matches!(v, crate::ScriptValue::Data(_))))
-    {
-        return 12;
-    }
-    value_entity_references(value)
-        .into_iter()
-        .map(EntityRef::required_scene_version)
-        .max()
-        .unwrap_or(1)
 }
 pub fn entity_references(e: &EntityData) -> Vec<EntityRef> {
     fields()

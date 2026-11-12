@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "base": {
-    "version": 1,
+    "version": 12,
     "entities": []
   },
   "instances": [
@@ -9,7 +9,12 @@
       "id": "50000000-0000-4000-8000-000000000001",
       "prefab": "40000000-0000-4000-8000-000000000002",
       "parent": null,
-      "overrides": []
+      "overrides": [],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
     }
   ]
 }

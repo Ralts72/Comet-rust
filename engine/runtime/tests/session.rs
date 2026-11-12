@@ -361,7 +361,7 @@ fn running_world_edits_and_time_do_not_modify_the_authoring_snapshot() -> Result
     let entity = EntityData::new("editable");
     let id = entity.id;
     let source = SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     };
     let original = source.clone();

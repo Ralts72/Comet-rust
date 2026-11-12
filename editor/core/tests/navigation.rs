@@ -14,8 +14,7 @@ impl PrefabResolver for Library {
     }
 }
 #[test]
-fn navigation_component_candidates_upgrade_as_one_history_item_and_fail_without_losing_preview()
--> Result<()> {
+fn navigation_component_candidates_commit_once_and_fail_without_losing_preview() -> Result<()> {
     let region = EntityData::new("region");
     let mut npc = EntityData::new("npc");
     npc.physics = Some(PhysicsBody {
@@ -32,7 +31,7 @@ fn navigation_component_candidates_upgrade_as_one_history_item_and_fail_without_
     });
     let (region_id, npc_id) = (region.id, npc.id);
     let mut doc = Document::open(SceneSnapshot {
-        version: 2,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![region, npc],
     })?;
     let before = doc.shared_source();
@@ -72,7 +71,6 @@ fn navigation_component_candidates_upgrade_as_one_history_item_and_fail_without_
     );
     assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
     doc.commit()?;
-    assert_eq!(doc.source().base.version, 6);
     assert_eq!(doc.history_len(), 1);
     doc.undo()?;
     assert!(Arc::ptr_eq(&before, &doc.shared_source()));
@@ -102,7 +100,7 @@ fn prefab_navigation_fields_keep_optional_asset_overrides_and_noop_round_trips()
     let instance = InstanceId::new();
     let mut doc = Document::open_source(ContentSource {
         base: SceneSnapshot {
-            version: 5,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![],
         },
         instances: vec![PrefabInstance {
@@ -146,7 +144,6 @@ fn prefab_navigation_fields_keep_optional_asset_overrides_and_noop_round_trips()
         &mut library,
     )?;
     doc.commit()?;
-    assert_eq!(doc.source().base.version, 6);
     assert_eq!(doc.source().instances[0].overrides.len(), 1);
     let accepted = doc.shared_source();
     doc.begin()?;

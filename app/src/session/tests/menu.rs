@@ -55,10 +55,7 @@ impl Game {
             ));
             products.push((material, Product::Material(surface)));
         }
-        let mut content = scene(vec![owner])?;
-        if let Product::Scene(source) = &mut content {
-            source.base.version = 7;
-        }
+        let content = scene(vec![owner])?;
         products.push((scene_id, content));
         let (products, mut assets) = Products::new(products)?;
         let app = app(&mut assets, scene_id, Some(BTreeSet::from([scene_id])))?;

@@ -15,14 +15,14 @@ _STOP = "空间音频示例停止。"
 
 def inspect_package(products: Path, protocols: dict, read_product, author_assets: Path) -> dict:
     index = json.loads((products / "index.json").read_text(encoding="utf-8"))
-    assert index["version"] == protocols["index"] and protocols["scene"] >= 8
+    assert index["version"] == protocols["index"] and protocols["scene"] == 12
     entries = index["products"]
     assert all("editor" not in entry for entry in entries.values()), "package retains editor provenance"
     assert entries[SCENE]["kind"] == "scene" and entries[SCRIPT]["kind"] == "script"
     assert {CUE, SCRIPT} <= set(entries[SCENE]["dependencies"])
     assert entries[CUE]["dependencies"] == entries[SCRIPT]["dependencies"] == []
     scene = read_product(products, entries, SCENE, protocols)["data"]
-    assert scene["version"] == 1 and scene["base"]["version"] == 8
+    assert scene["version"] == protocols["content"] and scene["base"]["version"] == protocols["scene"]
     owners = [entity for entity in scene["base"]["entities"] if entity.get("audio_source")]
     assert len(owners) == 1 and owners[0]["id"] == EMITTER
     source, binding = owners[0]["audio_source"], owners[0]["script"]

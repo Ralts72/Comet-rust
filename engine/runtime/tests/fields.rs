@@ -93,7 +93,7 @@ fn unresolved_author_references_cannot_enter_or_be_injected_into_a_running_world
     assert!(error.to_string().contains("unresolved prefab instance"));
     visual.links.target = None;
     let mut play = PlaySession::start(SceneSnapshot {
-        version: 9,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![visual],
     })?;
     let before = play.shared_snapshot();

@@ -190,7 +190,7 @@ fn controller_picker_switches_atomically_and_preserves_prefab_overrides_undo_and
     let source_owner = f.selected;
     f.editor.document = Document::open_source(ContentSource {
         base: SceneSnapshot {
-            version: 9,
+            version: comet_scene::scene::SCENE_VERSION,
             ..Default::default()
         },
         instances: vec![PrefabInstance {
@@ -209,7 +209,6 @@ fn controller_picker_switches_atomically_and_preserves_prefab_overrides_undo_and
     let changed = f.source();
     assert_eq!(f.animator().controller, Some(controller));
     assert_eq!(f.animator().clip, None);
-    assert_eq!(changed.base.version, 11);
     assert_eq!(changed.instances[0].overrides.len(), 2);
     assert_eq!(f.editor.document.history_len(), 1);
     f.editor.document.undo()?;
@@ -386,7 +385,7 @@ fn editing_a_direct_prefab_binding_preserves_existing_child_refs_without_offerin
     comet_asset_pipeline::prepare(f.editor.project_root(), &f.editor.products)?;
     let child_asset = comet_asset_pipeline::SourceMeta::load(&child_path)?.id;
     let child = comet_core::InstanceId::new();
-    parent.base.version = 10;
+    parent.base.version = comet_scene::scene::SCENE_VERSION;
     parent.instances.push(PrefabInstance {
         translation: [0.; 3],
         id: child,

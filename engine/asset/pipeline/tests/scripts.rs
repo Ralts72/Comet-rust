@@ -1,8 +1,6 @@
 use anyhow::Result;
 use comet_asset::AssetStore;
-use comet_asset_data::product::{
-    AssetKind, INDEX_VERSION, MAX_SCRIPT_BYTES, PRODUCT_VERSION, Product, ProductFile, ProductIndex,
-};
+use comet_asset_data::product::{AssetKind, INDEX_VERSION, MAX_SCRIPT_BYTES, Product};
 use comet_asset_pipeline::{
     DEFAULT_SCENE, SourceCatalog, SourceMeta, create_project, package, prepare,
 };
@@ -212,41 +210,12 @@ fn packaged_script_closure_loads_after_authoring_and_development_products_are_re
 }
 
 #[test]
-fn prepare_upgrades_known_v1_indexes_but_rejects_corrupt_or_unknown_indexes() -> Result<()> {
+fn prepare_rejects_unsupported_and_corrupt_indexes_without_replacing_them() -> Result<()> {
     let fixture = Fixture::new()?;
-    // A pre-script project has only the original kinds and can regenerate all products.
-    fs::remove_file(fixture.source())?;
-    fs::remove_file(SourceMeta::path(&fixture.source()))?;
-    let scene_path = fixture.root.join("assets").join(DEFAULT_SCENE);
-    let mut scene = ContentSource::from_json(&fs::read(&scene_path)?)?;
-    scene.base.version = 3;
-    fs::write(scene_path, scene.to_json()?)?;
     prepare(&fixture.root, &fixture.products)?;
     let path = fixture.products.join("index.json");
+    let rebuilt = AssetStore::open(&fixture.products)?;
     let current = fs::read(&path)?;
-    let mut old: ProductIndex = serde_json::from_slice(&current)?;
-    old.version = 1;
-    for (id, entry) in &mut old.products {
-        entry.editor = None;
-        let directory = fixture.products.join("products").join(id.to_string());
-        let mut product: ProductFile =
-            serde_json::from_slice(&fs::read(directory.join(format!("{}.json", entry.digest)))?)?;
-        product.version = 1;
-        let bytes = serde_json::to_vec(&product)?;
-        entry.digest = digest(&bytes);
-        fs::write(directory.join(format!("{}.json", entry.digest)), bytes)?;
-    }
-    fs::write(&path, serde_json::to_vec(&old)?)?;
-    assert!(AssetStore::open(&fixture.products).is_err());
-    assert_eq!(
-        prepare(&fixture.root, &fixture.products)?.changed,
-        old.products.len()
-    );
-    let mut rebuilt = AssetStore::open(&fixture.products)?;
-    assert_eq!(rebuilt.index().version, INDEX_VERSION);
-    for id in old.products.keys() {
-        assert_eq!(rebuilt.load(*id)?.version, PRODUCT_VERSION);
-    }
     for bytes in [
         b"not json".to_vec(),
         serde_json::to_vec(&serde_json::json!({"version":99,"products":{}}))?,
@@ -265,13 +234,15 @@ fn prepare_upgrades_known_v1_indexes_but_rejects_corrupt_or_unknown_indexes() ->
                 .insert(AssetId::new());
             serde_json::to_vec(&bad)?
         },
-        {
-            let mut bad = rebuilt.index().clone();
-            bad.version = 1;
-            bad.products.values_mut().next().unwrap().kind = AssetKind::Script;
-            serde_json::to_vec(&bad)?
-        },
     ] {
+        fs::write(&path, &bytes)?;
+        assert!(prepare(&fixture.root, &fixture.products).is_err());
+        assert_eq!(fs::read(&path)?, bytes);
+    }
+    for version in 0..INDEX_VERSION {
+        let mut unsupported = rebuilt.index().clone();
+        unsupported.version = version;
+        let bytes = serde_json::to_vec(&unsupported)?;
         fs::write(&path, &bytes)?;
         assert!(prepare(&fixture.root, &fixture.products).is_err());
         assert_eq!(fs::read(&path)?, bytes);

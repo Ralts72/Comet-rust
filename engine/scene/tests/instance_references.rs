@@ -18,13 +18,12 @@ impl PrefabResolver for Library {
             .ok_or_else(|| anyhow::anyhow!("missing prefab {asset}"))
     }
 }
-fn content(
-    version: u32,
-    entities: Vec<EntityData>,
-    instances: Vec<PrefabInstance>,
-) -> ContentSource {
+fn content(entities: Vec<EntityData>, instances: Vec<PrefabInstance>) -> ContentSource {
     ContentSource {
-        base: SceneSnapshot { version, entities },
+        base: SceneSnapshot {
+            entities,
+            ..Default::default()
+        },
         instances,
         ..Default::default()
     }
@@ -61,11 +60,10 @@ fn direct_source_identity_roundtrips_without_becoming_an_authored_expanded_uuid(
     owner.links.target = Some(EntityRef::in_instance(first, source_id));
     owner.links.connections = vec![EntityRef::in_instance(second, source_id)];
     let mut source = content(
-        10,
         vec![owner.clone()],
         vec![instance(first, prefab), instance(second, prefab)],
     );
-    let mut library = Library([(prefab, content(1, vec![child], vec![]))].into());
+    let mut library = Library([(prefab, content(vec![child], vec![]))].into());
     source.validate()?;
     source.canonicalize();
     let bytes = source.to_json()?;
@@ -75,7 +73,7 @@ fn direct_source_identity_roundtrips_without_becoming_an_authored_expanded_uuid(
         json["base"]["entities"][0]["links"]["target"]["scope"],
         "in_instance"
     );
-    assert_eq!(json["version"], 1);
+    assert_eq!(json["version"], comet_scene::prefab::CONTENT_VERSION);
     let mut document_mirror = Scene::open(source.base.clone())?;
     assert_eq!(document_mirror.snapshot(), source.base);
     assert!(source.base.validate_expanded().is_err());
@@ -110,7 +108,7 @@ fn direct_source_identity_roundtrips_without_becoming_an_authored_expanded_uuid(
         old.validate()
             .unwrap_err()
             .to_string()
-            .contains("version 10")
+            .contains("unsupported scene version")
     );
     Ok(())
 }
@@ -132,7 +130,6 @@ fn nested_sources_compose_instance_scopes_before_mapping_entities_and_never_sear
     owner.links.target = Some(EntityRef::in_instance(first, branch_id));
     let owner_id = owner.id;
     let source = content(
-        10,
         vec![owner],
         vec![
             instance(first, branch_asset),
@@ -141,10 +138,10 @@ fn nested_sources_compose_instance_scopes_before_mapping_entities_and_never_sear
     );
     let mut library = Library(
         [
-            (leaf_asset, content(1, vec![leaf], vec![])),
+            (leaf_asset, content(vec![leaf], vec![])),
             (
                 branch_asset,
-                content(10, vec![branch], vec![instance(inner, leaf_asset)]),
+                content(vec![branch], vec![instance(inner, leaf_asset)]),
             ),
         ]
         .into(),
@@ -177,7 +174,7 @@ fn nested_sources_compose_instance_scopes_before_mapping_entities_and_never_sear
 }
 
 #[test]
-fn overrides_keep_the_child_lexical_scope_and_upgrade_for_new_reference_values() -> Result<()> {
+fn overrides_keep_the_child_lexical_scope_for_instance_references() -> Result<()> {
     let leaf_asset = AssetId::new();
     let branch_asset = AssetId::new();
     let leaf = EntityData::new("leaf");
@@ -192,11 +189,11 @@ fn overrides_keep_the_child_lexical_scope_and_upgrade_for_new_reference_values()
         field: schema::TARGET,
         value: FieldValue::Entity(Some(EntityRef::in_instance(inner, leaf_id))),
     });
-    let source = content(10, vec![], vec![declaration, instance(inner, leaf_asset)]);
-    let original_branch = content(1, vec![branch], vec![instance(inner, leaf_asset)]);
+    let source = content(vec![], vec![declaration, instance(inner, leaf_asset)]);
+    let original_branch = content(vec![branch], vec![instance(inner, leaf_asset)]);
     let mut library = Library(
         [
-            (leaf_asset, content(1, vec![leaf], vec![])),
+            (leaf_asset, content(vec![leaf], vec![])),
             (branch_asset, original_branch.clone()),
         ]
         .into(),
@@ -222,7 +219,7 @@ fn overrides_keep_the_child_lexical_scope_and_upgrade_for_new_reference_values()
         old.validate()
             .unwrap_err()
             .to_string()
-            .contains("version 10")
+            .contains("unsupported scene version")
     );
     let parent_only = InstanceId::new();
     let mut invalid = source;
@@ -246,7 +243,7 @@ fn overrides_keep_the_child_lexical_scope_and_upgrade_for_new_reference_values()
 }
 
 #[test]
-fn all_reference_values_share_version_remap_and_explicit_instance_deletion_rules() -> Result<()> {
+fn reference_values_share_remap_and_explicit_instance_deletion_rules() -> Result<()> {
     let old = InstanceId::new();
     let new = InstanceId::new();
     let mut entity = EntityData::new("owner");
@@ -256,21 +253,6 @@ fn all_reference_values_share_version_remap_and_explicit_instance_deletion_rules
         scene: AssetId::new(),
         entity: source_id,
     };
-    let parameters = [("next".into(), ScriptValue::Entity(Some(reference.clone())))].into();
-    let bindings = [(source_id, Some(reference.clone()))].into();
-    for value in [
-        FieldValue::Entity(Some(reference.clone())),
-        FieldValue::Entities(vec![reference.clone()]),
-        FieldValue::ScriptParameters(parameters),
-        FieldValue::AnimatorBindings(bindings),
-        FieldValue::JointConnection(JointConnection::Body(reference.clone())),
-    ] {
-        assert_eq!(schema::required_value_scene_version(&value), 10);
-    }
-    assert_eq!(
-        schema::required_value_scene_version(&FieldValue::Entity(Some(external.clone()))),
-        1
-    );
     entity.links.target = Some(reference.clone());
     entity.links.connections = vec![
         EntityRef::local(source_id),
@@ -340,8 +322,8 @@ fn missing_declarations_targets_and_expanded_collisions_reject_without_rewriting
     let child_id = child.id;
     let mut owner = EntityData::new("owner");
     owner.links.target = Some(EntityRef::in_instance(declaration, child_id));
-    let source = content(10, vec![owner], vec![instance(declaration, prefab)]);
-    let mut library = Library([(prefab, content(1, vec![child], vec![]))].into());
+    let source = content(vec![owner], vec![instance(declaration, prefab)]);
+    let mut library = Library([(prefab, content(vec![child], vec![]))].into());
     let mut missing = source.clone();
     missing.instances.clear();
     assert!(

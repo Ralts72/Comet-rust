@@ -31,7 +31,7 @@ impl Fixture {
         let entity = EntityData::new("声音实体");
         let selected = entity.id;
         editor.document = Document::open(SceneSnapshot {
-            version: 7,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![entity],
         })?;
         let ctx = egui::Context::default();
@@ -202,11 +202,7 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
     f.choose("first.wav");
     f.press("添加音频源");
     assert_eq!(f.source().unwrap().clip, f.clips[0]);
-    assert_eq!(
-        f.editor.document.shared_source().base.version,
-        7,
-        "adding a default 2d source preserves the v7 protocol"
-    );
+
     let history = f.editor.document.history_len();
     let output = f.frame(vec![]);
     let start = slider(&output);
@@ -230,7 +226,6 @@ fn accepted_audio_metadata_stays_lazy_and_authored_controls_keep_transactions_an
     assert!(gain < 1.);
     f.press("空间音效");
     assert!(f.source().unwrap().spatial);
-    assert_eq!(f.editor.document.shared_source().base.version, 8);
     let before_distance = f.editor.document.shared_source();
     let history = f.editor.document.history_len();
     let output = f.frame(vec![]);

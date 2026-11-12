@@ -87,7 +87,7 @@ fn fixture() -> Fixture {
             (
                 id,
                 Arc::new(AnimationClipData {
-                    version: 1,
+                    version: comet_asset_data::ANIMATION_CLIP_VERSION,
                     skeleton,
                     duration: if index == 1 { 2. } else { 1. },
                     channels,

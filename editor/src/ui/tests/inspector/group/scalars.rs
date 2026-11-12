@@ -98,12 +98,11 @@ fn body_scalar_drags_commit_once_and_escape_restores_the_entire_gesture() -> Res
 }
 
 #[test]
-fn character_common_fields_preserve_unedited_configuration_and_upgrade_legacy_crouch_values()
--> Result<()> {
+fn character_common_fields_preserve_unedited_configuration() -> Result<()> {
     let mut f = Group::new()?;
     f.physics(true)?;
-    let mut source = f.editor.document.source();
-    source.base.version = 2;
+    let source = f.editor.document.source();
+
     f.editor.document = Document::open_source(source)?;
     let original = f.editor.document.shared_source();
     for (label, field, value) in [
@@ -117,7 +116,6 @@ fn character_common_fields_preserve_unedited_configuration_and_upgrade_legacy_cr
         assert_eq!(f.scalar_values(field)?, [value; 2]);
     }
     let edited = f.editor.document.shared_source();
-    assert_eq!(edited.base.version, 3);
     for (before, after) in original.base.entities.iter().zip(&edited.base.entities) {
         assert_eq!(before.transform, after.transform);
         assert_eq!(before.physics, after.physics);

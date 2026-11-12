@@ -80,7 +80,7 @@ fn fixture(source: &str) -> Fixture {
                 clip,
                 Arc::new(AnimationClipData {
                     events: vec![],
-                    version: 1,
+                    version: comet_asset_data::ANIMATION_CLIP_VERSION,
                     skeleton,
                     duration: 1.,
                     channels: vec![AnimationChannel {

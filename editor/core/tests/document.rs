@@ -10,7 +10,7 @@ fn preview_history_savepoint_and_failed_save() -> Result<()> {
     let a = EntityData::new("editable");
     let id = a.id;
     let scene = SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![a],
     };
     let mut doc = Document::open(scene.clone())?;
@@ -54,7 +54,7 @@ fn clone_is_one_undo_step_and_new_edit_discards_redo() -> Result<()> {
     let a = EntityData::new("root");
     let id = a.id;
     let mut doc = Document::open(SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![a],
     })?;
     struct NoPrefabs;

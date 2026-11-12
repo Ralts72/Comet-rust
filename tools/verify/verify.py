@@ -300,7 +300,7 @@ def inspect_script_package(products, scene, protocols, additional_scripts):
     expected = (ROOT / "demo/assets/scripts/falling_cube.rhai").read_text()
     assert script["data"]["source"] == expected
     source = read_product(products, entries, scene, protocols)
-    assert source["kind"] == "scene" and source["data"]["base"]["version"] >= 4
+    assert source["kind"] == "scene" and source["data"]["base"]["version"] == protocols["scene"]
     entities = source["data"]["base"]["entities"]
     owner = next(entity for entity in entities if entity["id"] == DEMO_SCRIPT_OWNER)
     binding = owner["script"]
@@ -319,7 +319,7 @@ def inspect_navigation_package(products, protocols):
     assert NAVIGATION_DATA in entries[NAVIGATION_SCENE]["dependencies"]
     assert entries[NAVIGATION_DATA]["dependencies"] == []
     source = read_product(products, entries, NAVIGATION_SCENE, protocols)["data"]
-    assert source["base"]["version"] == 6 and protocols["scene"] >= 6
+    assert source["base"]["version"] == protocols["scene"] and protocols["scene"] == 12
     region = next(entity["navigation_region"] for entity in source["base"]["entities"]
                   if entity.get("navigation_region"))
     assert region["data"] == NAVIGATION_DATA
@@ -519,7 +519,7 @@ def verify_prefab_document(case, assetc, editor, template, args):
     prefab_path.write_text(json.dumps(prefab))
     metadata = json.dumps({"version": 1, "id": prefab_id}).encode()
     prefab_path.with_name("native.prefab.meta").write_bytes(metadata)
-    scene["instances"] = [{"id": instance, "prefab": prefab_id, "parent": None, "overrides": []}]
+    scene["instances"] = [{"id": instance, "prefab": prefab_id, "parent": None, "translation": [0., 0., 0.], "overrides": []}]
     scene_path.write_text(json.dumps(scene))
     run("prefab_prepare", [assetc, "prepare", project, "--output", products], cwd=case)
     if args.gpu or args.native:
@@ -585,13 +585,13 @@ def scaled_geometry_project(project, scale, normal_magnitude=1., *, gltf_missing
     transform = {"translation": [0., 0.7, 0.], "rotation": rotation, "scale": scale}
     material_data = {"version": 1, "base_color": [0.85, 0.18, 0.08, 1.],
                      "roughness": 0.6, "metallic": 0., "base_color_texture": None}
-    content = {"version": 1, "base": {"version": 1, "entities": []}, "instances": []}
+    content = {"version": 2, "base": {"version": 12, "entities": []}, "instances": []}
     identities = {"scene": scene}
     sources = {"main.scene": (scene, content)}
     if gltf_missing_normals:
         prefab, instance = [str(uuid.uuid4()) for _ in range(2)]
         identities.update(prefab=prefab, instance=instance)
-        content["instances"] = [{"id": instance, "prefab": prefab, "parent": None, "overrides": []}]
+        content["instances"] = [{"id": instance, "prefab": prefab, "parent": None, "translation": [0., 0., 0.], "overrides": []}]
         binary = struct.pack("<9f3H", *(value for point in positions for value in point), 0, 1, 2)
         (assets / "triangle.bin").write_bytes(binary)
         sources["triangle.gltf"] = (prefab, {
@@ -620,14 +620,14 @@ def scaled_geometry_project(project, scale, normal_magnitude=1., *, gltf_missing
             "links": {"target": None, "connections": []},
         }]
         sources.update({
-            "triangle.mesh": (mesh, {"version": 1, "positions": positions, "normals": [normal] * 3,
+            "triangle.mesh": (mesh, {"version": 2, "positions": positions, "normals": [normal] * 3,
                                      "uvs": [[0., 0.], [1., 0.], [0.5, 1.]], "indices": [0, 1, 2]}),
             "red.material": (material, material_data),
         })
     for filename, (asset, value) in sources.items():
         (assets / filename).write_text(json.dumps(value, allow_nan=False) + "\n")
         (assets / f"{filename}.meta").write_text(json.dumps({"version": 1, "id": asset}) + "\n")
-    (project / "project.json").write_text(json.dumps({"version": 1, "game_icon": None}) + "\n")
+    (project / "project.json").write_text(json.dumps({"version": 2, "game_icon": None, "game_id": str(uuid.uuid4())}) + "\n")
     return {**identities, "scale": scale, "rotation": rotation, "normal_magnitude": normal_magnitude,
             "normal_source": "generated" if gltf_missing_normals else "authored",
             "world_positions": scaled_world_positions(triangle, [1.] * 3, rotation),
@@ -649,7 +649,7 @@ def inspect_scaled_products(products, authored):
     source = product_data(authored["scene"], "scene")
     if "prefab" in authored:
         assert source["base"]["entities"] == []
-        assert source["instances"] == [{"id": authored["instance"], "prefab": authored["prefab"], "parent": None, "overrides": []}]
+        assert source["instances"] == [{"id": authored["instance"], "prefab": authored["prefab"], "parent": None, "translation": [0., 0., 0.], "overrides": []}]
         assert set(index[authored["scene"]]["dependencies"]) == {authored["prefab"]}
         prefab = product_data(authored["prefab"], "prefab")
         models = [entity for entity in prefab["base"]["entities"] if entity.get("model") is not None]
@@ -785,7 +785,7 @@ def main():
         shutil.copyfile(ROOT / "editor/resources/icons/editor.png", project / "assets/icons/game.png")
         scene = "40000000-0000-4000-8000-000000000001"
         extra = "70000000-0000-4000-8000-000000000001"
-        (project / "assets/extra.scene").write_text(json.dumps({"version": 1, "base": {"version": 2, "entities": []}, "instances": []}))
+        (project / "assets/extra.scene").write_text(json.dumps({"version": 2, "base": {"version": 12, "entities": []}, "instances": []}))
         (project / "assets/extra.scene.meta").write_text(json.dumps({"version": 1, "id": extra}))
         verify_navigation_bake(case, assetc, editor, template, project, products)
         run("prepare", [assetc, "prepare", project, "--output", products])
@@ -921,7 +921,7 @@ def main():
         run("standalone_joint_scene", [assetc, "expand", relocated / products_relative, DEMO_JOINT_SCENE,
                                        "--output", joint_snapshot], cwd=empty)
         expanded = json.loads(joint_snapshot.read_text())
-        assert expanded["version"] == 5 and manifest["runtime"]["protocols"]["scene"] >= 5
+        assert expanded["version"] == manifest["runtime"]["protocols"]["scene"] and manifest["runtime"]["protocols"]["scene"] == 12
         for component in ("point_joint", "hinge_joint", "slider_joint"):
             assert sum(entity.get(component) is not None for entity in expanded["entities"]) == 1
         run("standalone_runtime_identity", [app, "--template-info"], cwd=empty)

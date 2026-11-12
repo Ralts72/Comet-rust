@@ -66,7 +66,7 @@ fn rig() -> Rig {
     };
     let clip_data = AnimationClipData {
         events: vec![],
-        version: 1,
+        version: comet_asset_data::ANIMATION_CLIP_VERSION,
         skeleton,
         duration: 1.25,
         channels: vec![
@@ -175,7 +175,6 @@ fn cubic_trs_uses_segment_seconds_and_signed_quaternion_components_through_play_
     let mut fixture = rig();
     let author = fixture.scene.clone();
     let clip = Arc::make_mut(fixture.resources.animations.get_mut(&fixture.clip).unwrap());
-    clip.version = 2;
     clip.duration = 2.25;
     for channel in &mut clip.channels {
         channel.interpolation = AnimationInterpolation::CubicSpline;
@@ -268,7 +267,6 @@ fn a_degenerate_cubic_rotation_keeps_the_last_published_pose_and_clock() -> Resu
     let mut fixture = rig();
     fixture.scene.entities[0].animator.as_mut().unwrap().speed = 30.;
     let clip = Arc::make_mut(fixture.resources.animations.get_mut(&fixture.clip).unwrap());
-    clip.version = 2;
     clip.duration = 1.;
     clip.channels[0].interpolation = AnimationInterpolation::CubicSpline;
     clip.channels[0].times = vec![0., 1.];
@@ -728,7 +726,7 @@ fn duplicated_rigs_cannot_exceed_the_world_budget_with_individually_valid_produc
     let skeleton_data = Arc::new(SkeletonData { version: 1, nodes });
     let clip_data = Arc::new(AnimationClipData {
         events: vec![],
-        version: 1,
+        version: comet_asset_data::ANIMATION_CLIP_VERSION,
         skeleton,
         duration: 0.,
         channels,

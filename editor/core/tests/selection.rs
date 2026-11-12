@@ -74,7 +74,6 @@ fn explicit_override_reset_restores_inheritance_without_touching_other_declarati
     )?;
     let after = f.doc.shared_source();
     assert_eq!(*after, expected);
-    assert_eq!(after.base.version, before.base.version);
     assert_eq!(f.doc.history_len(), 1);
     assert!(f.doc.is_dirty());
     let temp = tempfile::tempdir()?;
@@ -239,7 +238,6 @@ fn override_reset_can_recover_a_declaration_after_its_source_component_is_remove
             value: FieldValue::Vec3([2.; 3]),
         },
     ];
-    let source_version = source.base.version;
     f.doc = Document::open_source(source)?;
     f.doc.shared_source().expand(&mut f.library)?;
     f.library.source.base.entities[0].physics = None;
@@ -254,7 +252,6 @@ fn override_reset_can_recover_a_declaration_after_its_source_component_is_remove
         .unwrap();
     assert_eq!(instance.overrides.len(), 1);
     assert_eq!(instance.overrides[0].field, schema::TRANSLATION);
-    assert_eq!(after.base.version, source_version);
     after.expand(&mut f.library)?;
     assert_eq!(f.doc.history_len(), 1);
     Ok(())
@@ -401,7 +398,6 @@ fn fixture() -> Result<Fixture> {
 fn mixed_clone_deduplicates_subtrees_and_attached_instances_in_one_history_state() -> Result<()> {
     let mut f = fixture()?;
     let mut source = f.doc.source();
-    source.base.version = 10;
     let external = source
         .base
         .entities
@@ -502,7 +498,6 @@ fn mixed_clone_deduplicates_subtrees_and_attached_instances_in_one_history_state
 fn mixed_remove_is_one_undo_step_and_clears_deleted_author_and_instance_links() -> Result<()> {
     let mut f = fixture()?;
     let mut source = f.doc.source();
-    source.base.version = 10;
     let spare = InstanceId::new();
     source.instances.push(PrefabInstance {
         translation: [0.; 3],
@@ -757,11 +752,10 @@ fn value_round_trips_preserve_existing_pins_and_explicit_override_writes_remain_
 }
 
 #[test]
-fn legacy_value_round_trips_restore_protocol_savepoint_and_history_without_normalizing_other_edits()
--> Result<()> {
+fn returning_values_restore_savepoint_and_history_without_normalizing_other_edits() -> Result<()> {
     use comet_scene::{BodyMotion, Character, ColliderShape, PhysicsBody};
     let mut f = fixture()?;
-    let mut character = EntityData::new("legacy character");
+    let mut character = EntityData::new("character");
     character.physics = Some(PhysicsBody {
         motion: BodyMotion::Kinematic,
         shape: ColliderShape::Capsule {
@@ -777,10 +771,8 @@ fn legacy_value_round_trips_restore_protocol_savepoint_and_history_without_norma
     let id = character.id;
     let mut prefab = character.clone();
     prefab.id = f.prefab_entity;
-    f.library.source.base.version = 2;
     f.library.source.base.entities = vec![prefab];
     let mut source = f.doc.source();
-    source.base.version = 2;
     source.base.entities.push(character);
     source.instances.retain(|instance| instance.id == f.direct);
     f.doc = Document::open_source(source)?;
@@ -802,20 +794,14 @@ fn legacy_value_round_trips_restore_protocol_savepoint_and_history_without_norma
         ],
         &mut f.library,
     )?;
-    assert_eq!(f.doc.shared_source().base.version, 3);
     f.doc.preview_field_values(&[speed(2.)], &mut f.library)?;
-    assert_eq!(
-        f.doc.shared_source().base.version,
-        3,
-        "another edit still owns the current candidate"
-    );
+
     assert!(f.doc.is_dirty());
     f.doc.preview_field_values(
         &[translated(FieldTarget::Authored(id), [0.; 3])],
         &mut f.library,
     )?;
     assert!(std::sync::Arc::ptr_eq(&before, &f.doc.shared_source()));
-    assert_eq!(f.doc.shared_source().base.version, 2);
     assert_eq!(f.doc.state_id(), state);
     assert!(!f.doc.is_dirty());
     f.doc.commit()?;
@@ -1175,10 +1161,10 @@ fn failed_batch_fields_preserve_the_last_accepted_preview_and_revision() -> Resu
 }
 
 #[test]
-fn batch_crouch_fields_upgrade_legacy_author_and_prefab_versions_together() -> Result<()> {
+fn batch_crouch_fields_publish_authored_and_prefab_changes_together() -> Result<()> {
     use comet_scene::{BodyMotion, Character, ColliderShape, PhysicsBody};
     let mut f = fixture()?;
-    let mut entity = EntityData::new("legacy character");
+    let mut entity = EntityData::new("character");
     entity.physics = Some(PhysicsBody {
         motion: BodyMotion::Kinematic,
         shape: ColliderShape::Capsule {
@@ -1194,10 +1180,8 @@ fn batch_crouch_fields_upgrade_legacy_author_and_prefab_versions_together() -> R
     let id = entity.id;
     let mut prefab = entity.clone();
     prefab.id = f.prefab_entity;
-    f.library.source.base.version = 2;
     f.library.source.base.entities = vec![prefab];
     let mut source = f.doc.source();
-    source.base.version = 2;
     source.base.entities.push(entity);
     source.instances.retain(|instance| instance.id == f.direct);
     f.doc = Document::open_source(source)?;
@@ -1221,8 +1205,6 @@ fn batch_crouch_fields_upgrade_legacy_author_and_prefab_versions_together() -> R
         ],
         &mut f.library,
     )?;
-    assert_eq!(f.doc.shared_source().base.version, 3);
-    assert_eq!(f.library.source.base.version, 2);
     f.doc.commit()?;
     let after = f.doc.shared_source();
     f.doc.undo()?;

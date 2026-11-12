@@ -39,13 +39,12 @@ fn model() -> Model {
 }
 
 #[test]
-fn model_structure_preserves_v1_history_savepoints_and_non_drawable_author_transforms() -> Result<()>
-{
+fn model_structure_preserves_history_savepoints_and_non_drawable_author_transforms() -> Result<()> {
     let mut entity = EntityData::new("tiny author");
     entity.transform.scale = [1e-40; 3];
     let id = entity.id;
     let mut doc = Document::open(SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let mut library = Library::default();
@@ -69,7 +68,6 @@ fn model_structure_preserves_v1_history_savepoints_and_non_drawable_author_trans
     doc.preview_model(id, Some(replacement.clone()), &mut library)?;
     doc.commit()?;
     let after = doc.shared_source();
-    assert_eq!(after.base.version, 1);
     assert_eq!(after.base.entities[0].model, Some(replacement.clone()));
     assert_eq!(after.base.entities[0].transform.scale, [1e-40; 3]);
     assert_eq!(doc.history_len(), 1);
@@ -90,7 +88,6 @@ fn model_structure_preserves_v1_history_savepoints_and_non_drawable_author_trans
     doc.commit()?;
     let removed = doc.shared_source();
     assert!(removed.base.entities[0].model.is_none());
-    assert_eq!(removed.base.version, 1);
     assert_eq!(doc.history_len(), 2);
     doc.undo()?;
     assert_eq!(doc.shared_source(), after);
@@ -117,7 +114,7 @@ fn invalid_model_candidates_preserve_the_last_preview_and_prefab_component_struc
     let mut library = Library {
         source: ContentSource {
             base: SceneSnapshot {
-                version: 1,
+                version: comet_scene::scene::SCENE_VERSION,
                 entities: vec![prefab],
             },
             ..Default::default()
@@ -127,7 +124,7 @@ fn invalid_model_candidates_preserve_the_last_preview_and_prefab_component_struc
     let original_prefab = library.source.clone();
     let mut doc = Document::open_source(ContentSource {
         base: SceneSnapshot {
-            version: 1,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![author],
         },
         instances: vec![PrefabInstance {
@@ -186,7 +183,7 @@ fn model_field_batches_follow_component_presence_and_never_publish_a_partial_ass
     let entity = EntityData::new("author");
     let id = entity.id;
     let mut doc = Document::open(SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let mut library = Library::default();
@@ -242,6 +239,5 @@ fn model_field_batches_follow_component_presence_and_never_publish_a_partial_ass
     doc.commit()?;
     assert_eq!(doc.history_len(), 0);
     assert!(!doc.is_dirty());
-    assert_eq!(doc.shared_source().base.version, 1);
     Ok(())
 }

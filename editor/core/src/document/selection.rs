@@ -195,13 +195,7 @@ impl Document {
                 }
             }
         }
-        let version = next.base.version;
-        next.base.version = before.source.base.version;
         let unchanged = next == *before.source;
-        if !unchanged {
-            // Preserve upgrades while any other preview remains; do not infer a minimum protocol.
-            next.base.version = version;
-        }
         self.expand_source(&next, resolver)?;
         if unchanged {
             self.restore(before)
@@ -406,11 +400,6 @@ pub(super) fn write_fields(source: &mut ContentSource, edits: &[FieldEdit]) -> R
             "duplicate field edit"
         );
         let field = schema::descriptor(edit.field)?;
-        source.base.version = source
-            .base
-            .version
-            .max(schema::required_scene_version(edit.field))
-            .max(schema::required_value_scene_version(&edit.value));
         match edit.target {
             FieldTarget::Authored(id) => {
                 let entity = source

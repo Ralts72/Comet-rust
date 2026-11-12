@@ -155,7 +155,7 @@ Rune 与 wgpu 不属于当前正式路线；引擎不依赖旧 C++ 引擎或 Jol
 `EntityId`、`AssetId`、`InstanceId`、`WorldId` 为不同的非空 UUID 类型。ECS 槽位、内存地址和递增整数不作为持久身份。
 Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links、PhysicsBody、Character、Script、三类关节、导航及 AudioSource 具体组件；SceneSnapshot 是可独立验证和序列化的 CPU 值。
 实体句柄携带世界与代次，跨世界或替换场景后失效。parent 唯一确定层级，Transform 使用父级局部变换；拒绝重复身份、缺失父级、层级环及无效本地引用。
-实体引用区分 Local、InInstance 与 External。Local 指向当前作者命名空间中的实体；InInstance 保存当前 ContentSource 的实例声明 UUID 与源实体 UUID，要求 Scene10，不能把展开后的派生 UUID 当作作者 Local 保存。展开按声明的词法作用域先解析直接实例，再将结果映射到外层，嵌套引用不搜索后代；Prefab override 中的引用沿被覆写源的命名空间解析。Links、脚本参数、关节、导航和动画绑定共用 Schema 的引用遍历、复制重映射、版本升级与实例删除清理。展开后只保留 Local/External，Runtime 与帧提取拒绝未解析的 InInstance。External 保存场景资产和实体身份，当前校验所指资产为场景，不自动实例化跨场景内容。
+实体引用区分 Local、InInstance 与 External。Local 指向当前作者命名空间中的实体；InInstance 保存当前 ContentSource 的实例声明 UUID 与源实体 UUID，不能把展开后的派生 UUID 当作作者 Local 保存。展开按声明的词法作用域先解析直接实例，再将结果映射到外层，嵌套引用不搜索后代；Prefab override 中的引用沿被覆写源的命名空间解析。Links、脚本参数、关节、导航和动画绑定共用 Schema 的引用遍历、复制重映射与实例删除清理。展开后只保留 Local/External，Runtime 与帧提取拒绝未解析的 InInstance。External 保存场景资产和实体身份，当前校验所指资产为场景，不自动实例化跨场景内容。
 
 | 组件 ID | 字段 ID | 协议字段 | 规则 |
 | --- | --- | --- | --- |
@@ -169,12 +169,12 @@ Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links�
 | 8 HingeJoint / 9 SliderJoint | 1–5、8/9/10/11 | 公共字段、rotation / connected_rotation / limits / motor | 双端局部坐标系、可选硬限位与驱动 |
 | 10 NavigationRegion | 1–7 | data / half_extents / cell_size / agent_radius / agent_height / max_climb / max_slope_degrees | 可空导航资产、世界米数与度；轴对齐根区域 |
 | 11 NavigationAgent | 1/2/3 | enabled / target / arrival_distance | 启用、可空 EntityRef、正到达距离 |
-| 12 AudioSource | 1–7 | clip / gain / looping / autoplay / spatial / min_distance / max_distance | 音频资产、[0,1] 音量、播放设置、空间开关与米制近远距离；5–7 要求 Scene8 |
+| 12 AudioSource | 1–7 | clip / gain / looping / autoplay / spatial / min_distance / max_distance | 音频资产、[0,1] 音量、播放设置、空间开关与米制近远距离 |
 | 13 Animator | 1–6 | skeleton / clip / bindings / looping / speed / controller | 原字段要求 Scene9；可选控制器与 Clip 互斥，字段 6 要求 Scene11 |
 | 14 SkinBinding | 1–2 | skin / animator | Skin 资产与可选动画实体引用；与 Model 共存，要求 Scene9 |
 | 15 CharacterAnimation | 1–2 | character / animator | 视觉容器绑定父角色与后代动画实体，要求 Scene11 |
 
-场景快照当前版本为 12；仍读取版本 1–11。版本 12 增加脚本数据资产参数。版本 11 增加 Animator.controller 与 CharacterAnimation；缺失字段不补写，旧场景保持原版本。版本 10 增加 InInstance 实体引用，旧版本不能夹带该引用；文档按具体字段值显式升级，旧 Local/External 引用不因此升级。版本 9 增加可选 Animator 与 SkinBinding；旧版本不能夹带这些组件，缺失字段不补写。版本 8 增加 AudioSource 空间配置，缺少字段时默认 spatial=false、近距 1 米、远距 30 米；默认值不写入旧 2D 格式，普通 Scene7 打开、保存和构建保留版本。空间启用或非默认距离要求版本 8，新 Schema 字段覆盖同样要求版本 8。版本 7 增加可选 `audio_source`，版本 6 增加可选 `navigation_region`、`navigation_agent`，版本 5 增加三种可选关节，版本 4 增加可选 Script；缺少这些组件的旧场景保留原协议。版本 2 支持可选 `physics`、`character`，版本 3 增加可配置蹲伏速度和高度比例。旧场景缺少蹲伏字段时使用默认值（2、0.6），默认字段不额外写入旧格式；版本 1 不允许物理组件，版本 2 不允许非默认蹲伏配置。最低协议由 Scene 的 EntityData 按实际组件配置及引用值统一计算，Scene 校验和 Document 组件/插入候选复用同一规则；字段与覆盖同时考虑字段版本和具体值。只打开和保存旧场景保留版本与 UUID，显式编辑才升级，撤销可恢复旧版本。Prefab 新字段覆盖也升级作者 base，展开时只升级被覆写候选并合成最高版本，不修改源 Prefab。ContentSource 外层当前支持版本 1–2；非零实例位移使用版本 2，缺省零位移保持版本 1。产品需随协议实现重新构建，metadata 身份不变。
+开发期协议只支持当前版本：SceneSnapshot 12、ContentSource 2、MeshData 2、AnimationClipData 3；产品、索引、项目设置、包、模板及存档同样严格校验各自当前版本。协议变更直接更新生产端、消费端、示例与测试数据，不保留旧版读取、默认补值、最低版本推算或自动升级。组件是否存在仍由可选字段表达；已存在的角色蹲伏、音频空间配置、实例位移和片段事件字段按当前格式完整保存。编辑、撤销、展开与解除关联只处理内容，不修改协议版本。UUID、字段 ID、metadata 与已分配 GameId 保持其数据身份；产品和 App 模板按当前源码重新构建。
 Scene 同时检查局部字段和组合后的世界矩阵，有限本地数值不能绕过层级乘积溢出校验。字段候选、场景替换、Prefab 覆盖与姿态写回在成功发布前共用组合规则；Prefab 的同一实例覆盖一次批量校验，不以逐字段的临时状态拒绝合法最终结果。姿态快路径只借用当前 Identity/Transform 和待写姿态，不克隆 EntityData 或脚本参数；变化时重算世界矩阵，组合 O(N log N)、辅助空间 O(N)，无变化沿用早退。结构/引用校验仍有其原有成本，不据此承诺整个 Scene 验证已线性化。
 
 PrefabRoot 是不序列化的派生元数据，由真实展开同步收集源实体、相对嵌套 InstanceId 路径和根层级约束。实例化及复制沿路径逐层组合 scope 后再派生实体 UUID，不能对已展开 UUID 再套一次 instance，也不能按新旧随机 UUID 排序配对。Editor 每条结构命令按 AssetId 缓存这类轻量元数据，同实例多根合并为一次操作并保留各选中根及点击锚点；发布后选择映射不读取资源。内部非根节点仍不提供结构覆盖。
@@ -184,7 +184,7 @@ Schema 的读写、校验、引用分类和重映射供各消费者复用。复�
 
 ## 文档与运行世界
 
-ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Prefab 共用作者格式。实例保存 InstanceId、Prefab AssetId、挂接父实体、位移与字段覆盖。`translation` 是挂接父级空间中的整体位移，只施加到实际根；未挂接的嵌套声明累加位移，挂接在实体下面的声明由父级变换继承外层位移，避免重复叠加。物理根与导航区域仍保持场景根，不额外添加父实体。非零位移要求 ContentSource v2，旧 v1 缺省零位移且保存时省略该字段；Document 在放置事务中显式升级，撤销可恢复旧版本。复制保留位移，解除关联将位移分配给提升后的实际根和未挂接嵌套声明，保留展开 UUID、引用及姿态。运行模板的 content 协议上限同步为 2，更新源码后重新准备 App 模板。
+ContentSource 保存 base SceneSnapshot 与 PrefabInstance 声明，场景和 Prefab 共用作者格式。实例保存 InstanceId、Prefab AssetId、挂接父实体、位移与字段覆盖。`translation` 是挂接父级空间中的整体位移，只施加到实际根；未挂接的嵌套声明累加位移，挂接在实体下面的声明由父级变换继承外层位移，避免重复叠加。物理根与导航区域仍保持场景根，不额外添加父实体。所有实例均使用 ContentSource v2，显式保存零或非零 `translation`；放置与撤销不切换协议版本。复制保留位移，解除关联将位移分配给提升后的实际根和未挂接嵌套声明，保留展开 UUID、引用及姿态。运行模板严格匹配 content 协议 2，更新源码后重新准备 App 模板。
 实例实体身份由实例和源实体 UUID 确定性派生，嵌套实例同理；源更新后身份稳定，覆盖重新应用。展开检查循环、缺失依赖、目标及类型，最多 64 层，不创建临时 ECS 世界收集依赖。
 当前覆盖目标是被引用 Prefab 的 base 实体，尚不支持跨层结构覆盖、移除源实体或完整结构编辑 UI。
 
@@ -288,7 +288,7 @@ Runtime 使用 60 Hz 固定步，游戏时间由已完成步数计算，独立�
 
 面板内容使用独立于停靠父节点的 scope ID，重排后控件身份保持。布局变化清理在途拾取和框选；未完成的作者预览在显式面板切换/关闭前沿现有事务提交，不把布局变更写入作者历史。隐藏或过小的场景面板提交空绘制快照及无输入响应，作者/运行世界仍保留；重新打开按当前视口重新提取。启动 Play 会显示场景面板，模拟生命周期仍归 Runtime。项目切换保留用户工作区，不把布局附着到场景文件。
 
-普通 GUI 显式启用本机 workspace.json，headless、smoke、CLI 导出和普通构造器保持无用户 I/O。v1 文件保存 egui_tiles 0.18 的布局树，不是项目内容协议；将来更换编码时需升级或显式迁移，不能复用作者字段 ID。读取先限制 64 KiB，再检查根、可达性、重复/缺失面板、环路、16 层深度、32 个节点和有限正权重；重新分配安全的节点计数器及固定工作区 ID 后才接纳。格式或读取失败使用默认布局并保留坏文件，“恢复默认布局”后才允许重新写入。
+普通 GUI 显式启用本机 workspace.json，headless、smoke、CLI 导出和普通构造器保持无用户 I/O。v1 文件保存 egui_tiles 0.18 的布局树，不是项目内容协议；开发期更换编码时直接更新版本并使用新格式，不能复用作者字段 ID。读取先限制 64 KiB，再检查根、可达性、重复/缺失面板、环路、16 层深度、32 个节点和有限正权重；重新分配安全的节点计数器及固定工作区 ID 后才接纳。格式或读取失败使用默认布局并保留坏文件，“恢复默认布局”后才允许重新写入。
 
 拖拽期间只更新内存，松开指针或关闭时按原子文件边界保存；写入失败保留当前布局及原文件，并在“视图”显示诊断。preferences.rs 统一布局和最近项目的 macOS/Windows/Linux 用户目录与普通文件校验；两类偏好保留独立格式、容量和接纳规则。ScriptConsole 只保存有界诊断和去重状态，日志面板激活状态由工作区管理。
 
@@ -362,7 +362,7 @@ SDK 适配先用 f64 计算源与监听器的世界坐标差，把 SDK 监听位
 
 Pipeline 在私有 gltf/animation.rs 适配既有 gltf Reader，不向运行模块暴露 SDK 类型。唯一名称/索引回退和既有 node/primitive UUID 规则保持，新增 Animator 实体使用固定 animation:controller key。首轮动画源须只有一个 Scene；Skeleton 范围为实际导入图，图外 joint/目标、morph 和额外影响集明确拒绝。输入与外部资源读取、最终复核和产品编码都有字节预算，越界失败不发布索引或新 metadata。Store 只读校验类型、骨架域和 Mesh/Skin 局部索引，以共享 SkeletonLibrary/AnimationLibrary 交给 Runtime。
 
-Skeleton/Skin 保持 v1；Clip v1 仍读取和产出 STEP/LINEAR，新含 CUBICSPLINE 的片段使用 Clip v2，混合通道同属 v2。不修改 Scene、外层产品或现有资产身份，也不重写旧片段；旧运行程序会拒绝新插值及版本，配对模板仍按源码身份校验。CUBICSPLINE 每键保存入切线、值、出切线，至少两个关键帧；旋转值要求近单位四元数，切线只要求有限，导入不归一化切线或翻转符号。采样遵循 [glTF 插值规范](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#appendix-c-animation-sampler-interpolation-modes)，按秒缩放切线，以 f64 计算 Hermite 分量；旋转结果在 f64 中归一化，零四元数和向量溢出明确失败，姿态及播放时钟均不部分发布。关键帧累计上限不变，输出最多为三倍条目，仍受产品字节预算约束。
+Skeleton/Skin 使用当前 v1，所有 STEP/LINEAR/CUBICSPLINE 片段统一读写 Clip v3 并显式保存事件列表，空事件不切换格式；静态与蒙皮网格统一使用 Mesh v2。配对模板按源码身份及当前协议校验。CUBICSPLINE 每键保存入切线、值、出切线，至少两个关键帧；旋转值要求近单位四元数，切线只要求有限，导入不归一化切线或翻转符号。采样遵循 [glTF 插值规范](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#appendix-c-animation-sampler-interpolation-modes)，按秒缩放切线，以 f64 计算 Hermite 分量；旋转结果在 f64 中归一化，零四元数和向量溢出明确失败，姿态及播放时钟均不部分发布。关键帧累计上限不变，输出最多为三倍条目，仍受产品字节预算约束。
 
 Animator 的 bindings 键是稳定源节点身份，值才是当前 Scene EntityRef；Prefab 展开、复制与删除只处理引用值，不能靠猜测嵌套实例 UUID 恢复绑定。导入的 Animator 根实体统一承接源场景根，骨骼姿态仍由 Scene 唯一持有。强引用仍有效的 Scene 中，明确未绑定、缺少或过期的源键可作为 UnboundRig 打开和保存；源键集合变化导致的旧绑定层级同时延后修复，原映射保持。已知节点、产品、t0 姿态及其余绘制仍完整校验，不用未绑定掩盖后续错误。悬空 Local 强引用与失效 Prefab override 继续严格拒绝，不自动删除或迁移。Play、App 和全部导出场景要求完整绑定。Runtime 启动采样 t0，固定步在脚本、导航和物理完成后采样 STEP、短弧 LINEAR 和 CUBICSPLINE TRS，使用 f64 时钟；零时长固定采样，不执行除零循环。只写通道拥有的 TRS，保留未动画的作者/Prefab 值，物理目标和重复驱动拒绝。暂停/冻结不推进，重开和换关重建播放状态，不写作者历史。
 
@@ -404,13 +404,13 @@ Rhai 的 `ctx.set_hud(text)` 替换当前脚本拥有者的一条文字，`ctx.c
 
 App 与 Editor 把当前 HUD 放入最终 ViewRequest，Application 验证其世界与内容后，在同一 egui pass 使用当前字体图集绘制，按游戏视口裁剪并自动换行。HUD 绘制不创建交互控件，不捕获角色输入；Editor 的 Edit 与错误恢复视图不携带运行 HUD。Application 只消费 Core DTO，不依赖 Runtime。HUD 本身仍仅有纯文字叠加；App 的可点击菜单由宿主独立绘制，不扩展 HudFrame，也不导入旧 RmlUi 文档。
 
-`collect.scene` 通过真实 Sensor entered 和指定玩家身份过滤完成单目标收集：同一成功回调登记无物理外观子树的销毁请求、重播旁边蒙皮模型的动作，写入 collected=true，并发布 HUD 与 Cue 播放意图，后续进入不重复。目标 Sensor 和逻辑拥有者保留，由脚本状态屏蔽；外观在固定步末按公共销毁边界移除，进度和反馈不依赖已删节点。动作开始前由 on_start 暂停在初始姿态；非循环动作结束后先发布完成提示，该完成边沿的 E 不换关，之后须再次按 E。这样不会在收集回调中立即销毁旧世界，也不会把提前按下或持续按住当作完成确认。继续已收集的进度时，on_start 登记外观销毁并显示完成提示，不重播声音或动画；运行变换、物理及动画时间仍从关卡入口重建。示例以 Scene10 InInstance 参数直接引用 SimpleSkin Prefab 内的动画控制器，容器承接实例位置，只覆盖循环字段；骨架节点与蒙皮直接复用同一源 Prefab 及其 Skeleton/Skin/Clip/Mesh 产品，作者场景不再复制五个骨架/控制器/网格节点，也不通过运行时名称查找实体。单目标示例继续复用既有第二关；粒子和完整旧收集玩法仍待迁移。
+`collect.scene` 通过真实 Sensor entered 和指定玩家身份过滤完成单目标收集：同一成功回调登记无物理外观子树的销毁请求、重播旁边蒙皮模型的动作，写入 collected=true，并发布 HUD 与 Cue 播放意图，后续进入不重复。目标 Sensor 和逻辑拥有者保留，由脚本状态屏蔽；外观在固定步末按公共销毁边界移除，进度和反馈不依赖已删节点。动作开始前由 on_start 暂停在初始姿态；非循环动作结束后先发布完成提示，该完成边沿的 E 不换关，之后须再次按 E。这样不会在收集回调中立即销毁旧世界，也不会把提前按下或持续按住当作完成确认。继续已收集的进度时，on_start 登记外观销毁并显示完成提示，不重播声音或动画；运行变换、物理及动画时间仍从关卡入口重建。示例以 InInstance 参数直接引用 SimpleSkin Prefab 内的动画控制器，容器承接实例位置，只覆盖循环字段；骨架节点与蒙皮直接复用同一源 Prefab 及其 Skeleton/Skin/Clip/Mesh 产品，作者场景不再复制五个骨架/控制器/网格节点，也不通过运行时名称查找实体。单目标示例继续复用既有第二关；粒子和完整旧收集玩法仍待迁移。
 
 `character.scene` / `character_second.scene` 共用收集脚本和关卡协调脚本：每关三个独立作者目标和三个引用同源的动画实例。目标仅写自己的 collected/ready 进度，协调者通过只读 `progress_of(entity, key, default)` 聚合当前场景内的目标；达到三个动作事件才以已有物理命令升起运动学闸门，同时解除碰撞阻挡。换关还要求出口距离与新的 E 按下。继续时已收集目标直接恢复 ready，跳过反馈；两关以 Scene/Entity/key 隔离，重开和 Stop 仍使用既有运行生命周期。完整链路回归在临时项目使用真实源导入、物理传感器、事件、Editor 换关和检查点，不写示例目录。
 
 ## 脚本生命周期
 
-Scene 的 Script 只保存资源 UUID、启用状态和带类型参数，不保存 AST、VM 或运行状态。参数最多 64 项，名称上限 128 字节，文本值上限 4096 字节；类型为布尔、i64、有限 f64、文本、三维向量或可空 EntityRef；引用参与 Schema 的依赖分类、复制重映射和删除清理。作者新增组件/参数事务显式升级到场景版本 4，撤销可恢复旧内容。Prefab 继续使用字段 6:1/2/3，不引入第二套覆盖机制。
+Scene 的 Script 只保存资源 UUID、启用状态和带类型参数，不保存 AST、VM 或运行状态。参数最多 64 项，名称上限 128 字节，文本值上限 4096 字节；类型为布尔、i64、有限 f64、文本、三维向量或可空 EntityRef；引用参与 Schema 的依赖分类、复制重映射和删除清理。作者新增组件/参数沿用当前场景格式，撤销恢复原内容。Prefab 继续使用字段 6:1/2/3，不引入第二套覆盖机制。
 
 Pipeline 将 UTF-8 `.rhai` 构建为 ScriptData（版本 1，源码上限 64 KiB，拒绝空白/NUL），与 metadata 一起维护身份。产品及索引的当前版本与缓存重建规则见资产生产与消费。禁用的绑定也保留脚本资产依赖与类型校验，包内不依赖作者文件。AssetStore 返回启用脚本的去重源码库，Runtime 不依赖 AssetStore 或 Pipeline。
 
@@ -428,11 +428,11 @@ Runtime 私有 Rhai 引擎按资源 UUID 与内容摘要编译并复用 AST，�
 
 `*.data.json` 是项目只读基础数值的作者源，沿用旧版 `fields` 与 `rows` 数组；Pipeline 独立导入器校验并规范化为 `GameData v1` CPU 产品（`data` 种类、按记录 ID 排序的映射，记录保留 `id`）。字段支持 string、bool、integer、number、json、asset；数值字段可声明有限 min/max，声明字段全部必填，拒绝未知字段、重复 ID/键、错误类型、越界、null 和 NUL 文本。整数范围为 ±(2⁵³−1)。源读取先限制 256 KiB，最多 32 字段、256 记录、4096 数据节点和 16 层嵌套；单文本 4 KiB，名称 128 UTF-8 字节，嵌套对象最多 256 项、数组 1024 项，记录文本、键和身份累计 256 KiB。编码产品读取上限为 2 MiB 加外层头预算，涵盖 JSON 转义、记录身份与结构开销。
 
-CSV 沿用旧版 `.csv` 与追加 `.schema.json` 的配套格式；schema 根只包含 `fields`，CSV 表头必须恰好包含 id 和全部声明字段，顺序不限。支持 UTF-8/BOM、CRLF/LF/CR、双引号转义与多行单元格，保留字符串空白；string/asset/id 按文本读取，其余单元格按严格 JSON 值读取，再与 JSON 作者源共用字段解码、记录规范化、预算及引用校验。拒绝坏引号、列数不齐、重复/未知表头和重复 ID。CSV 与 schema 各限 256 KiB，表头最多 33 列，数据最多 256 行；不跳过空行或隐式补齐缺失值。schema 是源依赖，不是独立资产，字节摘要参与构建指纹；发布前按依赖各自的字节预算重新复核，外部修改或超限拒绝本次发布。glTF 外部资源复用同一有界依赖记录，保留现有指纹域和产品兼容性。
+CSV 沿用旧版 `.csv` 与追加 `.schema.json` 的配套格式；schema 根只包含 `fields`，CSV 表头必须恰好包含 id 和全部声明字段，顺序不限。支持 UTF-8/BOM、CRLF/LF/CR、双引号转义与多行单元格，保留字符串空白；string/asset/id 按文本读取，其余单元格按严格 JSON 值读取，再与 JSON 作者源共用字段解码、记录规范化、预算及引用校验。拒绝坏引号、列数不齐、重复/未知表头和重复 ID。CSV 与 schema 各限 256 KiB，表头最多 33 列，数据最多 256 行；不跳过空行或隐式补齐缺失值。schema 是源依赖，不是独立资产，字节摘要参与构建指纹；发布前按依赖各自的字节预算重新复核，外部修改或超限拒绝本次发布。glTF 外部资源复用同一有界依赖记录和构建指纹。
 
 asset 字段声明 `asset_type`，值使用当前工程分类 AssetId UUID；旧工程的 64 位身份须显式映射。只有声明的顶层 asset 字段提取依赖，嵌套 JSON 中的普通 UUID 文本不自动加载；Scene 不作为数据字段资产类型，仍按现有换关流程处理。产品、索引、Pipeline 和 Store 共同验证目标存在性与类型，失败保留已发布索引和原 metadata。规范化产品属于 Data，源解析与文件读取属于 Pipeline；导出只包含产品，不携带 JSON/CSV/schema 作者文件。
 
-脚本参数新增 `ScriptValue::Data(Option<AssetId>)`，使用原参数字段 ID，配置通过 Scene12 持久化；旧 Scene1–11 保持可读，不批量重写。包含该类型的作者/Prefab 配置和覆盖显式升级至 12；资源引用发现、类型验证、实例展开、复制、撤销及导出统一使用字段协议。产品外层6/索引7保持，新增种类及 GameData1 独立版本；旧程序拒绝未知种类或 Scene12，程序模板按当前身份配对，不隐式降级。metadata 路径为 `<source-filename>.meta`，包括 `.csv.meta`；CSV 重命名时同时移动 schema 和原 metadata，保留 UUID。
+脚本参数 `ScriptValue::Data(Option<AssetId>)` 使用原参数字段 ID，通过当前 Scene12 持久化；作者、Prefab 配置与覆盖共用同一格式。资源引用发现、类型验证、实例展开、复制、撤销及导出统一使用字段协议。产品外层6、索引7与 GameData1 只支持当前版本，程序模板按源码身份配对。metadata 路径为 `<source-filename>.meta`，包括 `.csv.meta`；CSV 重命名时同时移动 schema 和原 metadata，保留 UUID。
 
 Editor 脚本参数的“数据”选择器只列出数据源，支持未设置、现有编辑事务、撤销和保存；Play 参数只读。Store 在进入世界前解析启用绑定声明及其传递数据引用，最多 64 份只读表，Runtime 仅持有不可变 DataLibrary，不借用 Store 或做文件 I/O。`ctx.data_get(data, id)` 返回独立记录/嵌套数组和映射，缺失记录返回空值；`ctx.data_ids(data)` 返回排序 ID。返回的 data 类型资产字段为当前世界的数据句柄，支持查询下一张已预载表，其他资产字段返回 UUID 文本；缓存句柄可存于 this，但跨世界拒绝。每脚本阶段共享 16384 个查询转换节点预算，超限沿现有命令事务丢弃本回调修改。on_stop 可查询，写入返回副本不改变基础表、其他实体或持久进度。
 
@@ -489,7 +489,7 @@ Core 的 `read_bounded` 只负责按调用方字节预算读取已打开的常�
 
 Pipeline 的 source.rs 统一源类型识别、目录遍历、metadata 路径、版本校验与排他身份预留；构建、Scene/Prefab 创建和导航发布复用同一 metadata 写入规则，路径与候选校验仍归各自调用方。SourceCatalog 将作者源与已接纳产品索引关联，提供相对 assets 的路径、AssetId 和产品类型。有编辑来源信息时，作者身份必须对应源根，不能借用同类型的衍生产品 ID；源文件携带 metadata 改名后仍使用原身份，目录不按旧显示标签推断路径。Editor 启动或接纳新索引时准备一份目录，场景选择、导出、图标与项目面板按类型筛选；面板不自行扫描文件系统。没有产品的新源暂不列入目录，身份或类型不一致报错；资源变化仍需重新构建，目录不承担热重载。
 
-SceneSnapshot 协议为 12，产品协议为 6，索引协议为 7，NavigationData、AudioData、SkeletonData 与 SkinData 协议均为 1；AnimationClipData 支持 v1 线性/阶梯、v2 三次样条和 v3 具名阶段事件。静态 Mesh 保留 v1，带可选成对 joints/weights 的 Mesh 使用 v2；v1 拒绝这些字段。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。AnimationControllerData 为 v1。Pipeline 可从有效 v1–6 索引重建当前缓存并保留 metadata 身份；v1/v2 不得夹带 editor，v1 不得夹带 Script，v1–3 不得夹带 Navigation，v1–4 不得夹带 Audio，v1–5 不得夹带 Skeleton/Skin/AnimationClip 或 Mesh2，v1–6 不得夹带 AnimationController。损坏或未知版本保留旧索引并报错，Runtime 只接受当前产品及索引版本。
+SceneSnapshot 12、ContentSource 2、产品 6、索引 7、MeshData 2、AnimationClipData 3 均只支持当前版本；NavigationData、AudioData、SkeletonData、SkinData 与 AnimationControllerData 的当前版本均为 1。索引条目的可选 `editor` 信息记录源 AssetId 与显示标签：源根标签为 assets 相对路径，glTF 子产品标签保留名称并对无名、重名及 primitive 消歧。来源属于编辑展示信息，不加入产品依赖；打包时全部剥离，直接引用子网格不会因此带入未使用的源 Prefab。标签非空、无 NUL、最多 4096 UTF-8 字节，来源必须指向索引内自指的源根。Pipeline 与 Runtime 使用同一当前索引校验；不支持或损坏的索引保持原样并报错，不执行历史缓存迁移。
 
 标签变化发布新索引身份；构建复用与 `AssetStore::refresh` 的内容比较只使用摘要、类型和运行依赖，后者保留未变产品的原 Arc。源文件与 metadata 一起改路径时可仅更新标签；glTF 内部内容修改仍参与输入摘要，唯一名称也参与既有子身份规则，不承诺改名保留 UUID。模型选择界面只读取已接纳索引，按 revision 缓存轻量 ID/标签列表，不加载产品或重新解析 glTF。
 
@@ -544,7 +544,7 @@ Pipeline 的 package.rs 在正式目的地同级创建私有候选，复制后�
 
 包清单版本为 4，必需的 GameId 与启动场景、包含场景、运行程序及可选项目 PNG 摘要一起保存；旧版包需重新导出。GameId 不从路径、入口场景或程序 BuildId 派生，macOS BundleIdentifier 也使用这份身份。编辑器导出另记录匹配模板的 RuntimeIdentity；模板不持游戏身份，同一模板可服务不同项目。
 
-项目根 project.json 由 Pipeline 的 ProjectSettings 管理：v2 必须有非空 GameId，图标仍使用 AssetId；旧 v1 和缺失配置只读加载为未分配身份，不能夹带新字段，v2 缺失/null/无效身份和未知版本都拒绝。Editor 的项目准备在资源构建前持项目锁调用 ensure_game_id，保留图标并原子保存一次 v2；之后即使导入或打开失败，身份也保留供重试。初始化写入失败则拒绝候选，不使用临时身份。普通 load 与资产 prepare 不执行迁移。配置只接受常规文件且有 64 KiB 上限，不跟随配置符号链接。候选捕获初始化后的设置，接纳与导出前后均复查；旧面板不能降级或替换 GameId。低层 PackageRequest 必须显式传入 GameId，产品级 CLI pack 通过必填 --game-id 提供，不推测作者项目位置。
+项目根 project.json 由 Pipeline 的 ProjectSettings 管理：当前 v2 必须携带非空 GameId，图标使用可选 AssetId；旧版本、缺文件、缺失/null/无效身份、未知字段均拒绝。仅创建新项目时分配 GameId 并发布配置，打开、资产构建及失败重试不初始化或修改配置。配置只接受常规文件且有 64 KiB 上限，不跟随符号链接；保存持项目锁，禁止替换已有 GameId。候选接纳和导出前后复查设置，防止外部修改被旧面板覆盖。低层 PackageRequest 显式传入 GameId，产品级 CLI pack 通过必填 --game-id 提供，不推测作者项目位置。
 
 Editor 的 project.rs 提供图标设置，选择后持同一项目锁验证资产并原子保存。Pipeline 从本次产品索引加载纹理，设置与导出共用正方形及 16～1024 像素校验；编码只读借用产品像素，缩放与输出缓冲归导出任务。复用现有 Rust image/png 生成窗口 PNG、各尺寸 ICNS 与 Windows 资源，不引入 Python 图像依赖。仅在候选包中写入图标，Windows 更新后读回校验，原始模板不变。图标产品无需进入场景依赖闭包，发布的是已生成的包内图标。
 

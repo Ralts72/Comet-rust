@@ -244,7 +244,7 @@ fn multiple_root_prefab_documents_save_and_reopen_without_remapping_source_ident
     let instance_id = mount.id;
     let content = ContentSource {
         base: SceneSnapshot {
-            version: 1,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![first, second],
         },
         instances: vec![PrefabInstance {
@@ -297,7 +297,6 @@ fn multiple_root_prefab_documents_save_and_reopen_without_remapping_source_ident
     assert_ne!(reopened.world_id(), world);
     assert_eq!(reopened.shared_source(), expected);
     assert_eq!(reopened.expand(&mut library)?, expanded);
-    assert_eq!(reopened.source().base.version, 1);
     assert!(!reopened.is_dirty());
     assert_eq!(reopened.history_len(), 0);
     assert!(
@@ -378,7 +377,7 @@ fn detaching_preserves_expanded_identity_overrides_and_nested_source_scopes_in_o
             outer_asset,
             ContentSource {
                 base: SceneSnapshot {
-                    version: 10,
+                    version: comet_scene::scene::SCENE_VERSION,
                     entities: vec![first, second],
                 },
                 instances: vec![nested.clone()],
@@ -390,7 +389,7 @@ fn detaching_preserves_expanded_identity_overrides_and_nested_source_scopes_in_o
     let library_before = library.0.clone();
     let authoring = ContentSource {
         base: SceneSnapshot {
-            version: 10,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![parent, observer],
         },
         instances: vec![selected, instance(outer_asset)],

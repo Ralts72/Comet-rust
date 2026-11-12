@@ -62,7 +62,7 @@ fn entity(name: &str, script: Option<AssetId>) -> Value {
 }
 fn scene(entities: Vec<Value>) -> Result<Product> {
     Ok(Product::Scene(serde_json::from_value(json!({
-        "version":1,"base":{"version":5,"entities":entities},"instances":[],
+        "version":comet_scene::prefab::CONTENT_VERSION,"base":{"version":comet_scene::scene::SCENE_VERSION,"entities":entities},"instances":[],
     }))?))
 }
 fn script(source: impl Into<String>) -> Product {

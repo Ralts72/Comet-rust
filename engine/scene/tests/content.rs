@@ -28,7 +28,7 @@ fn fixture() -> SceneSnapshot {
         },
     });
     SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![root, child, outside],
     }
 }
@@ -129,10 +129,12 @@ fn serialized_content_rejects_corruption_and_preserves_save_order() -> Result<()
     assert_eq!(bytes, reversed.to_json()?);
     let restored = SceneSnapshot::from_json(&bytes)?;
     assert_eq!(restored.to_json()?, bytes);
+    for version in (0..comet_scene::scene::SCENE_VERSION).chain([99]) {
+        let mut wire: serde_json::Value = serde_json::from_slice(&bytes)?;
+        wire["version"] = version.into();
+        assert!(SceneSnapshot::from_json(&serde_json::to_vec(&wire)?).is_err());
+    }
     let mut bad = s.clone();
-    bad.version = 99;
-    assert!(bad.validate().is_err());
-    bad = s.clone();
     bad.entities[1].id = bad.entities[0].id;
     assert!(bad.validate().is_err());
     bad = s.clone();
@@ -193,9 +195,9 @@ fn nested_prefab_overrides_and_source_update_keep_stable_instance_ids() -> Resul
         }],
     };
     let branch = ContentSource {
-        version: 1,
+        version: comet_scene::prefab::CONTENT_VERSION,
         base: SceneSnapshot {
-            version: 1,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![anchor],
         },
         instances: vec![instance],
@@ -569,7 +571,7 @@ fn instance_translation_versions_roots_and_detachment_preserve_scopes() -> Resul
     let mut mount = EntityData::new("mount");
     mount.transform.translation = [0., 4., 0.];
     let branch_source = ContentSource {
-        version: 2,
+        version: comet_scene::prefab::CONTENT_VERSION,
         base: SceneSnapshot {
             entities: vec![mount.clone()],
             ..Default::default()
@@ -597,7 +599,7 @@ fn instance_translation_versions_roots_and_detachment_preserve_scopes() -> Resul
     ]));
     let outer = InstanceId::new();
     let source = ContentSource {
-        version: 2,
+        version: comet_scene::prefab::CONTENT_VERSION,
         instances: vec![PrefabInstance {
             id: outer,
             prefab: branch,
@@ -629,20 +631,19 @@ fn instance_translation_versions_roots_and_detachment_preserve_scopes() -> Resul
     assert!(detached.instances.is_empty());
     let bytes = source.to_json()?;
     assert_eq!(ContentSource::from_json(&bytes)?, source);
-    let mut legacy = source.clone();
-    legacy.version = 1;
-    assert!(legacy.validate().is_err());
-    legacy.instances[0].translation = [0.; 3];
-    let legacy_bytes = legacy.to_json()?;
-    assert!(!std::str::from_utf8(&legacy_bytes)?.contains("translation"));
-    assert_eq!(
-        ContentSource::from_json(&legacy_bytes)?.instances[0].translation,
-        [0.; 3]
-    );
-    legacy.version = 2;
+    let mut wire: serde_json::Value = serde_json::from_slice(&bytes)?;
+    wire["version"] = 1.into();
+    assert!(ContentSource::from_json(&serde_json::to_vec(&wire)?).is_err());
+    wire["version"] = comet_scene::prefab::CONTENT_VERSION.into();
+    wire["instances"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("translation");
+    assert!(ContentSource::from_json(&serde_json::to_vec(&wire)?).is_err());
+    let mut candidate = source.clone();
     for offset in [[f32::NAN, 0., 0.], [f32::INFINITY, 0., 0.]] {
-        legacy.instances[0].translation = offset;
-        assert!(legacy.validate().is_err());
+        candidate.instances[0].translation = offset;
+        assert!(candidate.validate().is_err());
     }
     let mut overflow = source;
     overflow.instances[0].translation = [f32::MAX, 0., 0.];

@@ -141,8 +141,6 @@ fn new_projects_publish_only_authoring_files_and_keep_the_entry_identity_on_rebu
     );
     let settings = ProjectSettings::load(&paths)?;
     assert_eq!(settings.version, 2);
-    assert!(settings.game_id.is_some());
-    assert_eq!(ProjectSettings::ensure_game_id(&paths)?, settings);
     let scene = paths.resolve_asset_path(DEFAULT_SCENE)?;
     let source = comet_scene::ContentSource::from_json(&fs::read(&scene)?)?;
     assert_eq!(source.base.version, comet_scene::scene::SCENE_VERSION);
@@ -167,52 +165,24 @@ fn new_projects_publish_only_authoring_files_and_keep_the_entry_identity_on_rebu
     assert_eq!(fs::read(&metadata)?, reserved);
     assert_eq!(ProjectPaths::open(&destination)?.root(), paths.root());
     assert!(!paths.root().join("products").exists());
-    Ok(())
-}
-
-#[test]
-fn project_reads_and_asset_builds_stay_read_only_while_explicit_identity_migration_is_stable()
--> Result<()> {
-    let temp = tempfile::tempdir()?;
-    let root = temp.path().join("project");
-    fs::create_dir_all(root.join("assets"))?;
-    fs::write(
-        root.join("assets/main.scene"),
-        comet_scene::ContentSource::default().to_json()?,
-    )?;
-    let paths = ProjectPaths::open(&root)?;
-    let configuration = root.join("project.json");
-    assert_eq!(ProjectSettings::load(&paths)?, ProjectSettings::default());
-    prepare(&root, &temp.path().join("products"))?;
-    assert!(
-        !configuration.exists(),
-        "ordinary asset preparation must not initialize a game"
-    );
-    let icon = AssetId::new();
-    let legacy = format!("{{\"version\":1, \"game_icon\":\"{icon}\"}}\n");
-    fs::write(&configuration, &legacy)?;
-    let loaded = ProjectSettings::load(&paths)?;
-    assert_eq!(loaded.game_icon, Some(icon));
-    assert_eq!(loaded.game_id, None);
-    assert_eq!(fs::read(&configuration)?, legacy.as_bytes());
-    let migrated = ProjectSettings::ensure_game_id(&paths)?;
-    assert_eq!(migrated.version, 2);
-    assert_eq!(migrated.game_icon, Some(icon));
-    assert!(migrated.game_id.is_some());
-    let bytes = fs::read(&configuration)?;
-    assert_eq!(ProjectSettings::ensure_game_id(&paths)?, migrated);
-    assert_eq!(fs::read(&configuration)?, bytes);
+    let bytes = fs::read(paths.root().join("project.json"))?;
+    let replacement = ProjectSettings {
+        game_id: comet_core::GameId::new(),
+        ..settings.clone()
+    };
+    assert!(replacement.save(&paths, &mut store).is_err());
+    assert_eq!(fs::read(paths.root().join("project.json"))?, bytes);
     let moved = temp.path().join("moved-project");
-    fs::rename(&root, &moved)?;
+    fs::rename(paths.root(), &moved)?;
     assert_eq!(
-        ProjectSettings::load(&ProjectPaths::open(&moved)?)?,
-        migrated
+        ProjectSettings::load(&ProjectPaths::open(moved)?)?,
+        settings
     );
     Ok(())
 }
 
 #[test]
-fn invalid_project_versions_fields_and_paths_cannot_be_migrated_or_overwritten() -> Result<()> {
+fn invalid_project_versions_fields_and_paths_are_rejected_without_overwriting() -> Result<()> {
     let temp = tempfile::tempdir()?;
     fs::create_dir(temp.path().join("assets"))?;
     let paths = ProjectPaths::open(temp.path())?;
@@ -231,28 +201,23 @@ fn invalid_project_versions_fields_and_paths_cannot_be_migrated_or_overwritten()
         let bytes = serde_json::to_vec(&invalid)?;
         fs::write(&configuration, &bytes)?;
         assert!(ProjectSettings::load(&paths).is_err(), "{invalid}");
-        assert!(
-            ProjectSettings::ensure_game_id(&paths).is_err(),
-            "{invalid}"
-        );
         assert_eq!(fs::read(&configuration)?, bytes);
     }
     for bytes in [b"invalid json".to_vec(), vec![b' '; 65_537]] {
         fs::write(&configuration, &bytes)?;
         assert!(ProjectSettings::load(&paths).is_err());
-        assert!(ProjectSettings::ensure_game_id(&paths).is_err());
         assert_eq!(fs::read(&configuration)?, bytes);
     }
     fs::remove_file(&configuration)?;
     fs::create_dir(&configuration)?;
-    assert!(ProjectSettings::ensure_game_id(&paths).is_err());
+    assert!(ProjectSettings::load(&paths).is_err());
     fs::remove_dir(&configuration)?;
     #[cfg(unix)]
     {
         let outside = temp.path().join("outside.json");
         fs::write(&outside, b"keep external file")?;
         std::os::unix::fs::symlink(&outside, &configuration)?;
-        assert!(ProjectSettings::ensure_game_id(&paths).is_err());
+        assert!(ProjectSettings::load(&paths).is_err());
         assert_eq!(fs::read(&outside)?, b"keep external file");
         assert!(
             fs::symlink_metadata(&configuration)?
@@ -260,48 +225,6 @@ fn invalid_project_versions_fields_and_paths_cannot_be_migrated_or_overwritten()
                 .is_symlink()
         );
     }
-    Ok(())
-}
-
-#[test]
-fn identity_migration_is_serialized_and_a_stale_settings_writer_cannot_replace_or_downgrade_it()
--> Result<()> {
-    let temp = tempfile::tempdir()?;
-    fs::create_dir(temp.path().join("assets"))?;
-    fs::write(
-        temp.path().join("assets/main.scene"),
-        comet_scene::ContentSource::default().to_json()?,
-    )?;
-    let paths = ProjectPaths::open(temp.path())?;
-    let legacy = ProjectSettings::load(&paths)?;
-    let barrier = std::sync::Barrier::new(3);
-    let attempts = std::thread::scope(|scope| {
-        let attempt = || {
-            barrier.wait();
-            ProjectSettings::ensure_game_id(&paths)
-        };
-        let first = scope.spawn(attempt);
-        let second = scope.spawn(attempt);
-        barrier.wait();
-        [first.join().unwrap(), second.join().unwrap()]
-    });
-    let accepted: Vec<_> = attempts.into_iter().filter_map(Result::ok).collect();
-    assert!(!accepted.is_empty());
-    let current = ProjectSettings::ensure_game_id(&paths)?;
-    assert!(accepted.iter().all(|settings| settings == &current));
-    let bytes = fs::read(paths.root().join("project.json"))?;
-    let products = temp.path().join("products");
-    prepare(paths.root(), &products)?;
-    let mut assets = comet_asset::AssetStore::open(products)?;
-    assert!(legacy.save(&paths, &mut assets).is_err());
-    let replacement = ProjectSettings {
-        game_id: Some(comet_core::GameId::new()),
-        ..current.clone()
-    };
-    assert!(replacement.save(&paths, &mut assets).is_err());
-    assert_eq!(fs::read(paths.root().join("project.json"))?, bytes);
-    current.save(&paths, &mut assets)?;
-    assert_eq!(ProjectSettings::load(&paths)?, current);
     Ok(())
 }
 

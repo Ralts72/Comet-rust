@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use comet_asset_data::product::{
-    AssetKind, EditorProvenance, INDEX_VERSION, IndexEntry, PRODUCT_VERSION, Product, ProductFile,
+    EditorProvenance, INDEX_VERSION, IndexEntry, PRODUCT_VERSION, Product, ProductFile,
     ProductIndex,
 };
 use comet_core::{AssetId, ProjectPaths, atomic_write, digest};
@@ -86,12 +86,7 @@ pub fn prepare(project: &Path, output: &Path) -> Result<BuildReport> {
         let bytes = import::read(path)?;
         let imported = import::bundle(path, &bytes, meta.id)
             .with_context(|| format!("import {}", path.display()))?;
-        let mut fingerprint = if imported.files.is_empty() && imported.products.len() == 1 {
-            b"comet-assetc-v1\0".to_vec()
-        } else {
-            // Preserve the existing multi-input fingerprint domain for glTF products.
-            b"comet-assetc-gltf-v2\0".to_vec()
-        };
+        let mut fingerprint = b"comet-assetc-v3\0".to_vec();
         fingerprint.extend_from_slice(&bytes);
         let base = path.parent().context("source directory")?.canonicalize()?;
         for (file, input) in &imported.files {
@@ -293,95 +288,8 @@ fn previous_index(output: &Path) -> Result<Option<ProductIndex>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error).context("read previous product index"),
     };
-    let mut previous: ProductIndex = serde_json::from_slice(&bytes)
+    let previous: ProductIndex = serde_json::from_slice(&bytes)
         .context("parse previous product index; the existing index is invalid")?;
-    if matches!(previous.version, 1..=6) {
-        let legacy: serde_json::Value = serde_json::from_slice(&bytes)?;
-        ensure!(
-            previous.version >= 3
-                || legacy["products"]
-                    .as_object()
-                    .context("invalid legacy product map")?
-                    .values()
-                    .all(|entry| entry.get("editor").is_none()),
-            "legacy index contains editor provenance from a newer version"
-        );
-        ensure!(
-            previous.version != 1
-                || previous
-                    .products
-                    .values()
-                    .all(|entry| entry.kind != AssetKind::Script),
-            "legacy index contains a new asset kind"
-        );
-        ensure!(
-            previous.version >= 4
-                || previous
-                    .products
-                    .values()
-                    .all(|entry| entry.kind != AssetKind::Navigation),
-            "legacy index contains a newer navigation asset kind"
-        );
-        ensure!(
-            previous.version >= 5
-                || previous
-                    .products
-                    .values()
-                    .all(|entry| entry.kind != AssetKind::Audio),
-            "legacy index contains a newer audio asset kind"
-        );
-        ensure!(
-            previous.version >= 6
-                || previous.products.values().all(|entry| !matches!(
-                    entry.kind,
-                    AssetKind::Skeleton | AssetKind::Skin | AssetKind::AnimationClip
-                )),
-            "legacy index contains a newer animation asset kind"
-        );
-        for (id, entry) in &previous.products {
-            if previous.version < 6 && entry.kind == AssetKind::Mesh {
-                comet_core::validate_digest(&entry.digest)?;
-                let path = output
-                    .join("products")
-                    .join(id.to_string())
-                    .join(format!("{}.json", entry.digest));
-                let bytes = import::read_bounded(&path, comet_asset_data::MAX_ANIMATION_BYTES)?;
-                ensure!(
-                    digest(&bytes) == entry.digest,
-                    "legacy mesh digest mismatch"
-                );
-                let file: ProductFile =
-                    serde_json::from_slice(&bytes).context("parse legacy mesh product")?;
-                let Product::Mesh(mesh) = &file.payload else {
-                    anyhow::bail!("legacy mesh kind mismatch");
-                };
-                ensure!(
-                    file.id == *id
-                        && mesh.version == 1
-                        && mesh.joints.is_none()
-                        && mesh.weights.is_none(),
-                    "legacy index contains newer mesh skin attributes"
-                );
-                mesh.validate()?;
-            }
-        }
-        ensure!(
-            previous
-                .products
-                .values()
-                .all(|entry| entry.kind != AssetKind::AnimationController),
-            "legacy index contains a newer animation controller kind"
-        );
-        ensure!(
-            previous
-                .products
-                .values()
-                .all(|entry| entry.kind != AssetKind::Data),
-            "legacy index contains a newer game data kind"
-        );
-        // Only the producer migrates known caches; author identities and current product bytes stay intact.
-        previous.version = INDEX_VERSION;
-    }
     previous
         .validate()
         .context("validate previous product index")?;

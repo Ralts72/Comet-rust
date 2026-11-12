@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use comet_asset::AssetStore;
 use comet_asset_data::{
     AnimationInterpolation, AnimationValues,
-    product::{AssetKind, INDEX_VERSION, PRODUCT_VERSION, Product},
+    product::{INDEX_VERSION, PRODUCT_VERSION, Product},
 };
 use comet_asset_pipeline::{SourceMeta, create_project, package, prepare};
 use comet_core::{AssetId, EntityId, InstanceId};
@@ -67,15 +67,6 @@ fn model() -> AssetId {
 fn controller_products_validate_graph_types_and_dependencies_before_atomic_publication()
 -> Result<()> {
     let f = Fixture::new()?;
-    let mut legacy: serde_json::Value =
-        serde_json::from_slice(&fs::read(f.products.join("index.json"))?)?;
-    legacy["version"] = 6.into();
-    fs::write(f.products.join("index.json"), serde_json::to_vec(&legacy)?)?;
-    assert!(
-        AssetStore::open(&f.products).is_err(),
-        "runtime requires the current protocol"
-    );
-    f.prepare()?;
     let source = f.project.join("assets/locomotion.ani");
     let id = AssetId::new();
     fs::write(
@@ -91,7 +82,6 @@ fn controller_products_validate_graph_types_and_dependencies_before_atomic_publi
     });
     fs::write(&source, serde_json::to_vec(&definition)?)?;
     let mut scene = ContentSource::from_json(&fs::read(f.project.join("assets/main.scene"))?)?;
-    scene.base.version = 11;
     let owner = EntityId::in_asset(model(), "animation:controller");
     for (field, value) in [
         (comet_scene::schema::ANIMATOR_CLIP, None),
@@ -165,15 +155,6 @@ fn controller_products_validate_graph_types_and_dependencies_before_atomic_publi
     }
     fs::write(&source, serde_json::to_vec(&definition)?)?;
     assert_eq!(f.prepare()?.changed, 0);
-    let mut legacy: serde_json::Value = serde_json::from_slice(&accepted)?;
-    legacy["version"] = 6.into();
-    let bytes = serde_json::to_vec(&legacy)?;
-    fs::write(f.products.join("index.json"), &bytes)?;
-    assert!(
-        f.prepare().is_err(),
-        "index 6 cannot contain controller products"
-    );
-    assert_eq!(fs::read(f.products.join("index.json"))?, bytes);
     Ok(())
 }
 
@@ -364,7 +345,7 @@ fn cubic_rotation_import_preserves_derivatives_and_rejects_malformed_updates_ato
         .unwrap()
         .remove("max");
     source["animations"][0]["samplers"][0]["interpolation"] = "CUBICSPLINE".into();
-    // Keep this regression on the event-free v2 format, independently of the demo's v3 markers.
+    // Exercise cubic sampling without event markers.
     source["animations"][0]
         .as_object_mut()
         .unwrap()
@@ -376,7 +357,7 @@ fn cubic_rotation_import_preserves_derivatives_and_rejects_malformed_updates_ato
     let Product::AnimationClip(clip) = &clip.payload else {
         panic!("clip")
     };
-    assert_eq!(clip.version, 2);
+    assert_eq!(clip.version, comet_asset_data::ANIMATION_CLIP_VERSION);
     assert_eq!(
         clip.channels[0].interpolation,
         AnimationInterpolation::CubicSpline
@@ -481,8 +462,7 @@ fn unsupported_and_malformed_animation_inputs_preserve_the_index_and_source_iden
 }
 
 #[test]
-fn author_unbound_rigs_remain_saveable_but_dangling_bindings_and_legacy_animation_caches_are_rejected()
--> Result<()> {
+fn author_unbound_rigs_remain_saveable_but_dangling_bindings_are_rejected() -> Result<()> {
     let f = Fixture::new()?;
     let mut store = AssetStore::open(&f.products)?;
     let product = store.load(model())?;
@@ -522,45 +502,5 @@ fn author_unbound_rigs_remain_saveable_but_dangling_bindings_and_legacy_animatio
     fs::remove_file(&path)?;
     fs::remove_file(SourceMeta::path(&path))?;
     f.prepare()?;
-    let current: serde_json::Value = serde_json::from_slice(&fs::read(&index_path)?)?;
-    for version in 1..=5 {
-        let mut legacy = current.clone();
-        legacy["version"] = version.into();
-        if version < 3 {
-            for entry in legacy["products"].as_object_mut().unwrap().values_mut() {
-                entry.as_object_mut().unwrap().remove("editor");
-            }
-        }
-        let bytes = serde_json::to_vec(&legacy)?;
-        fs::write(&index_path, &bytes)?;
-        assert!(f.prepare().is_err());
-        assert_eq!(fs::read(&index_path)?, bytes);
-    }
-    let mut legacy_mesh = current.clone();
-    legacy_mesh["version"] = 5.into();
-    legacy_mesh["products"]
-        .as_object_mut()
-        .unwrap()
-        .retain(|_, entry| entry["kind"] == "mesh");
-    for entry in legacy_mesh["products"]
-        .as_object_mut()
-        .unwrap()
-        .values_mut()
-    {
-        entry.as_object_mut().unwrap().remove("editor");
-    }
-    let bytes = serde_json::to_vec(&legacy_mesh)?;
-    fs::write(&index_path, &bytes)?;
-    let error = f.prepare().unwrap_err();
-    assert!(format!("{error:#}").contains("newer mesh skin attributes"));
-    assert_eq!(fs::read(&index_path)?, bytes);
-    fs::write(&index_path, serde_json::to_vec(&current)?)?;
-    assert!(
-        AssetStore::open(&f.products)?
-            .index()
-            .products
-            .values()
-            .any(|entry| entry.kind == AssetKind::AnimationClip)
-    );
     Ok(())
 }

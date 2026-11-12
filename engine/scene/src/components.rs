@@ -25,12 +25,6 @@ impl EntityRef {
     pub fn in_instance(instance: InstanceId, entity: EntityId) -> Self {
         Self::InInstance { instance, entity }
     }
-    pub fn required_scene_version(&self) -> u32 {
-        match self {
-            Self::InInstance { .. } => 10,
-            Self::Local { .. } | Self::External { .. } => 1,
-        }
-    }
 }
 #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,51 +109,6 @@ pub struct EntityData {
     pub character_animation: Option<crate::CharacterAnimation>,
 }
 impl EntityData {
-    /// Minimum protocol for the actual component configuration and its reference values.
-    pub fn required_scene_version(&self) -> u32 {
-        let mut version = 1;
-        if self.physics.is_some() || self.character.is_some() {
-            version = 2;
-        }
-        if let Some(character) = &self.character {
-            version = version.max(character.required_scene_version());
-        }
-        if self.script.is_some() {
-            version = version.max(4);
-        }
-        if self.script.as_ref().is_some_and(|s| {
-            s.parameters
-                .values()
-                .any(|v| matches!(v, crate::ScriptValue::Data(_)))
-        }) {
-            version = version.max(12);
-        }
-        if self.point_joint.is_some() || self.hinge_joint.is_some() || self.slider_joint.is_some() {
-            version = version.max(5);
-        }
-        if self.navigation_region.is_some() || self.navigation_agent.is_some() {
-            version = version.max(6);
-        }
-        if let Some(source) = &self.audio_source {
-            version = version.max(source.required_scene_version());
-        }
-        if self.animator.is_some() || self.skin.is_some() {
-            version = version.max(9);
-        }
-        if self
-            .animator
-            .as_ref()
-            .is_some_and(|a| a.controller.is_some())
-            || self.character_animation.is_some()
-        {
-            version = version.max(11);
-        }
-        crate::schema::entity_references(self)
-            .iter()
-            .map(EntityRef::required_scene_version)
-            .fold(version, u32::max)
-    }
-
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             id: EntityId::new(),

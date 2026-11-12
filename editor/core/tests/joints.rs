@@ -30,7 +30,7 @@ fn joint_components_share_transactions_and_preserve_history_savepoints_and_faile
     let entity = body("owner");
     let id = entity.id;
     let mut doc = Document::open(SceneSnapshot {
-        version: 2,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let original = doc.shared_source();
@@ -78,7 +78,6 @@ fn joint_components_share_transactions_and_preserve_history_savepoints_and_faile
     assert_eq!(doc.revision(), revision);
     doc.commit()?;
     assert_eq!(doc.history_len(), 1);
-    assert_eq!(doc.source().base.version, 5);
     doc.undo()?;
     assert_eq!(doc.shared_source(), original);
     assert!(!doc.is_dirty());
@@ -165,7 +164,7 @@ fn prefab_joint_fields_use_one_validated_override_candidate_and_do_not_change_st
     );
     let source = ContentSource {
         base: SceneSnapshot {
-            version: 2,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![],
         },
         instances: vec![PrefabInstance {
@@ -225,7 +224,6 @@ fn prefab_joint_fields_use_one_validated_override_candidate_and_do_not_change_st
     assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
     doc.commit()?;
     assert_eq!(doc.history_len(), 1);
-    assert_eq!(doc.source().base.version, 5);
     let expanded = doc.source().expand(&mut resolver)?;
     let joint = expanded.entities[0].hinge_joint.as_ref().unwrap();
     assert_eq!(joint.limits.as_ref().unwrap().max, 0.5);

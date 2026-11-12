@@ -3,8 +3,8 @@ use anyhow::Result;
 #[test]
 fn event_tracks_require_an_explicit_version_bounded_names_and_ordered_normalized_phases()
 -> Result<()> {
-    let mut clip = AnimationClipData {
-        version: 3,
+    let clip = AnimationClipData {
+        version: comet_asset_data::ANIMATION_CLIP_VERSION,
         skeleton: comet_core::AssetId::new(),
         duration: 1.,
         channels: vec![AnimationChannel {
@@ -55,15 +55,6 @@ fn event_tracks_require_an_explicit_version_bounded_names_and_ordered_normalized
     let mut wire: serde_json::Value = serde_json::from_slice(&bytes)?;
     wire["events"][0]["unknown"] = true.into();
     assert!(serde_json::from_value::<AnimationClipData>(wire).is_err());
-    for version in [1, 2] {
-        clip.version = version;
-        clip.events.clear();
-        clip.validate()?;
-        let bytes = serde_json::to_vec(&clip)?;
-        assert!(!String::from_utf8(bytes.clone())?.contains("events"));
-        let decoded: AnimationClipData = serde_json::from_slice(&bytes)?;
-        decoded.validate()?;
-    }
     Ok(())
 }
 use comet_asset_data::{
@@ -95,7 +86,7 @@ fn skeleton() -> SkeletonData {
 }
 fn mesh() -> MeshData {
     MeshData {
-        version: 2,
+        version: comet_asset_data::product::MESH_VERSION,
         positions: vec![[0.; 3]; 3],
         normals: vec![[0., 1., 0.]; 3],
         uvs: vec![[0.; 2]; 3],
@@ -155,7 +146,7 @@ fn clip_channels_keep_absolute_times_and_reject_duplicate_targets_and_invalid_qu
     let skeleton = skeleton();
     let clip = AnimationClipData {
         events: vec![],
-        version: 1,
+        version: comet_asset_data::ANIMATION_CLIP_VERSION,
         skeleton: AssetId::new(),
         duration: 4.,
         channels: vec![AnimationChannel {
@@ -196,7 +187,7 @@ fn cubic_clips_version_the_triplet_layout_and_validate_values_separately_from_ta
     let skeleton = skeleton();
     let clip = AnimationClipData {
         events: vec![],
-        version: 2,
+        version: comet_asset_data::ANIMATION_CLIP_VERSION,
         skeleton: AssetId::new(),
         duration: 4.,
         channels: vec![AnimationChannel {
@@ -218,7 +209,7 @@ fn cubic_clips_version_the_triplet_layout_and_validate_values_separately_from_ta
         serde_json::from_slice::<AnimationClipData>(&serde_json::to_vec(&clip)?)?,
         clip
     );
-    for version in [0, 1, 4] {
+    for version in [0, 1, 2, 4] {
         let mut bad = clip.clone();
         bad.version = version;
         assert!(bad.validate().is_err(), "version {version}");
@@ -254,6 +245,7 @@ fn static_meshes_omit_skin_fields_and_skin_attributes_require_an_explicit_versio
     value.validate()?;
     value.version = 1;
     assert!(value.validate().is_err());
+    value.version = comet_asset_data::product::MESH_VERSION;
     value.joints = None;
     value.weights = None;
     let mut json = serde_json::to_value(&value)?;

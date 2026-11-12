@@ -25,11 +25,11 @@ fn capsule() -> PhysicsBody {
 }
 
 #[test]
-fn component_transactions_upgrade_legacy_scenes_and_keep_history_and_savepoints() -> Result<()> {
+fn component_transactions_keep_history_and_savepoints() -> Result<()> {
     let entity = EntityData::new("角色");
     let id = entity.id;
     let mut doc = Document::open(SceneSnapshot {
-        version: 1,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let legacy = doc.shared_source();
@@ -60,7 +60,6 @@ fn component_transactions_upgrade_legacy_scenes_and_keep_history_and_savepoints(
     }
     doc.commit()?;
     assert_eq!(doc.history_len(), 1);
-    assert_eq!(doc.source().base.version, 2);
     let configured = doc.shared_source();
     doc.undo()?;
     assert_eq!(doc.shared_source(), legacy);
@@ -195,26 +194,24 @@ fn invalid_component_candidates_preserve_last_preview_and_reject_prefab_ownershi
 }
 
 #[test]
-fn crouch_fields_upgrade_authored_and_prefab_versions_with_undo_and_save() -> Result<()> {
+fn crouch_fields_preserve_authored_and_prefab_history_and_savepoints() -> Result<()> {
     use comet_scene::{
         FieldOverride,
         schema::{self, FieldValue},
     };
-    let mut character = EntityData::new("legacy character");
+    let mut character = EntityData::new("character");
     character.physics = Some(capsule());
     character.character = Some(Character::default());
     let id = character.id;
     let snapshot = SceneSnapshot {
-        version: 2,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![character],
     };
     let mut doc = Document::open(snapshot.clone())?;
     let legacy = doc.shared_source();
-    assert!(!String::from_utf8(legacy.to_json()?)?.contains("crouch_"));
     doc.begin()?;
     doc.preview_field(&[id], schema::CROUCH_SPEED, FieldValue::Scalar(1.5))?;
     doc.commit()?;
-    assert_eq!(doc.source().base.version, 3);
     assert_eq!(
         doc.source().base.entities[0]
             .character
@@ -249,7 +246,7 @@ fn crouch_fields_upgrade_authored_and_prefab_versions_with_undo_and_save() -> Re
     );
     let mut doc = Document::open_source(ContentSource {
         base: SceneSnapshot {
-            version: 2,
+            version: comet_scene::scene::SCENE_VERSION,
             entities: vec![],
         },
         instances: vec![PrefabInstance {
@@ -273,9 +270,8 @@ fn crouch_fields_upgrade_authored_and_prefab_versions_with_undo_and_save() -> Re
         &mut resolver,
     )?;
     doc.commit()?;
-    assert_eq!(doc.source().base.version, 3);
     let expanded = doc.source().expand(&mut resolver)?;
-    assert_eq!(expanded.version, 3);
+    assert_eq!(expanded.version, comet_scene::scene::SCENE_VERSION);
     assert_eq!(
         expanded.entities[0]
             .character

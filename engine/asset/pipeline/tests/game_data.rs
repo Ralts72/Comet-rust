@@ -51,7 +51,7 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
         prefab,
         ContentSource {
             base: SceneSnapshot {
-                version: 4,
+                version: comet_scene::scene::SCENE_VERSION,
                 entities: vec![actor.clone()],
             },
             ..Default::default()
@@ -101,13 +101,6 @@ fn source_validation_prefab_data_closure_and_failed_publication_keep_identity_an
     assert!(prepare(&root, &products).is_err());
     assert_eq!(fs::read(products.join("index.json"))?, index);
     fs::write(&schema, br#"{"fields":{"hp":{"type":"integer","min":1}}}"#)?;
-    let mut legacy: serde_json::Value = serde_json::from_slice(&index)?;
-    legacy["version"] = json!(6);
-    let old = serde_json::to_vec(&legacy)?;
-    fs::write(products.join("index.json"), &old)?;
-    assert!(format!("{:#}", prepare(&root, &products).unwrap_err()).contains("newer game data"));
-    assert_eq!(fs::read(products.join("index.json"))?, old);
-    fs::write(products.join("index.json"), &index)?;
     let missing = root.join("assets/missing.csv");
     fs::write(&missing, b"id,hp\nhero,1\n")?;
     assert!(format!("{:#}", prepare(&root, &products).unwrap_err()).contains("CSV schema"));

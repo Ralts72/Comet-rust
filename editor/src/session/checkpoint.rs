@@ -16,10 +16,7 @@ impl Editor {
         let scene = play
             .scene_asset()
             .context("Prefab 预览不支持检查点，请运行场景")?;
-        let game_id = self
-            .project
-            .game_id()
-            .context("项目缺少游戏身份，请重新打开项目")?;
+        let game_id = self.project.game_id();
         match action {
             CheckpointAction::Save => {
                 let checkpoint = comet_core::Checkpoint::new(

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const PRODUCT_VERSION: u32 = 6;
 pub const INDEX_VERSION: u32 = 7;
+pub const MESH_VERSION: u32 = 2;
 pub const SCRIPT_VERSION: u32 = 1;
 pub const MAX_SCRIPT_BYTES: usize = 64 * 1024;
 pub const MAX_EDITOR_LABEL_BYTES: usize = 4 * 1024;
@@ -96,11 +97,7 @@ where
 }
 impl MeshData {
     pub fn validate(&self) -> Result<()> {
-        ensure!(matches!(self.version, 1 | 2), "unsupported mesh version");
-        ensure!(
-            self.version == 2 || (self.joints.is_none() && self.weights.is_none()),
-            "mesh v1 cannot contain skin attributes"
-        );
+        ensure!(self.version == MESH_VERSION, "unsupported mesh version");
         match (&self.joints, &self.weights) {
             (None, None) => {}
             (Some(joints), Some(weights)) => {

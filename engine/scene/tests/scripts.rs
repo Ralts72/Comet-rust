@@ -21,17 +21,8 @@ fn scripted(name: &str) -> EntityData {
 }
 
 #[test]
-fn old_versions_omit_script_and_v4_keeps_explicit_typed_parameters_and_defaults() -> Result<()> {
+fn script_protocol_keeps_explicit_typed_parameters_and_defaults() -> Result<()> {
     let entity = EntityData::new("legacy");
-    for version in 1..=3 {
-        let original = SceneSnapshot {
-            version,
-            entities: vec![entity.clone()],
-        };
-        let json: serde_json::Value = serde_json::from_slice(&original.to_json()?)?;
-        assert!(json["entities"][0].get("script").is_none());
-        assert_eq!(SceneSnapshot::from_json(&original.to_json()?)?, original);
-    }
     let asset = AssetId::new();
     let default: Script = serde_json::from_value(serde_json::json!({"asset":asset}))?;
     assert!(default.enabled);
@@ -39,11 +30,9 @@ fn old_versions_omit_script_and_v4_keeps_explicit_typed_parameters_and_defaults(
     let mut scripted = entity;
     scripted.script = Some(default);
     let mut snapshot = SceneSnapshot {
-        version: 3,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![scripted],
     };
-    assert!(snapshot.to_json().is_err());
-    snapshot.version = 4;
     let script = snapshot.entities[0].script.as_mut().unwrap();
     script.parameters = BTreeMap::from([
         ("bool".into(), ScriptValue::Bool(true)),
@@ -301,9 +290,6 @@ fn prefab_script_overrides_remap_parameters_and_keep_explicit_external_dependenc
         ScriptValue::Entity(Some(EntityRef::local(child_id.in_instance(instance))))
     );
     assert_eq!(script.parameters["external"], parameters["external"]);
-    source.base.version = 3;
-    assert!(source.expand(&mut library).is_err());
-    source.base.version = 4;
     source.instances[0].overrides[1].value = FieldValue::Scalar(1.);
     assert!(source.expand(&mut library).is_err());
     Ok(())

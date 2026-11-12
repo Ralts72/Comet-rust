@@ -57,42 +57,37 @@ fn id(n: u32) -> AssetId {
 
 #[test]
 fn products_are_deterministic_and_load_without_authoring_sources() -> Result<()> {
-    for translated in [false, true] {
-        let f = Fixture::new()?;
-        if translated {
-            let mut source = f.read("main.scene")?;
-            source["version"] = 2.into();
-            source["instances"][0]["translation"] = serde_json::json!([10., 2., -3.]);
-            f.write("main.scene", &source)?;
-        }
-        let first = f.prepare()?;
-        assert_eq!(first.changed, 6);
-        let next = f.prepare()?;
-        assert_eq!(next.changed, 0);
-        assert_eq!(next.reused, 6);
-        assert_eq!(first.index_digest, next.index_digest);
-        let mut store = AssetStore::open(&f.output)?;
-        assert_eq!(store.resident_count(), 0);
-        assert_eq!(store.dependency_closure(id(1))?.len(), 6);
-        let scene = store.expand_scene(id(1))?;
-        assert_eq!(scene.entities.len(), 7);
-        assert_eq!(
-            scene.entities.iter().filter(|e| e.model.is_some()).count(),
-            2
-        );
-        for e in scene.entities.iter().filter(|e| e.model.is_some()) {
-            assert_eq!(e.model.as_ref().unwrap().surface.roughness, 0.25);
-        }
-        match &store.load(id(6))?.payload {
-            Product::Texture(t) => {
-                assert_eq!((t.width, t.height), (2, 1));
-                assert_eq!(t.rgba8.len(), 8);
-            }
-            _ => panic!("wrong texture product"),
-        }
-        fs::remove_dir_all(&f.project)?;
-        assert_eq!(AssetStore::open(&f.output)?.expand_scene(id(1))?, scene);
+    let f = Fixture::new()?;
+    let mut source = f.read("main.scene")?;
+    source["instances"][0]["translation"] = serde_json::json!([10., 2., -3.]);
+    f.write("main.scene", &source)?;
+    let first = f.prepare()?;
+    assert_eq!(first.changed, 6);
+    let next = f.prepare()?;
+    assert_eq!(next.changed, 0);
+    assert_eq!(next.reused, 6);
+    assert_eq!(first.index_digest, next.index_digest);
+    let mut store = AssetStore::open(&f.output)?;
+    assert_eq!(store.resident_count(), 0);
+    assert_eq!(store.dependency_closure(id(1))?.len(), 6);
+    let scene = store.expand_scene(id(1))?;
+    assert_eq!(scene.entities.len(), 7);
+    assert_eq!(
+        scene.entities.iter().filter(|e| e.model.is_some()).count(),
+        2
+    );
+    for e in scene.entities.iter().filter(|e| e.model.is_some()) {
+        assert_eq!(e.model.as_ref().unwrap().surface.roughness, 0.25);
     }
+    match &store.load(id(6))?.payload {
+        Product::Texture(t) => {
+            assert_eq!((t.width, t.height), (2, 1));
+            assert_eq!(t.rgba8.len(), 8);
+        }
+        _ => panic!("wrong texture product"),
+    }
+    fs::remove_dir_all(&f.project)?;
+    assert_eq!(AssetStore::open(&f.output)?.expand_scene(id(1))?, scene);
     Ok(())
 }
 #[test]
@@ -189,55 +184,6 @@ fn source_update_refresh_and_rename_preserve_identity_and_old_versions() -> Resu
     Ok(())
 }
 
-#[test]
-fn prepare_upgrades_v2_cache_without_rewriting_products_or_author_identities() -> Result<()> {
-    use comet_asset_data::product::{INDEX_VERSION, PRODUCT_VERSION, ProductIndex};
-    let f = Fixture::new()?;
-    f.prepare()?;
-    let mut store = AssetStore::open(&f.output)?;
-    let mut old = store.index().clone();
-    let meta = fs::read(f.source("leaf.prefab.meta"))?;
-    let product = store.load(id(3))?;
-    old.version = 2;
-    for entry in old.products.values_mut() {
-        entry.editor = None;
-    }
-    let index_path = f.output.join("index.json");
-    fs::write(&index_path, serde_json::to_vec(&old)?)?;
-    assert!(AssetStore::open(&f.output).is_err());
-    assert_eq!(f.prepare()?.changed, 0);
-    let mut rebuilt = AssetStore::open(&f.output)?;
-    assert_eq!(rebuilt.index().version, INDEX_VERSION);
-    for (id, entry) in &old.products {
-        assert!(entry.same_product(&rebuilt.index().products[id]));
-        assert!(rebuilt.index().products[id].editor.is_some());
-    }
-    assert_eq!(rebuilt.load(id(3))?.version, PRODUCT_VERSION);
-    assert_eq!(*rebuilt.load(id(3))?, *product);
-    assert_eq!(fs::read(f.source("leaf.prefab.meta"))?, meta);
-    let mut forged: ProductIndex = rebuilt.index().clone();
-    forged.version = 2;
-    let bytes = serde_json::to_vec(&forged)?;
-    fs::write(&index_path, &bytes)?;
-    assert!(f.prepare().is_err());
-    assert_eq!(fs::read(index_path)?, bytes);
-    let mut with_null = serde_json::to_value(&old)?;
-    with_null["products"]
-        .as_object_mut()
-        .unwrap()
-        .values_mut()
-        .next()
-        .unwrap()["editor"] = serde_json::Value::Null;
-    let bytes = serde_json::to_vec(&with_null)?;
-    let index_path = f.output.join("index.json");
-    fs::write(&index_path, &bytes)?;
-    assert!(
-        f.prepare().is_err(),
-        "legacy schema never had an editor field, even null"
-    );
-    assert_eq!(fs::read(index_path)?, bytes);
-    Ok(())
-}
 #[test]
 fn failed_import_never_publishes_a_partial_index() -> Result<()> {
     let f = Fixture::new()?;

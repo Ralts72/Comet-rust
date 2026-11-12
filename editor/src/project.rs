@@ -26,7 +26,7 @@ impl ProjectPanel {
             error: None,
         }
     }
-    pub(crate) fn game_id(&self) -> Option<comet_core::GameId> {
+    pub(crate) fn game_id(&self) -> comet_core::GameId {
         self.settings.game_id
     }
     pub fn show(
@@ -78,8 +78,7 @@ impl ProjectPanel {
                     let result = (|| -> Result<()> {
                         let latest = ProjectSettings::load(paths)?;
                         anyhow::ensure!(
-                            latest.version == self.settings.version
-                                && latest.game_id == self.settings.game_id,
+                            latest.game_id == self.settings.game_id,
                             "项目游戏身份已变化，请重新打开项目。"
                         );
                         if latest != self.settings {

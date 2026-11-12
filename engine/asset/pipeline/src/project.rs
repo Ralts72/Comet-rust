@@ -27,7 +27,7 @@ fn prepared_project(destination: &Path) -> Result<DirectoryCandidate> {
     let scene = create_scene(&paths, Path::new(DEFAULT_SCENE))?;
     atomic_create(
         &paths.root().join("project.json"),
-        &serde_json::to_vec_pretty(&ProjectSettings::new())?,
+        &serde_json::to_vec_pretty(&ProjectSettings::for_new_project())?,
     )?;
     ProjectSettings::load(&paths)?;
 
@@ -121,68 +121,29 @@ fn create_content(
     Ok(path)
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectSettings {
     pub version: u32,
     pub game_icon: Option<AssetId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub game_id: Option<GameId>,
-}
-impl Default for ProjectSettings {
-    fn default() -> Self {
-        Self {
-            version: 1,
-            game_icon: None,
-            game_id: None,
-        }
-    }
+    pub game_id: GameId,
 }
 impl ProjectSettings {
-    /// New authoring projects explicitly allocate an identity; loading legacy projects never does.
-    pub fn new() -> Self {
+    /// Allocate identity only when creating a new authoring project.
+    pub fn for_new_project() -> Self {
         Self {
             version: 2,
             game_icon: None,
-            game_id: Some(GameId::new()),
+            game_id: GameId::new(),
         }
     }
     pub fn load(paths: &ProjectPaths) -> Result<Self> {
         let path = settings_path(paths)?;
-        let file = match fs::File::open(&path) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(e).context("读取项目设置失败"),
-        };
+        let file = fs::File::open(&path).context("读取项目设置失败")?;
         let bytes = comet_core::read_bounded(file, 64 * 1024)
             .context("读取项目设置失败（大小限制 64 KiB）")?;
         let settings: Self = serde_json::from_slice(&bytes).context("解析项目设置失败")?;
-        Ok(settings)
-    }
-    /// Editor project preparation is an explicit migration; ordinary load/build paths stay read-only.
-    pub fn ensure_game_id(paths: &ProjectPaths) -> Result<Self> {
-        let _lock = crate::build::lock(&paths.root().join(".assetc.lock"), "project")?;
-        let destination = settings_path(paths)?;
-        let existed = destination.try_exists()?;
-        let previous = Self::load(paths)?;
-        if previous.game_id.is_some() {
-            return Ok(previous);
-        }
-        let settings = Self {
-            version: 2,
-            game_id: Some(GameId::new()),
-            ..previous.clone()
-        };
-        ensure!(
-            Self::load(paths)? == previous,
-            "项目设置在初始化身份期间发生变化"
-        );
-        let destination = settings_path(paths)?;
-        let bytes = serde_json::to_vec_pretty(&settings)?;
-        if existed {
-            atomic_write(&destination, &bytes)?;
-        } else {
-            atomic_create(&destination, &bytes)?;
-        }
+        settings.validate()?;
         Ok(settings)
     }
     pub fn save(&self, paths: &ProjectPaths, assets: &mut comet_asset::AssetStore) -> Result<()> {
@@ -190,8 +151,8 @@ impl ProjectSettings {
         let _lock = crate::build::lock(&paths.root().join(".assetc.lock"), "project")?;
         let previous = Self::load(paths)?;
         ensure!(
-            self.version == previous.version && self.game_id == previous.game_id,
-            "项目游戏身份已变化，不能降级配置或替换身份，请重新打开项目"
+            self.game_id == previous.game_id,
+            "项目游戏身份已变化，不能替换身份，请重新打开项目"
         );
         if let Some(id) = self.game_icon {
             crate::icon::validate(assets, id)?;
@@ -201,52 +162,8 @@ impl ProjectSettings {
         atomic_write(&destination, &serde_json::to_vec_pretty(self)?)
     }
     fn validate(&self) -> Result<()> {
-        ensure!(
-            matches!((self.version, self.game_id), (1, None) | (2, Some(_))),
-            "不支持的项目设置版本或游戏身份"
-        );
+        ensure!(self.version == 2, "不支持的项目设置版本或游戏身份");
         Ok(())
-    }
-}
-
-// Separate wire shapes prevent v1 from accepting a v2 field, including an explicit null.
-impl<'de> Deserialize<'de> for ProjectSettings {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Legacy {
-            version: u32,
-            game_icon: Option<AssetId>,
-        }
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Current {
-            version: u32,
-            game_icon: Option<AssetId>,
-            game_id: GameId,
-        }
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Wire {
-            Legacy(Legacy),
-            Current(Current),
-        }
-        let settings = match Wire::deserialize(deserializer)? {
-            Wire::Legacy(value) => Self {
-                version: value.version,
-                game_icon: value.game_icon,
-                game_id: None,
-            },
-            Wire::Current(value) => Self {
-                version: value.version,
-                game_icon: value.game_icon,
-                game_id: Some(value.game_id),
-            },
-        };
-        settings.validate().map_err(serde::de::Error::custom)?;
-        Ok(settings)
     }
 }
 

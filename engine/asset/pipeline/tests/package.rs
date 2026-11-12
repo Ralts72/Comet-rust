@@ -37,10 +37,12 @@ fn project_icons_are_persistent_portable_and_never_modify_the_app_template() -> 
     comet_asset_pipeline::prepare(&project, &products)?;
     let paths = comet_core::ProjectPaths::open(&project)?;
     let mut store = AssetStore::open(&products)?;
-    assert_eq!(ProjectSettings::load(&paths)?, ProjectSettings::default());
+    let original = ProjectSettings::for_new_project();
+    fs::write(project.join("project.json"), serde_json::to_vec(&original)?)?;
+    assert_eq!(ProjectSettings::load(&paths)?, original);
     let settings = ProjectSettings {
         game_icon: Some(icon),
-        ..Default::default()
+        ..original
     };
     settings.save(&paths, &mut store)?;
     assert_eq!(ProjectSettings::load(&paths)?, settings);
@@ -118,7 +120,7 @@ fn scene_union_packaging_is_complete_atomic_and_rejects_stale_programs_or_indice
         &assets,
         "triangle.mesh",
         serde_json::to_vec(
-            &serde_json::json!({"version":1,"positions":[[0,0,0],[1,0,0],[0,1,0]],"normals":[[0,0,1],[0,0,1],[0,0,1]],"uvs":[[0,0],[0,0],[0,0]],"indices":[0,1,2]}),
+            &serde_json::json!({"version":comet_asset_data::product::MESH_VERSION,"positions":[[0,0,0],[1,0,0],[0,1,0]],"normals":[[0,0,1],[0,0,1],[0,0,1]],"uvs":[[0,0],[0,0],[0,0]],"indices":[0,1,2]}),
         )?,
     )?;
     let material = source(

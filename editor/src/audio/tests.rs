@@ -23,7 +23,7 @@ fn audio_candidates_validate_before_history_and_keep_accepted_previews_when_host
     let entity = EntityData::new("sound");
     let id = entity.id;
     editor.document = Document::open(SceneSnapshot {
-        version: 6,
+        version: comet_scene::scene::SCENE_VERSION,
         entities: vec![entity],
     })?;
     let original = editor.document.shared_source();
@@ -42,7 +42,6 @@ fn audio_candidates_validate_before_history_and_keep_accepted_previews_when_host
     };
     editor.edit_audio_source(id, Some(source.clone()), &mut assets)?;
     let preview = editor.document.shared_source();
-    assert_eq!(preview.base.version, 7);
     for bad in [
         AudioSource {
             gain: f32::NAN,
