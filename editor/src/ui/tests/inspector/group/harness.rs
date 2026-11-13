@@ -215,3 +215,18 @@ pub(super) fn scalar_control(output: &egui::FullOutput, field: &str) -> Result<P
         .map(|(_, pos)| pos)
         .context("common scalar control")
 }
+
+impl Group {
+    pub(super) fn click_text(&mut self, label: &str) -> Result<()> {
+        let output = self.frame(vec![]);
+        let pos = texts(&output)
+            .into_iter()
+            .rev()
+            .find(|(text, _)| text == label)
+            .with_context(|| format!("component menu item {label}: {:?}", texts(&output)))?
+            .1;
+        self.frame(vec![Event::PointerMoved(pos), button(pos, true)]);
+        self.frame(vec![button(pos, false)]);
+        Ok(())
+    }
+}

@@ -91,12 +91,12 @@ Inspector 回归按行为边界组织，共同测试的场景准备归 `group/fi
 | 层次 | 重点约束 |
 | --- | --- |
 | Editor Core | 原子候选、字段基线、显式覆盖/继承、版本与保存点恢复；批量恢复的失败、redo 与旧声明清理 |
-| Editor 命令 | 全部目标及产品类型/兼容性校验、控制器与片段的联合候选、蒙皮替换保留动画实体绑定、词法身份转换、脚本参数保护；无关错误不阻止修复，失败保留有效预览 |
+| Editor 命令 | 全部目标及产品类型/兼容性校验、控制器与片段的联合候选、骨架更换检查未选中蒙皮、混合骨架的绑定表重建及词法身份转换、蒙皮替换保留动画实体绑定、脚本参数保护；无关错误不阻止修复，失败保留有效预览 |
 | egui 输入 | 组件交集、多值与同值统一、局部轴/其他配置保持、精度与焦点、Esc、单条撤销及 Play/模态只读；菜单打开/取消不产生历史 |
 | 缓存与资产 | 空闲菜单只消费元数据，产品 revision 后失效；源文件、metadata、未选中覆盖与引用身份保持 |
 | 原生离屏 | 实体及蒙皮实际绘制、共同控件与资源菜单、保存点/历史不变；GPU 图像与 JSON 记录相互对应 |
 
-`--gpu` / `--native` 生成 `target/verification/editor-common-properties.json` / `.png`，覆盖 TRS、标量、混合开关及网格/材质/音频/脚本菜单；`editor-common-animation-clips.json` / `.png` 绘制两个完整骨架实例与共同控制器/片段菜单。合成输入、离屏图像和窗口烟测分别记录，人工输入与 Windows/Linux 目标设备仍需单独验收。
+`--gpu` / `--native` 生成 `target/verification/editor-common-properties.json` / `.png`，覆盖 TRS、标量、混合开关及网格/材质/音频/脚本菜单；`editor-common-animation-clips.json` / `.png` 绘制两个完整骨架实例与共同骨架/控制器/片段菜单及“重建绑定表”入口。合成输入、离屏图像和窗口烟测分别记录，人工输入与 Windows/Linux 目标设备仍需单独验收。
 
 `editor-components.json` / `.png` 绘制两个作者模型及单选/多选共用的组件结构入口，检查空闲绘制不改变作者内容、历史或选择。资源表单和增删行为由同一功能的 egui 输入回归验证，不为组件字段映射分别添加测试。
 
@@ -176,7 +176,7 @@ Scene/Core 回归检查当前格式、可空资产依赖、目标复制/删除/P
 
 运行 `./start.sh --scene animation.scene`，Play 后观察蒙皮模型随骨骼弯曲，再检查暂停、单步、R 重开和 Stop 后作者姿态保持。该示例为单 Clip 的 STEP/LINEAR/CUBICSPLINE TRS 播放；参数状态机与具名事件使用下述双关示例，根运动、分层、重定向及 IK 尚未接入；角色胶囊仍独立于蒙皮几何。协议与数据所有权见[蒙皮与动画](architecture.md#蒙皮与动画)。
 
-属性面板“动画”可选同骨架片段或“不播放片段”、循环和播放速度，“骨骼绑定”按 Node 0/1/2 等名称选择目标或“未绑定”；源键集合不匹配时可显式“重建绑定表”。“蒙皮”可选择产品与同骨架的动画实体。直接 Prefab 配置保留已有字段覆盖，结构在源中修改；嵌套实例和 Play 配置只读，Play 显示采样时间。控件事务、未绑定重开修复和撤销回归与实际鼠标操作分别验收。
+属性面板“动画”可更换骨架、选择同骨架片段或“不播放片段”、循环和播放速度，“骨骼绑定”按 Node 0/1/2 等名称选择目标或“未绑定”；源键集合不匹配时可显式“重建绑定表”，多选可按各自骨架一起重建。更换骨架的回归检查不兼容播放资源清理、未选中蒙皮导致的整组拒绝、失败保留有效预览；重建检查混合骨架、缺失/过期源键、显式实例引用、Prefab 覆盖和保存后撤销。“蒙皮”可选择产品与同骨架的动画实体。直接 Prefab 配置保留已有字段覆盖，结构在源中修改；嵌套实例和 Play 配置只读，Play 显示采样时间。控件事务、未绑定重开修复和撤销回归与实际鼠标操作分别验收。
 
 官方 SimpleSkin 作者源只保留在 demo/assets/models/simple_skin，测试复制该目录到临时项目，不另存长期模型或二进制副本。来源为 [Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin)，锁定提交 8f492390ddc7a2ae221a1369ef560589cf8c70fb；Marco Hutter 的模型以 [CC0](https://github.com/KhronosGroup/glTF-Sample-Assets/blob/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/SimpleSkin/README.md#legal) 发布。原 glTF 与四份 buffer 共 3242 字节，保持上游内容。
 

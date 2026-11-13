@@ -1080,10 +1080,12 @@ def main():
             clips = offscreen_test("editor_common_animation_clips_gpu",
                 "ui::tests::inspector::group::animation::headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged",
                 "editor-common-animation-clips.json")
-            assert clips["common_properties"]["asset_fields"] == ["动画控制器", "播放片段（多值）"]
+            assert clips["common_properties"]["asset_fields"] == ["骨架", "动画控制器", "播放片段（多值）"]
+            assert clips["common_properties"]["binding_action"] == "重建绑定表"
             assert clips["common_properties"]["source_unchanged"] and len(clips["application"]["selected"]) == 2
             checks["editor_common_animation_clips_evidence"] = {"status": "passed", "submitted_frames": clips["submitted_frames"],
-                "asset_fields": clips["common_properties"]["asset_fields"], "author_dirty": clips["application"]["dirty"],
+                "asset_fields": clips["common_properties"]["asset_fields"], "binding_action": clips["common_properties"]["binding_action"],
+                "author_dirty": clips["application"]["dirty"],
                 "png_sha256": inspect_png(OUT / "editor-common-animation-clips.png")["sha256"],
                 "capture": str(OUT / "editor-common-animation-clips.png")}
             marquee = offscreen_test("editor_marquee_gpu",

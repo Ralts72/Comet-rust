@@ -7,6 +7,7 @@ use comet_core::{AssetId, EntityId};
 use comet_editor_core::{FieldEdit, FieldTarget};
 use comet_scene::{Animator, EntityData, EntityRef, SceneSnapshot, SkinBinding, schema};
 use std::collections::BTreeSet;
+mod rigs;
 
 impl Editor {
     pub(crate) fn edit_character_animation(
@@ -129,7 +130,13 @@ impl Editor {
         if before.animator == after.animator && before.skin == after.skin {
             return Ok(());
         }
-        validate_configuration(&after, &snapshot, assets)?;
+        let mut candidate = snapshot.clone();
+        let index = candidate
+            .entities
+            .binary_search_by_key(&id, |entity| entity.id)
+            .map_err(|_| anyhow::anyhow!("动画对象已不存在"))?;
+        candidate.entities[index] = after.clone();
+        validate_rig_changes(&candidate, &[id].into(), assets)?;
         let mut edits = Vec::new();
         if matches!(target, FieldTarget::Prefab { .. }) {
             ensure!(
@@ -216,6 +223,14 @@ pub(crate) fn validate_configuration(
             );
         }
     }
+    validate_skin(after, snapshot, assets)
+}
+
+fn validate_skin(
+    after: &EntityData,
+    snapshot: &SceneSnapshot,
+    assets: &mut AssetStore,
+) -> Result<()> {
     if let Some(binding) = &after.skin {
         let model = after.model.as_ref().context("蒙皮绑定需要模型组件")?;
         let product = assets.load(binding.skin)?;
@@ -246,6 +261,32 @@ pub(crate) fn validate_configuration(
                     "蒙皮与动画控制器的骨架不匹配"
                 );
             }
+        }
+    }
+    Ok(())
+}
+
+/// Changing an animator also affects unselected skins referencing it.
+pub(crate) fn validate_rig_changes(
+    snapshot: &SceneSnapshot,
+    targets: &BTreeSet<EntityId>,
+    assets: &mut AssetStore,
+) -> Result<()> {
+    for entity in &snapshot.entities {
+        if targets.contains(&entity.id) {
+            validate_configuration(entity, snapshot, assets)
+                .with_context(|| format!("动画对象 {} ({}) 的配置无效", entity.name, entity.id))?;
+            continue;
+        }
+        let Some(EntityRef::Local { entity: owner }) =
+            entity.skin.as_ref().and_then(|skin| skin.animator.as_ref())
+        else {
+            continue;
+        };
+        if targets.contains(owner) {
+            validate_skin(entity, snapshot, assets).with_context(|| {
+                format!("骨架变更与蒙皮对象 {} ({}) 不兼容", entity.name, entity.id)
+            })?;
         }
     }
     Ok(())

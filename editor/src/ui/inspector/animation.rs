@@ -182,14 +182,6 @@ pub(super) fn draw(
             ..Default::default()
         });
     if let Some(animator) = &entity.animator {
-        ui.label(format!(
-            "骨架：{}",
-            choices
-                .labels
-                .get(&animator.skeleton)
-                .map(String::as_str)
-                .unwrap_or("骨架资源已缺失")
-        ));
         if let Some(play) = &editor.play {
             if let Some(state) = play.animation_state(entity.id) {
                 if let Some(name) = &state.state {
@@ -227,7 +219,11 @@ pub(super) fn draw(
                 ui,
                 assets,
                 &[entity],
-                &[schema::ANIMATOR_CONTROLLER, schema::ANIMATOR_CLIP],
+                &[
+                    schema::ANIMATOR_SKELETON,
+                    schema::ANIMATOR_CONTROLLER,
+                    schema::ANIMATOR_CLIP,
+                ],
             );
         });
         if editor.document.revision() != revision {
@@ -238,7 +234,7 @@ pub(super) fn draw(
         let mut finish = false;
         let mut remove = false;
         let mut binding_edits = vec![];
-        let mut rebuild = None;
+        let mut rebuild = false;
         ui.add_enabled_ui(editable, |ui| {
             ui.add_enabled_ui(animator.controller.is_none(), |ui| {
                 discrete |= ui.checkbox(&mut looping, "循环").changed();
@@ -259,7 +255,7 @@ pub(super) fn draw(
                             let incomplete = animator.bindings.len() != nodes.len() || nodes.iter().any(|(id, _)| !animator.bindings.contains_key(id));
                             if incomplete {
                                 ui.weak("绑定表与当前骨架不一致；重建会保留已有节点的绑定，并移除过期声明。");
-                                if ui.small_button("重建绑定表").clicked() { rebuild = Some(nodes.clone()); }
+                                if ui.small_button("重建绑定表").clicked() { rebuild = true; }
                             }
                                 for (source, name) in nodes.iter() {
                                     ui.label(name);
@@ -296,21 +292,17 @@ pub(super) fn draw(
                 replace(editor, assets, entity, None, entity.skin.clone());
                 return;
             }
-            let changed = looping != animator.looping
-                || speed != animator.speed
-                || !binding_edits.is_empty()
-                || rebuild.is_some();
+            if rebuild {
+                rebuild_bindings(editor, assets, &[entity.id]);
+                return;
+            }
+            let changed =
+                looping != animator.looping || speed != animator.speed || !binding_edits.is_empty();
             if changed {
-                discrete |= !binding_edits.is_empty() || rebuild.is_some();
+                discrete |= !binding_edits.is_empty();
                 let mut next = animator.clone();
                 next.looping = looping;
                 next.speed = speed;
-                if let Some(nodes) = rebuild {
-                    next.bindings = nodes
-                        .iter()
-                        .map(|(id, _)| (*id, next.bindings.get(id).cloned().flatten()))
-                        .collect();
-                }
                 for (source, target) in binding_edits {
                     next.bindings.insert(source, target);
                 }
@@ -528,6 +520,14 @@ fn draw_character_driver(
             .and_then(|_| editor.commit());
         editor.notice(result);
     }
+}
+
+pub(super) fn rebuild_bindings(editor: &mut Editor, assets: &mut AssetStore, ids: &[EntityId]) {
+    let result = editor
+        .commit()
+        .and_then(|_| editor.rebuild_animation_bindings(ids, assets))
+        .and_then(|_| editor.commit());
+    editor.notice(result);
 }
 
 #[cfg(test)]

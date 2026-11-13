@@ -128,6 +128,7 @@ pub(super) fn draw_common(
             schema::MATERIAL => ("材质", &choices.materials, None),
             schema::AUDIO_CLIP => ("音频片段", &choices.audio, None),
             schema::SCRIPT_ASSET => ("脚本", &choices.scripts, None),
+            schema::ANIMATOR_SKELETON => ("骨架", &choices.skeletons, None),
             schema::ANIMATOR_CLIP => ("播放片段", &choices.clips, Some("不播放片段")),
             schema::ANIMATOR_CONTROLLER => ("动画控制器", &choices.controllers, Some("单片段播放")),
             schema::SKIN_ASSET => ("蒙皮资源", &choices.skins, None),
@@ -172,11 +173,15 @@ pub(super) fn draw_common(
                 },
             )
             .inner;
+        if field == schema::ANIMATOR_SKELETON {
+            ui.weak("更换骨架会重建绑定并清除不匹配的播放资源；不兼容的蒙皮会使整组修改被拒绝。");
+        }
         if editable
             && !cancel
             && let Some(selected) = selected
         {
             let ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
+            let revision = editor.document.revision();
             let result = editor
                 .commit()
                 .and_then(|_| match field {
@@ -189,6 +194,9 @@ pub(super) fn draw_common(
                     schema::SCRIPT_ASSET => {
                         editor.replace_script_assets(&ids, selected.unwrap(), assets)
                     }
+                    schema::ANIMATOR_SKELETON => {
+                        editor.replace_animation_skeletons(&ids, selected.unwrap(), assets)
+                    }
                     schema::ANIMATOR_CLIP => editor.replace_animation_clips(&ids, selected, assets),
                     schema::ANIMATOR_CONTROLLER => {
                         editor.replace_animation_controllers(&ids, selected, assets)
@@ -200,6 +208,9 @@ pub(super) fn draw_common(
                 })
                 .and_then(|_| editor.commit());
             editor.notice(result);
+            if editor.document.revision() != revision {
+                return;
+            }
         }
     }
 }

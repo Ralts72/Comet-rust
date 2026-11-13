@@ -71,7 +71,7 @@ impl Editor {
             return Ok(());
         }
         let mut edits = Vec::new();
-        let snapshot = self.document.expand(assets)?;
+        let mut snapshot = self.document.expand(assets)?;
         let mut transforms = None;
         for entity in &targets {
             let asset = || resources.asset.context("请先选择组件资源");
@@ -153,7 +153,7 @@ impl Editor {
                                 animator: None,
                             });
                         }
-                        crate::animation::validate_configuration(&candidate, &snapshot, assets)?;
+                        snapshot.entities[index] = candidate.clone();
                         // Validate expanded references, but retain the owner's lexical declarations.
                         ComponentEdit::Animation {
                             animator: if kind == ComponentKind::Animation {
@@ -191,6 +191,13 @@ impl Editor {
         }
         if edits.is_empty() {
             return Ok(());
+        }
+        if matches!(kind, ComponentKind::Animation | ComponentKind::Skin) {
+            crate::animation::validate_rig_changes(
+                &snapshot,
+                &ids.iter().copied().collect(),
+                assets,
+            )?;
         }
         self.preview_document(assets, |document, assets| {
             document.preview_components(edits, assets)

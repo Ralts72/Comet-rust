@@ -2,19 +2,6 @@ use super::*;
 use crate::components::ComponentResources;
 use comet_editor_core::ComponentKind;
 
-fn click(f: &mut Group, label: &str) -> Result<()> {
-    let output = f.frame(vec![]);
-    let pos = texts(&output)
-        .into_iter()
-        .rev()
-        .find(|(text, _)| text == label)
-        .with_context(|| format!("component menu item {label}: {:?}", texts(&output)))?
-        .1;
-    f.frame(vec![Event::PointerMoved(pos), button(pos, true)]);
-    f.frame(vec![button(pos, false)]);
-    Ok(())
-}
-
 #[test]
 fn group_component_menus_add_only_missing_values_and_remove_as_one_saved_undoable_change()
 -> Result<()> {
@@ -38,8 +25,8 @@ fn group_component_menus_add_only_missing_values_and_remove_as_one_saved_undoabl
     f.editor.document = Document::open_source(source)?;
     let original = f.editor.document.shared_source();
     f.frame(vec![]);
-    click(&mut f, "添加组件")?;
-    click(&mut f, "刚体")?;
+    f.click_text("添加组件")?;
+    f.click_text("刚体")?;
 
     assert!(f.editor.error.is_none(), "{:?}", f.editor.error);
     let added = f.editor.document.shared_source();
@@ -65,8 +52,8 @@ fn group_component_menus_add_only_missing_values_and_remove_as_one_saved_undoabl
     assert_eq!(f.editor.document.shared_source(), original);
     f.editor.document.redo()?;
     assert_eq!(f.editor.document.shared_source(), added);
-    click(&mut f, "移除组件")?;
-    click(&mut f, "刚体")?;
+    f.click_text("移除组件")?;
+    f.click_text("刚体")?;
     assert!(f.editor.error.is_none(), "{:?}", f.editor.error);
     let removed = f.editor.document.shared_source();
     assert!(removed.base.entities.iter().all(|e| e.physics.is_none()));
@@ -104,21 +91,21 @@ fn component_resource_drafts_preserve_existing_script_parameters_and_validate_be
     assert_eq!(f.editor.document.shared_source(), original);
     assert!(!f.editor.document.is_editing());
     f.frame(vec![]);
-    click(&mut f, "添加组件")?;
-    click(&mut f, "脚本")?;
-    click(&mut f, "请选择资源")?;
+    f.click_text("添加组件")?;
+    f.click_text("脚本")?;
+    f.click_text("请选择资源")?;
     let label = f.asset_label(scripts[1]);
-    click(&mut f, &label)?;
+    f.click_text(&label)?;
     assert_eq!(f.editor.document.shared_source(), original);
     // Choosing a resource is a draft; closing the menu must not create history.
     f.frame(vec![key(egui::Key::Escape, true, Default::default())]);
     f.frame(vec![key(egui::Key::Escape, false, Default::default())]);
     assert_eq!(f.editor.document.history_len(), 0);
-    click(&mut f, "添加组件")?;
-    click(&mut f, "脚本")?;
-    click(&mut f, "请选择资源")?;
-    click(&mut f, &label)?;
-    click(&mut f, "添加到所选实体")?;
+    f.click_text("添加组件")?;
+    f.click_text("脚本")?;
+    f.click_text("请选择资源")?;
+    f.click_text(&label)?;
+    f.click_text("添加到所选实体")?;
     assert!(f.editor.error.is_none(), "{:?}", f.editor.error);
     let added = f.editor.document.shared_source();
     assert_eq!(

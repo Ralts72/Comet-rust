@@ -158,11 +158,19 @@ pub(in crate::ui) fn draw(
             schema::ROUGHNESS => &[schema::MESH, schema::MATERIAL],
             schema::AUDIO_GAIN => &[schema::AUDIO_CLIP],
             schema::SCRIPT_ENABLED => &[schema::SCRIPT_ASSET],
-            schema::ANIMATOR_SPEED => &[schema::ANIMATOR_CONTROLLER, schema::ANIMATOR_CLIP],
+            schema::ANIMATOR_SPEED => &[
+                schema::ANIMATOR_SKELETON,
+                schema::ANIMATOR_CONTROLLER,
+                schema::ANIMATOR_CLIP,
+            ],
             _ => &[],
         };
         if !assets_fields.is_empty() {
+            let revision = editor.document.revision();
             super::assets::draw_common(editor, ui, assets, entities, assets_fields);
+            if editor.document.revision() != revision {
+                return;
+            }
         }
         draw_fields(editor, ui, assets, entities, fields, editor.play.is_none());
         if key != schema::ANIMATOR_SPEED
@@ -173,6 +181,22 @@ pub(in crate::ui) fn draw(
             draw_flags(editor, ui, assets, entities, flags);
         } else {
             ui.weak("状态的片段和循环由动画控制器配置。");
+        }
+        if key == schema::ANIMATOR_SPEED
+            && ui
+                .add_enabled(
+                    editor.play.is_none() && !editor.is_busy() && !editor.documents.is_blocking(),
+                    egui::Button::new("重建绑定表"),
+                )
+                .on_hover_text(
+                    "逐个使用当前骨架，保留有效绑定，移除过期源节点，并为新增节点保留未绑定状态。",
+                )
+                .clicked()
+            && !ui.input(|input| input.key_pressed(egui::Key::Escape))
+        {
+            let ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
+            super::animation::rebuild_bindings(editor, assets, &ids);
+            return;
         }
         if key == schema::AUDIO_GAIN {
             // Match the legacy Inspector: distances are disabled only when every source is 2D.
