@@ -10,6 +10,7 @@ use comet_editor_core::Document;
 use comet_scene::{EntityData, SceneSnapshot, Transform};
 use egui::{Event, PointerButton, Pos2, Vec2};
 mod animation;
+mod components;
 mod configurations;
 mod fixtures;
 mod harness;

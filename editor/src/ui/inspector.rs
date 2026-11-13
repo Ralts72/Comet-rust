@@ -5,6 +5,7 @@ mod animation;
 mod assets;
 mod audio;
 pub(super) mod common;
+mod components;
 mod joints;
 mod model;
 mod navigation;
@@ -67,4 +68,5 @@ pub(super) fn draw(
     script::draw(editor, ui, assets, entity);
     animation::draw(editor, ui, assets, entity);
     overrides::draw(editor, ui, assets, entity.id);
+    components::draw(editor, ui, assets, &[entity]);
 }

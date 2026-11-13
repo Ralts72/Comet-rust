@@ -1068,6 +1068,15 @@ def main():
                 "asset_fields": common["common_properties"]["asset_fields"],
                 "png_sha256": inspect_png(OUT / "editor-common-properties.png")["sha256"],
                 "capture": str(OUT / "editor-common-properties.png")}
+            components = offscreen_test("editor_components_gpu",
+                "ui::tests::inspector::group::components::headless_component_menus_preserve_authoring_and_draw_selected_models",
+                "editor-components.json")
+            assert components["common_properties"]["component_fields"] == ["添加组件", "移除组件"]
+            assert components["common_properties"]["source_unchanged"] and len(components["application"]["selected"]) == 2
+            checks["editor_components_evidence"] = {"status": "passed", "submitted_frames": components["submitted_frames"],
+                "component_fields": components["common_properties"]["component_fields"], "author_dirty": components["application"]["dirty"],
+                "png_sha256": inspect_png(OUT / "editor-components.png")["sha256"],
+                "capture": str(OUT / "editor-components.png")}
             clips = offscreen_test("editor_common_animation_clips_gpu",
                 "ui::tests::inspector::group::animation::headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged",
                 "editor-common-animation-clips.json")

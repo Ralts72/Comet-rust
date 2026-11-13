@@ -66,7 +66,7 @@ fn navigation_component_candidates_commit_once_and_fail_without_losing_preview()
     assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
     assert_eq!(doc.revision(), revision);
     assert!(
-        doc.preview_physics(npc_id, None, None, &mut library)
+        doc.preview_physics(npc_id, None, Some(Character::default()), &mut library)
             .is_err()
     );
     assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
@@ -76,6 +76,19 @@ fn navigation_component_candidates_commit_once_and_fail_without_losing_preview()
     assert!(Arc::ptr_eq(&before, &doc.shared_source()));
     doc.redo()?;
     assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
+    doc.begin()?;
+    doc.preview_physics(npc_id, None, None, &mut library)?;
+    doc.commit()?;
+    let removed = doc.shared_source();
+    let npc = removed
+        .base
+        .entities
+        .iter()
+        .find(|e| e.id == npc_id)
+        .unwrap();
+    assert!(npc.physics.is_none() && npc.character.is_none() && npc.navigation_agent.is_none());
+    doc.undo()?;
+    assert_eq!(doc.shared_source(), accepted);
     Ok(())
 }
 

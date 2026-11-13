@@ -290,3 +290,188 @@ fn crouch_fields_preserve_authored_and_prefab_history_and_savepoints() -> Result
     );
     Ok(())
 }
+
+#[test]
+fn component_batches_validate_the_complete_candidate_and_preserve_preview_savepoints_and_redo()
+-> Result<()> {
+    use comet_editor_core::ComponentEdit;
+    let a = EntityData::new("a");
+    let b = EntityData::new("b");
+    let mut child = EntityData::new("child");
+    child.parent = Some(a.id);
+    let (a, b, child_id, entities) = (a.id, b.id, child.id, vec![a, b, child]);
+    let mut doc = Document::open(SceneSnapshot {
+        entities,
+        ..Default::default()
+    })?;
+    let original = doc.shared_source();
+    doc.begin()?;
+    let body = || ComponentEdit::Physics {
+        body: Some(PhysicsBody::default()),
+        character: None,
+    };
+    assert!(
+        doc.preview_components([(a, body()), (child_id, body())], &mut NoPrefabs)
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(&original, &doc.shared_source()));
+    doc.preview_components([(a, body()), (b, body())], &mut NoPrefabs)?;
+    let accepted = doc.shared_source();
+    let revision = doc.revision();
+    for ids in [[a, a], [a, comet_core::EntityId::new()]] {
+        assert!(
+            doc.preview_components(ids.map(|id| (id, body())), &mut NoPrefabs)
+                .is_err()
+        );
+        assert!(Arc::ptr_eq(&accepted, &doc.shared_source()));
+        assert_eq!(doc.revision(), revision);
+    }
+    doc.commit()?;
+    assert_eq!(doc.history_len(), 1);
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("main.scene");
+    doc.save(&path)?;
+    assert_eq!(Document::load(&path)?.shared_source(), accepted);
+    doc.undo()?;
+    assert_eq!(doc.shared_source(), original);
+    doc.redo()?;
+    assert_eq!(doc.shared_source(), accepted);
+    assert!(!doc.is_dirty());
+    Ok(())
+}
+
+#[test]
+fn removing_component_groups_cleans_typed_dependencies_and_preserves_entity_identity_references()
+-> Result<()> {
+    use comet_editor_core::ComponentKind;
+    use comet_scene::{
+        Animator, CharacterAnimation, EntityRef, JointConnection, Model, NavigationAgent,
+        PointJoint, Script, ScriptValue, SkinBinding, Surface,
+    };
+    let mut body = EntityData::new("body");
+    body.physics = Some(PhysicsBody {
+        motion: BodyMotion::Dynamic,
+        ..Default::default()
+    });
+    let mut joint = EntityData::new("joint");
+    joint.physics = Some(PhysicsBody {
+        motion: BodyMotion::Dynamic,
+        ..Default::default()
+    });
+    let mut point = PointJoint::default();
+    point.settings.connection = JointConnection::Body(EntityRef::local(body.id));
+    joint.point_joint = Some(point);
+    let mut character = EntityData::new("character");
+    character.physics = Some(capsule());
+    character.character = Some(Character {
+        player_controlled: false,
+        ..Default::default()
+    });
+    character.navigation_agent = Some(NavigationAgent::default());
+    let mut visual = EntityData::new("visual");
+    visual.parent = Some(character.id);
+    let mut animator = EntityData::new("animator");
+    animator.parent = Some(visual.id);
+    animator.animator = Some(Animator::new(AssetId::new()));
+    visual.character_animation = Some(CharacterAnimation {
+        character: Some(EntityRef::local(character.id)),
+        animator: Some(EntityRef::local(animator.id)),
+    });
+    let mut mesh = EntityData::new("mesh");
+    mesh.parent = Some(animator.id);
+    mesh.model = Some(Model {
+        mesh: AssetId::new(),
+        surface: Surface {
+            material: AssetId::new(),
+            roughness: 0.5,
+        },
+    });
+    mesh.skin = Some(SkinBinding {
+        skin: AssetId::new(),
+        animator: Some(EntityRef::local(animator.id)),
+    });
+    mesh.links.target = Some(EntityRef::local(body.id));
+    let mut script = Script::new(AssetId::new());
+    script.parameters.insert(
+        "body".into(),
+        ScriptValue::Entity(Some(EntityRef::local(body.id))),
+    );
+    mesh.script = Some(script);
+    let (body_id, joint_id, char_id, visual_id, animator_id, mesh_id) = (
+        body.id,
+        joint.id,
+        character.id,
+        visual.id,
+        animator.id,
+        mesh.id,
+    );
+    let mut doc = Document::open(SceneSnapshot {
+        entities: vec![body, joint, character, visual, animator, mesh],
+        ..Default::default()
+    })?;
+    let original = doc.shared_source();
+    let edits = [
+        (body_id, ComponentKind::Physics),
+        (char_id, ComponentKind::Character),
+        (animator_id, ComponentKind::Animation),
+    ]
+    .map(|(id, kind)| {
+        (
+            id,
+            kind.removal(original.base.entities.iter().find(|e| e.id == id).unwrap()),
+        )
+    });
+    doc.begin()?;
+    doc.preview_components(edits, &mut NoPrefabs)?;
+    doc.commit()?;
+    let removed = doc.shared_source();
+    let get = |id| removed.base.entities.iter().find(|e| e.id == id).unwrap();
+    assert_eq!(
+        get(joint_id)
+            .point_joint
+            .as_ref()
+            .unwrap()
+            .settings
+            .connection,
+        JointConnection::Unbound
+    );
+    assert!(
+        get(char_id).physics.is_some()
+            && get(char_id).character.is_none()
+            && get(char_id).navigation_agent.is_none()
+    );
+    let driver = get(visual_id).character_animation.as_ref().unwrap();
+    assert!(driver.character.is_none() && driver.animator.is_none());
+    assert!(get(mesh_id).skin.as_ref().unwrap().animator.is_none());
+    assert_eq!(get(mesh_id).links.target, Some(EntityRef::local(body_id)));
+    assert_eq!(
+        get(mesh_id).script,
+        original
+            .base
+            .entities
+            .iter()
+            .find(|e| e.id == mesh_id)
+            .unwrap()
+            .script
+    );
+    assert_eq!(
+        removed
+            .base
+            .entities
+            .iter()
+            .map(|e| (e.id, e.parent))
+            .collect::<Vec<_>>(),
+        original
+            .base
+            .entities
+            .iter()
+            .map(|e| (e.id, e.parent))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(doc.history_len(), 1);
+    doc.undo()?;
+    assert_eq!(doc.shared_source(), original);
+    doc.redo()?;
+    assert_eq!(doc.shared_source(), removed);
+    Ok(())
+}

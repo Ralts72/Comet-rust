@@ -3,8 +3,12 @@ use anyhow::{Context, Result};
 use comet_asset::AssetStore;
 use comet_core::EntityId;
 use comet_editor_core::JointEdit;
+use comet_runtime::JointKind;
 use comet_scene::schema::{self, FieldKey, FieldValue};
-use comet_scene::{BodyMotion, EntityData};
+use comet_scene::{
+    BodyMotion, EntityData, HingeJoint, JointConnection, JointFrame, JointSettings, PointJoint,
+    SliderJoint,
+};
 
 impl Editor {
     pub(crate) fn edit_joint(
@@ -101,5 +105,41 @@ impl Editor {
                 valid.then(|| (*id, name.clone()))
             })
             .collect())
+    }
+}
+
+pub(crate) fn initial_joint(kind: JointKind, entity: &EntityData) -> JointEdit {
+    let connected_frame = JointFrame {
+        anchor: entity.transform.translation,
+        rotation: entity.transform.rotation,
+    };
+    let settings = JointSettings {
+        connection: if entity
+            .physics
+            .as_ref()
+            .is_some_and(|body| body.motion == BodyMotion::Dynamic)
+        {
+            JointConnection::World
+        } else {
+            JointConnection::Unbound
+        },
+        ..Default::default()
+    };
+    match kind {
+        JointKind::Point => JointEdit::Point(Some(PointJoint {
+            settings,
+            connected_anchor: entity.transform.translation,
+            ..Default::default()
+        })),
+        JointKind::Hinge => JointEdit::Hinge(Some(HingeJoint {
+            settings,
+            connected_frame,
+            ..Default::default()
+        })),
+        JointKind::Slider => JointEdit::Slider(Some(SliderJoint {
+            settings,
+            connected_frame,
+            ..Default::default()
+        })),
     }
 }

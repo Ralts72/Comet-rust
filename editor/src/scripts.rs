@@ -9,7 +9,7 @@ use comet_scene::{
     schema::{self, FieldValue},
 };
 
-fn validate_asset(asset: AssetId, assets: &mut AssetStore) -> Result<()> {
+pub(crate) fn validate_asset(asset: AssetId, assets: &mut AssetStore) -> Result<()> {
     ensure!(
         matches!(&assets.load(asset)?.payload, Product::Script(_)),
         "脚本组件必须引用脚本资源"

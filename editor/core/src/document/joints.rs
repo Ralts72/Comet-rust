@@ -15,10 +15,6 @@ impl Document {
         edit: JointEdit,
         resolver: &mut impl PrefabResolver,
     ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| match edit {
-            JointEdit::Point(value) => entity.point_joint = value,
-            JointEdit::Hinge(value) => entity.hinge_joint = value,
-            JointEdit::Slider(value) => entity.slider_joint = value,
-        })
+        self.preview_components([(id, ComponentEdit::Joint(edit))], resolver)
     }
 }

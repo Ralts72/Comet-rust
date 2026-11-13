@@ -1,8 +1,9 @@
 use super::*;
+use crate::joints::initial_joint;
 use anyhow::Result;
 use comet_core::{EntityId, math::Vec3};
 use comet_editor_core::Document;
-use comet_scene::{BodyMotion, PhysicsBody, SceneSnapshot};
+use comet_scene::{BodyMotion, HingeJoint, PhysicsBody, PointJoint, SceneSnapshot};
 use egui::{Event, Modifiers, PointerButton, Pos2, Vec2};
 use std::sync::Arc;
 

@@ -1,5 +1,6 @@
 mod animation;
 mod audio;
+mod components;
 mod console;
 mod documents;
 mod export;

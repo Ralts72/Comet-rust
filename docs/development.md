@@ -82,7 +82,7 @@ CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 
 
 资产导入、保存、打包、破坏性输入和恢复测试只写临时项目，不修改 demo 作者源。模型与声音复用正式资产或既有 fixtures，修改输入时先复制；自动测试不访问玩家存档、设置或最近项目记录。
 
-Scene 与 Editor Core 负责内容规则和历史；Editor 的组件命令校验所选产品，validation.rs 统一作者内容与保留历史的预检，其[回归](../editor/src/validation/tests.rs)验证当前快照返回、历史脚本检查与失败保持。测试分别覆盖这些边界。字段、组件增删与插入命令始终使用当前 Scene 格式，不推算最低版本或执行旧格式升级。失败不能发布半个组件、改写保存点或清除已有有效手势。
+Scene 与 Editor Core 负责内容规则和历史；Editor 的组件命令校验所选产品，validation.rs 统一作者内容与保留历史的预检，其[回归](../editor/src/validation/tests.rs)验证当前快照返回、历史脚本检查与失败保持。组件批量回归覆盖后续目标失败、重复/失效目标、专用引用与依赖清理、通用引用保持和保存点/redo；实际 egui 输入覆盖缺失项补齐、资源草稿取消及作者/Prefab/Play/模态边界。字段、组件增删与插入命令始终使用当前 Scene 格式，不推算最低版本或执行旧格式升级。失败不能发布半个组件、改写保存点或清除已有有效手势。
 
 Gizmo 回归重点保留世界/局部坐标、父子归并、镜像及非均匀缩放、奇异/剪切/极端尺度拒绝、零位移与回到初始值、Escape、失焦、模态和世界切换。几何、法线及蒙皮的 CPU 结果另与真实 GPU 图像比较；合成输入和窗口烟测不替代物理鼠标操作与目标桌面验收。
 
@@ -97,6 +97,8 @@ Inspector 回归按行为边界组织，共同测试的场景准备归 `group/fi
 | 原生离屏 | 实体及蒙皮实际绘制、共同控件与资源菜单、保存点/历史不变；GPU 图像与 JSON 记录相互对应 |
 
 `--gpu` / `--native` 生成 `target/verification/editor-common-properties.json` / `.png`，覆盖 TRS、标量、混合开关及网格/材质/音频/脚本菜单；`editor-common-animation-clips.json` / `.png` 绘制两个完整骨架实例与共同控制器/片段菜单。合成输入、离屏图像和窗口烟测分别记录，人工输入与 Windows/Linux 目标设备仍需单独验收。
+
+`editor-components.json` / `.png` 绘制两个作者模型及单选/多选共用的组件结构入口，检查空闲绘制不改变作者内容、历史或选择。资源表单和增删行为由同一功能的 egui 输入回归验证，不为组件字段映射分别添加测试。
 
 内容与运行规则见[架构约定](architecture.md)，具体操作见 [README](../README.md)，尚未迁移的完整能力见[迁移清单](migration.md)。导航、动画、声音、脚本和检查点的专项验证在下文维护。
 

@@ -10,7 +10,7 @@ use comet_scene::{
     schema::{self, FieldValue},
 };
 
-fn validate_source(source: &AudioSource, assets: &mut AssetStore) -> Result<()> {
+pub(crate) fn validate_source(source: &AudioSource, assets: &mut AssetStore) -> Result<()> {
     source.validate()?;
     let product = assets.load(source.clip)?;
     ensure!(

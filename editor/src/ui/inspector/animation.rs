@@ -8,7 +8,7 @@ use comet_editor_core::FieldTarget;
 use comet_scene::{Animator, EntityData, EntityRef, SkinBinding, schema};
 use std::{collections::BTreeMap, sync::Arc};
 
-use super::assets::{Catalog as Choices, catalog as choices};
+use super::assets::{catalog as choices, pick_draft as asset_picker};
 
 #[derive(Clone)]
 struct Targets {
@@ -106,36 +106,6 @@ struct Draft {
     owner: Option<EntityId>,
     skeleton: Option<AssetId>,
     skin: Option<AssetId>,
-}
-
-fn asset_picker(
-    ui: &mut egui::Ui,
-    salt: impl std::hash::Hash + std::fmt::Debug,
-    label: &str,
-    value: &mut Option<AssetId>,
-    list: impl Iterator<Item = AssetId>,
-    choices: &Choices,
-    empty: Option<&str>,
-) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        egui::ComboBox::from_id_salt(salt)
-            .width(ui.available_width().min(230.))
-            .truncate()
-            .selected_text(
-                value
-                    .and_then(|id| choices.labels.get(&id).map(String::as_str))
-                    .unwrap_or(empty.unwrap_or("当前资源已缺失")),
-            )
-            .show_ui(ui, |ui| {
-                if let Some(empty) = empty {
-                    ui.selectable_value(value, None, empty);
-                }
-                for id in list {
-                    ui.selectable_value(value, Some(id), &choices.labels[&id]);
-                }
-            });
-    });
 }
 
 fn entity_picker<'a>(

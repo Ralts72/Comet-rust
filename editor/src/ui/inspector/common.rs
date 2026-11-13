@@ -196,6 +196,7 @@ pub(in crate::ui) fn draw(
         ui.weak("替换蒙皮会保留各对象的动画实体绑定。");
     }
     super::overrides::draw_group(editor, ui, assets, entities);
+    super::components::draw(editor, ui, assets, entities);
 }
 
 pub(super) fn draw_fields(

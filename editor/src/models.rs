@@ -10,7 +10,7 @@ use comet_scene::{
     schema::{self, FieldKey, FieldValue},
 };
 
-fn validate_products(model: &Model, assets: &mut AssetStore) -> Result<()> {
+pub(crate) fn validate_products(model: &Model, assets: &mut AssetStore) -> Result<()> {
     schema::descriptor(schema::ROUGHNESS)?
         .validate_value(&FieldValue::Scalar(model.surface.roughness))?;
     ensure!(

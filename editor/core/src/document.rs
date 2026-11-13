@@ -1,19 +1,20 @@
 use anyhow::{Context, Result, ensure};
 use comet_core::{AssetId, EntityId, InstanceId, atomic_write};
 use comet_scene::{
-    Character, ContentSource, EntityData, EntityRef, FieldOverride, Model, NavigationAgent,
-    NavigationRegion, PhysicsBody, PrefabInstance, PrefabResolver, Scene, SceneSnapshot, Script,
+    ContentSource, EntityData, FieldOverride, PrefabInstance, PrefabResolver, Scene, SceneSnapshot,
     schema::{FieldKey, FieldValue},
 };
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
 pub const HISTORY_CAPACITY: usize = 256;
 mod clipboard;
+mod components;
 mod hierarchy;
 mod joints;
 mod placement;
 mod selection;
 pub use clipboard::ObjectSnapshot;
+pub use components::{ComponentEdit, ComponentKind};
 pub use joints::JointEdit;
 pub use placement::MAX_PLACEMENT_COPIES;
 pub use selection::{CloneMap, FieldEdit, FieldTarget, ObjectTarget, OverrideReset};
@@ -221,37 +222,6 @@ impl Document {
         self.apply(next)
     }
 
-    fn preview_component(
-        &mut self,
-        id: EntityId,
-        resolver: &mut impl PrefabResolver,
-        edit: impl FnOnce(&mut EntityData),
-    ) -> Result<()> {
-        self.preview_source(resolver, |next| {
-            let entity = next
-                .base
-                .entities
-                .iter_mut()
-                .find(|entity| entity.id == id)
-                .context("component editing requires an authored entity")?;
-            edit(entity);
-            Ok(())
-        })
-    }
-
-    /// Body and controller form one candidate so intermediate invalid combinations never publish.
-    pub fn preview_physics(
-        &mut self,
-        id: EntityId,
-        body: Option<PhysicsBody>,
-        character: Option<Character>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| {
-            entity.physics = body;
-            entity.character = character;
-        })
-    }
     pub fn preview_override(
         &mut self,
         instance: InstanceId,
@@ -269,100 +239,6 @@ impl Document {
             }],
             resolver,
         )
-    }
-    /// Model structure belongs to authored entities; asset and draw validation belongs to the host.
-    pub fn preview_model(
-        &mut self,
-        id: EntityId,
-        model: Option<Model>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| {
-            entity.model = model;
-            if entity.model.is_none() {
-                entity.skin = None;
-            }
-        })
-    }
-
-    pub fn preview_script(
-        &mut self,
-        id: EntityId,
-        script: Option<Script>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| {
-            entity.script = script;
-        })
-    }
-
-    pub fn preview_audio_source(
-        &mut self,
-        id: EntityId,
-        audio: Option<comet_scene::AudioSource>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| {
-            entity.audio_source = audio;
-        })
-    }
-
-    /// Region and agent edits validate the entire candidate before replacing the accepted preview.
-    pub fn preview_navigation(
-        &mut self,
-        id: EntityId,
-        region: Option<NavigationRegion>,
-        agent: Option<NavigationAgent>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| {
-            entity.navigation_region = region;
-            entity.navigation_agent = agent;
-        })
-    }
-
-    pub fn preview_animation(
-        &mut self,
-        id: EntityId,
-        animator: Option<comet_scene::Animator>,
-        skin: Option<comet_scene::SkinBinding>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_source(resolver, |next| {
-            let entity = next
-                .base
-                .entities
-                .iter_mut()
-                .find(|entity| entity.id == id)
-                .context("animation component editing requires an authored entity")?;
-            let removed = entity.animator.is_some() && animator.is_none();
-            entity.animator = animator;
-            entity.skin = skin;
-            if removed {
-                // The entity still exists, so retire only references to its removed controller component.
-                for entity in &mut next.base.entities {
-                    if let Some(skin) = &mut entity.skin
-                        && skin.animator == Some(EntityRef::local(id))
-                    {
-                        skin.animator = None;
-                    }
-                    if let Some(driver) = &mut entity.character_animation
-                        && driver.animator == Some(EntityRef::local(id))
-                    {
-                        driver.animator = None;
-                    }
-                }
-            }
-            Ok(())
-        })
-    }
-    pub fn preview_character_animation(
-        &mut self,
-        id: EntityId,
-        driver: Option<comet_scene::CharacterAnimation>,
-        resolver: &mut impl PrefabResolver,
-    ) -> Result<()> {
-        self.preview_component(id, resolver, |entity| entity.character_animation = driver)
     }
     fn record(&mut self, before: State) {
         self.undo.push_back(before);
