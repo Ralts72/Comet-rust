@@ -13,8 +13,8 @@ pub(super) struct ScalarField {
     max: f32,
 }
 pub(super) struct FlagField {
-    key: FieldKey,
-    label: &'static str,
+    pub(super) key: FieldKey,
+    pub(super) label: &'static str,
 }
 const MODEL: &[ScalarField] = &[ScalarField {
     key: schema::ROUGHNESS,
@@ -303,6 +303,9 @@ pub(in crate::ui) fn draw(
         ) {
             return;
         }
+    }
+    if super::joints::draw_common(editor, ui, assets, entities) {
+        return;
     }
     super::overrides::draw_group(editor, ui, assets, entities);
     super::components::draw(editor, ui, assets, entities);

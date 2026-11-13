@@ -54,7 +54,14 @@ pub(super) struct PropertyGesture {
 }
 impl PropertyGesture {
     pub(super) fn number(&self, ui: &mut egui::Ui, widget: egui::DragValue<'_>) -> egui::Response {
-        self.numeric(ui, widget, false)
+        self.numeric(ui, widget, false, false)
+    }
+    pub(super) fn number64(
+        &self,
+        ui: &mut egui::Ui,
+        widget: egui::DragValue<'_>,
+    ) -> egui::Response {
+        self.numeric(ui, widget, false, true)
     }
     pub(super) fn mask(&self, ui: &mut egui::Ui, value: &mut u32, label: &str) -> egui::Response {
         self.numeric(
@@ -63,6 +70,7 @@ impl PropertyGesture {
                 .prefix(format!("{label} "))
                 .hexadecimal(8, false, true),
             true,
+            false,
         )
     }
     fn numeric(
@@ -70,6 +78,7 @@ impl PropertyGesture {
         ui: &mut egui::Ui,
         widget: egui::DragValue<'_>,
         hexadecimal: bool,
+        precise: bool,
     ) -> egui::Response {
         ui.add_enabled_ui(self.enabled, |ui| {
             let id = ui.next_auto_id();
@@ -106,7 +115,11 @@ impl PropertyGesture {
                         if hexadecimal {
                             format!("{:08X}", value as u32)
                         } else if context.memory(|memory| memory.has_focus(id)) {
-                            (value as f32).to_string()
+                            if precise {
+                                value.to_string()
+                            } else {
+                                (value as f32).to_string()
+                            }
                         } else {
                             formatter.format(value, precision)
                         }
@@ -124,8 +137,19 @@ impl PropertyGesture {
                 .data(|data| data.get_temp::<bool>(rejected_id))
                 .unwrap_or(false),
             enabled: enabled && ui.is_enabled(),
-            // Numeric widgets consume these keys while ending text focus.
-            cancel: ui.input(|input| input.key_pressed(egui::Key::Escape)),
+            // Earlier pickers may consume Escape; raw intent must also cancel a stopped drag.
+            cancel: ui.input(|input| {
+                input.raw.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key {
+                            key: egui::Key::Escape,
+                            pressed: true,
+                            ..
+                        }
+                    )
+                })
+            }),
             confirm: ui.input(|input| input.key_pressed(egui::Key::Enter)),
             active: false,
             finish: false,
@@ -136,7 +160,10 @@ impl PropertyGesture {
             .ctx
             .data(|data| data.get_temp::<bool>(self.rejected_id.with("invalid-text")))
             .unwrap_or(false);
-        self.active |= response.dragged() || response.has_focus() || response.lost_focus();
+        self.active |= response.dragged()
+            || response.drag_stopped()
+            || response.has_focus()
+            || response.lost_focus();
         self.finish |= response.drag_stopped() || response.lost_focus();
         if self.cancel && self.enabled {
             response.surrender_focus();

@@ -1,9 +1,15 @@
 use super::*;
 use crate::joints::initial_joint;
 use anyhow::Result;
-use comet_core::{EntityId, math::Vec3};
+use comet_core::{
+    EntityId,
+    math::{EulerRot, Quat, Vec3},
+};
 use comet_editor_core::Document;
-use comet_scene::{BodyMotion, HingeJoint, PhysicsBody, PointJoint, SceneSnapshot};
+use comet_scene::{
+    BodyMotion, EntityRef, HingeJoint, JointConnection, JointFrame, JointLimits, JointMotor,
+    PhysicsBody, PointJoint, SceneSnapshot, schema,
+};
 use egui::{Event, Modifiers, PointerButton, Pos2, Vec2};
 use std::sync::Arc;
 
@@ -184,6 +190,8 @@ fn authored_joint_picker_connects_to_one_direct_instance_with_atomic_anchor_and_
     let output = frame(&ctx, &mut editor, &mut assets, owner, vec![]);
     click(&ctx, &mut editor, &mut assets, owner, label(&output, &name));
     assert!(editor.error.is_none(), "{:?}", editor.error);
+    let output = frame(&ctx, &mut editor, &mut assets, owner, vec![]);
+    label(&output, &name);
     let changed = editor.document.shared_source();
     let joint = point(&editor, owner);
     assert_eq!(
@@ -529,8 +537,7 @@ fn prefab_connection_selection_stores_source_identity_and_remaps_on_save_and_exp
         .find(|entity| entity.id == id)
         .unwrap();
     assert_eq!(
-        editor
-            .joint_targets(owner, &egui::Context::default(), &mut assets)?
+        targets(&editor, owner, &mut assets)?
             .iter()
             .map(|(id, _)| *id)
             .collect::<Vec<_>>(),
@@ -615,11 +622,7 @@ fn non_dynamic_owners_add_unbound_joints_and_only_offer_dynamic_body_targets() -
     let ctx = context();
     frame(&ctx, &mut editor, &mut assets, owner, vec![]);
     let output = frame(&ctx, &mut editor, &mut assets, owner, vec![]);
-    assert!(
-        editor
-            .joint_targets(&entity, &egui::Context::default(), &mut assets)?
-            .is_empty()
-    );
+    assert!(targets(&editor, &entity, &mut assets)?.is_empty());
     click(
         &ctx,
         &mut editor,
@@ -660,8 +663,7 @@ fn non_dynamic_owners_add_unbound_joints_and_only_offer_dynamic_body_targets() -
     editor.document = Document::open_source(source)?;
     frame(&ctx, &mut editor, &mut assets, owner, vec![]);
     assert_eq!(
-        editor
-            .joint_targets(&entity, &egui::Context::default(), &mut assets)?
+        targets(&editor, &entity, &mut assets)?
             .iter()
             .map(|(id, _)| *id)
             .collect::<Vec<_>>(),
@@ -813,4 +815,33 @@ fn passive_hinge_controls_preserve_quaternion_sign_and_legal_offsets_beyond_pi()
     assert_eq!(editor.document.history_len(), 1);
     assert!(!editor.document.is_editing());
     Ok(())
+}
+
+fn targets(
+    editor: &Editor,
+    owner: &EntityData,
+    assets: &mut AssetStore,
+) -> Result<Vec<(EntityId, String)>> {
+    let target = editor.resolve_field_target(owner.id, assets)?;
+    let values = editor.field_references(target, assets)?;
+    Ok(values
+        .targets
+        .into_iter()
+        .filter(|(id, _)| {
+            editor
+                .last_snapshot
+                .entities
+                .iter()
+                .find(|entity| entity.id == *id)
+                .is_some_and(|entity| {
+                    crate::fields::accepts_binding(
+                        schema::POINT_CONNECTION,
+                        owner,
+                        entity,
+                        &editor.last_snapshot,
+                        assets.index(),
+                    )
+                })
+        })
+        .collect())
 }

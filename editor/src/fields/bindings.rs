@@ -12,6 +12,18 @@ pub(crate) fn accepts_binding(
 ) -> bool {
     match field {
         schema::NAVIGATION_TARGET => owner.id != target.id,
+        schema::POINT_CONNECTION | schema::HINGE_CONNECTION | schema::SLIDER_CONNECTION => {
+            owner.id != target.id
+                && target.parent.is_none()
+                && target.character.is_none()
+                && target.physics.as_ref().is_some_and(|body| {
+                    body.motion == comet_scene::BodyMotion::Dynamic
+                        || owner
+                            .physics
+                            .as_ref()
+                            .is_some_and(|owner| owner.motion == comet_scene::BodyMotion::Dynamic)
+                })
+        }
         schema::SKIN_ANIMATOR => owner.skin.as_ref().is_some_and(|skin| {
             target.animator.as_ref().is_some_and(|animator| {
                 index.products.get(&skin.skin).is_some_and(|entry| {

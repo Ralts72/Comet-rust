@@ -15,6 +15,7 @@ mod configurations;
 mod fixtures;
 mod harness;
 use harness::*;
+mod joints;
 mod model_assets;
 mod overrides;
 mod physics;

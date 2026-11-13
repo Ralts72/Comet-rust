@@ -1106,6 +1106,15 @@ def main():
                 "physics_fields": physics["common_properties"]["physics_fields"], "author_dirty": physics["application"]["dirty"],
                 "png_sha256": inspect_png(OUT / "editor-common-physics.png")["sha256"],
                 "capture": str(OUT / "editor-common-physics.png")}
+            joints = offscreen_test("editor_common_joints_gpu",
+                "ui::tests::inspector::group::joints::headless_common_joint_fields_preserve_authoring",
+                "editor-common-joints.json")
+            assert joints["common_properties"]["joint_fields"] == ["点关节", "启用关节", "连接刚体（多值）", "本地锚点（米）"]
+            assert joints["common_properties"]["source_unchanged"] and len(joints["application"]["selected"]) == 2
+            checks["editor_common_joints_evidence"] = {"status": "passed", "submitted_frames": joints["submitted_frames"],
+                "joint_fields": joints["common_properties"]["joint_fields"], "author_dirty": joints["application"]["dirty"],
+                "png_sha256": inspect_png(OUT / "editor-common-joints.png")["sha256"],
+                "capture": str(OUT / "editor-common-joints.png")}
             marquee = offscreen_test("editor_marquee_gpu",
                 "ui::tests::viewport::headless_marquee_overlay_draws_without_changing_authoring",
                 "editor-marquee.json")

@@ -15,7 +15,7 @@ struct Choices {
     values: Result<Arc<Vec<(EntityId, String)>>, String>,
 }
 
-fn choices(
+pub(super) fn choices(
     editor: &Editor,
     ui: &egui::Ui,
     assets: &mut AssetStore,
