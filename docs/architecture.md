@@ -33,6 +33,7 @@
 | Model / mesh_renderer | 网格渲染 | 模型仍指源模型资产；组件增删使用“添加/移除网格渲染” |
 | Character / character_controller | 角色控制器 | 当前只支持胶囊；“添加角色控制器”在缺少刚体时一并创建所需刚体 |
 | 刚体运动与形状 | 静态、动态、运动学；盒体、球体、胶囊 | 沿用旧属性选项 |
+| 刚体属性与碰撞过滤 | 运动类型、形状、触发器、所属碰撞层、检测碰撞层 | 沿用旧字段名称；盒体按半尺寸编辑，胶囊仍以不含端部的半高表达 |
 | PointJoint / HingeJoint / SliderJoint | 点关节、铰链关节、滑动关节 | 组件、增删按钮与覆盖列表使用同一名称 |
 | 关节锚点、限位与 motor | 本地锚点、连接锚点；角度限位、行程限位；驱动 | 沿用旧属性术语；连接锚点继续注明本地或世界空间，限位仍只有硬限位 |
 | AudioSource | 音频源 | 沿用旧组件名，播放/停止声音是运行操作 |
@@ -164,8 +165,8 @@ Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links�
 | 1 Transform | 1/2/3 | translation / rotation / scale | 有限向量、归一化 xyzw 四元数 |
 | 2 Model | 1/2/3 | mesh / surface.material / surface.roughness | 资产身份、资产身份、[0,1] 标量 |
 | 3 Links | 1/2 | target / connections | 可空实体引用、实体引用数组 |
-| 4 PhysicsBody | 1/2 | mass / friction | 正质量、非负摩擦系数 |
-| 5 Character | 1/2/3/4 | move_speed / jump_speed / crouch_speed / crouch_height_ratio | 正速度、高度比例 (0,1] |
+| 4 PhysicsBody | 1–8 | mass / friction / motion / shape / sensor / restitution / layer / mask | 正质量、非负摩擦、运动枚举、有限尺寸、触发器、[0,1] 弹性、u32 过滤掩码 |
+| 5 Character | 1–10 | move_speed / jump_speed / crouch_speed / crouch_height_ratio / player_controlled / run_multiplier / gravity / max_slope_degrees / step_height / snap_distance | 正速度/倍率/重力、高度比例 [0.1,1]、唯一玩家角色、坡度 [0,90)、非负台阶与贴地距离 |
 | 6 Script | 1/2/3 | asset / enabled / parameters | 脚本资产、启用、具名带类型参数 |
 | 7 PointJoint | 1/2/3/4/5 | enabled / connection / anchor / connected_anchor / contacts_enabled | 启用、连接、双端锚点、连接体间碰撞 |
 | 8 HingeJoint / 9 SliderJoint | 1–5、8/9/10/11 | 公共字段、rotation / connected_rotation / limits / motor | 双端局部坐标系、可选硬限位与驱动 |
@@ -178,6 +179,8 @@ Scene 私有持有 bevy_ecs World，存储 Identity、Transform、Model、Links�
 
 开发期自有协议的版本统一固定为 1，只保留当前结构，覆盖场景、Prefab、网格、动画、产品、索引、项目设置、包、模板、存档及本机偏好。协议变更直接更新生产端、消费端、示例与测试数据，不保留旧版读取、默认补值、最低版本推算或自动升级。组件是否存在仍由可选字段表达；已存在的角色蹲伏、音频空间配置、实例位移和片段事件字段按当前格式完整保存。编辑、撤销、展开与解除关联只处理内容，不修改协议版本。UUID、字段 ID、metadata 与已分配 GameId 保持其数据身份；产品和 App 模板按当前源码重新构建。
 Scene 同时检查局部字段和组合后的世界矩阵，有限本地数值不能绕过层级乘积溢出校验。字段候选、场景替换、Prefab 覆盖与姿态写回在成功发布前共用组合规则；Prefab 的同一实例覆盖一次批量校验，不以逐字段的临时状态拒绝合法最终结果。姿态快路径只借用当前 Identity/Transform 和待写姿态，不克隆 EntityData 或脚本参数；变化时重算世界矩阵，组合 O(N log N)、辅助空间 O(N)，无变化沿用早退。结构/引用校验仍有其原有成本，不据此承诺整个 Scene 验证已线性化。
+
+物理字段由 `schema/physics.rs` 集中声明与校验，原 4/1–2、5/1–4 身份保持，新增字段使用顺延 ID。FieldValue 的 `body_motion`、`collider_shape`、`unsigned` 分别保存运动枚举、完整形状及 u32，当前内容协议仍为 1。字段表负责数值范围并复用形状尺寸校验，场景级 `physics::validate` 只维护物理根、世界缩放和角色形态等关联条件，关节连接继续在完整场景候选中校验。
 
 PrefabRoot 是不序列化的派生元数据，由真实展开同步收集源实体、相对嵌套 InstanceId 路径和根层级约束。实例化及复制沿路径逐层组合 scope 后再派生实体 UUID，不能对已展开 UUID 再套一次 instance，也不能按新旧随机 UUID 排序配对。Editor 每条结构命令按 AssetId 缓存这类轻量元数据，同实例多根合并为一次操作并保留各选中根及点击锚点；发布后选择映射不读取资源。内部非根节点仍不提供结构覆盖。
 
@@ -240,6 +243,8 @@ Document 拥有 Edit 场景、Prefab 声明、历史与保存点。连续预览 
 Inspector 的单选/共同属性共用局部 TRS、字段定义和数值手势。共同属性只显示全部目标共有的组件，以主实体显示并标记多值；修改一个局部轴保留其他轴，父子同选分别编辑，不做 Gizmo 的操作根归并。数值输入使用可往返的 f32 表示，Tab/失焦不会因显示舍入或范围钳位改值；Enter 可显式统一多值。失败文本不会被确认逻辑误读成快照回退值。混合开关按主实体值反转后整组写入。
 
 `fields.rs` 先解析全部目标和引用作用域，再经 Document 的完整展开校验发布一个候选。无变化不打开事务；首次失败关闭新事务，手势中的失败保留上个有效预览。返回字段起点恢复原声明，保留其他预览及显式 pin；整次回到基线还恢复版本、保存点身份与 redo。连续预览只提交一条历史，Escape 在控件消费前取消；选择代次进入控件身份。Play 的共同属性只读，嵌套目标整批拒绝。
+
+物理面板的 `physics.rs` 负责结构操作与编辑守卫，`physics/fields.rs` 为作者、直接 Prefab 和共同面板绘制同一套字段。`fields/physics.rs` 的形状类型命令仅替换类型不同的对象，先解析所有目标再发布；已有同类尺寸保留，无变化不产生历史。形状轴输入为各对象保留其余尺寸，整个形状是一项稳定字段覆盖；角色参数和完整 u32 碰撞掩码也走公共字段事务。数值手势共享拒绝文本状态，十六进制解析不经 f32，溢出或非法文本不会把多值确认成回退值。
 
 可选组件结构由 Editor Core 的 `document/components.rs` 管理，`ComponentKind` 是编辑命令类型，不进入持久协议。单选入口与成组命令共用 `preview_components`：类型化补丁不能修改实体身份、父级或 Transform，全部作者目标先组成候选，再统一清理依赖并展开校验。移除模型同步移除蒙皮，移除刚体同步移除自身关节，移除角色同步移除导航代理；其他关节的刚体连接、蒙皮的动画实体和角色动画驱动的专用绑定按被移除的组件解除，实体与通用引用保留。失败不发布，撤销恢复原组件与引用。
 

@@ -28,6 +28,26 @@ pub enum ColliderShape {
     },
 }
 
+impl ColliderShape {
+    pub(crate) fn validate(&self) -> Result<()> {
+        match self {
+            Self::Box { half_extents } => ensure!(
+                half_extents.iter().copied().all(positive),
+                "invalid box dimensions"
+            ),
+            Self::Sphere { radius } => ensure!(positive(*radius), "invalid radius"),
+            Self::Capsule {
+                half_height,
+                radius,
+            } => {
+                ensure!(positive(*radius), "invalid radius");
+                ensure!(nonnegative(*half_height), "invalid capsule height");
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PhysicsBody {
@@ -118,10 +138,6 @@ pub(crate) fn validate(entity: &EntityData) -> Result<()> {
     match body.shape {
         ColliderShape::Box { half_extents } => {
             ensure!(
-                half_extents.into_iter().all(positive),
-                "invalid box dimensions"
-            );
-            ensure!(
                 half_extents
                     .into_iter()
                     .zip(scale)
@@ -130,10 +146,7 @@ pub(crate) fn validate(entity: &EntityData) -> Result<()> {
             );
         }
         ColliderShape::Sphere { radius } | ColliderShape::Capsule { radius, .. } => {
-            ensure!(
-                positive(radius) && positive(radius * scale[0]),
-                "invalid radius"
-            );
+            ensure!(positive(radius * scale[0]), "invalid radius");
             ensure!(
                 scale.into_iter().all(|s| (s / scale[0] - 1.).abs() < 1e-6),
                 "sphere and capsule require uniform scale"
@@ -142,17 +155,12 @@ pub(crate) fn validate(entity: &EntityData) -> Result<()> {
     }
     if let ColliderShape::Capsule { half_height, .. } = body.shape {
         ensure!(
-            nonnegative(half_height) && nonnegative(half_height * scale[0]),
+            nonnegative(half_height * scale[0]),
             "invalid capsule height"
         );
     }
-    ensure!(positive(body.mass), "physics mass must be positive");
-    ensure!(nonnegative(body.friction), "invalid friction");
-    ensure!(
-        body.restitution.is_finite() && (0. ..=1.).contains(&body.restitution),
-        "invalid restitution"
-    );
-    if let Some(c) = &entity.character {
+    // Field descriptors own value ranges; this layer checks entity and world constraints.
+    if entity.character.is_some() {
         ensure!(
             body.motion == BodyMotion::Kinematic
                 && !body.sensor
@@ -163,30 +171,6 @@ pub(crate) fn validate(entity: &EntityData) -> Result<()> {
         ensure!(
             r[0].abs() < 1e-5 && r[2].abs() < 1e-5,
             "character must remain upright"
-        );
-        ensure!(
-            [
-                c.move_speed,
-                c.run_multiplier,
-                c.jump_speed,
-                c.gravity,
-                c.crouch_speed
-            ]
-            .into_iter()
-            .all(positive),
-            "invalid character speed or gravity"
-        );
-        ensure!(
-            c.crouch_height_ratio.is_finite() && (0.1..=1.).contains(&c.crouch_height_ratio),
-            "invalid character crouch height ratio"
-        );
-        ensure!(
-            c.max_slope_degrees.is_finite() && (0. ..90.).contains(&c.max_slope_degrees),
-            "invalid character slope"
-        );
-        ensure!(
-            nonnegative(c.step_height) && nonnegative(c.snap_distance),
-            "invalid step or snap distance"
         );
     }
     Ok(())

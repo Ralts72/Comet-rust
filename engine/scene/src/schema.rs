@@ -5,6 +5,8 @@ use anyhow::{Result, bail, ensure};
 use comet_core::{AssetId, EntityId, InstanceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+mod physics;
+pub use physics::*;
 mod joints;
 mod navigation;
 pub use joints::*;
@@ -30,6 +32,9 @@ pub enum FieldValue {
     Vec3([f32; 3]),
     Quat([f32; 4]),
     Scalar(f32),
+    Unsigned(u32),
+    BodyMotion(crate::BodyMotion),
+    ColliderShape(crate::ColliderShape),
     Asset(AssetId),
     OptionalAsset(Option<AssetId>),
     Entity(Option<EntityRef>),
@@ -89,31 +94,6 @@ pub const TARGET: FieldKey = FieldKey {
 pub const CONNECTIONS: FieldKey = FieldKey {
     component: 3,
     field: 2,
-};
-// Component 4: body configuration; component 5: character configuration.
-pub const MASS: FieldKey = FieldKey {
-    component: 4,
-    field: 1,
-};
-pub const FRICTION: FieldKey = FieldKey {
-    component: 4,
-    field: 2,
-};
-pub const MOVE_SPEED: FieldKey = FieldKey {
-    component: 5,
-    field: 1,
-};
-pub const JUMP_SPEED: FieldKey = FieldKey {
-    component: 5,
-    field: 2,
-};
-pub const CROUCH_SPEED: FieldKey = FieldKey {
-    component: 5,
-    field: 3,
-};
-pub const CROUCH_HEIGHT_RATIO: FieldKey = FieldKey {
-    component: 5,
-    field: 4,
 };
 pub const SCRIPT_ASSET: FieldKey = FieldKey {
     component: 6,
@@ -353,122 +333,11 @@ static FIELDS: &[FieldDescriptor] = &[
         },
         validate: entities,
     },
-    FieldDescriptor {
-        key: MASS,
-        path: "physics.mass",
-        references: ReferencePolicy::None,
-        read: |e| e.physics.as_ref().map(|c| FieldValue::Scalar(c.mass)),
-        write: |e, v| {
-            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.physics, v) {
-                c.mass = v;
-                Ok(())
-            } else {
-                bail!("missing component or wrong value")
-            }
-        },
-        validate: nonnegative_scalar,
-    },
-    FieldDescriptor {
-        key: FRICTION,
-        path: "physics.friction",
-        references: ReferencePolicy::None,
-        read: |e| e.physics.as_ref().map(|c| FieldValue::Scalar(c.friction)),
-        write: |e, v| {
-            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.physics, v) {
-                c.friction = v;
-                Ok(())
-            } else {
-                bail!("missing component or wrong value")
-            }
-        },
-        validate: nonnegative_scalar,
-    },
-    FieldDescriptor {
-        key: MOVE_SPEED,
-        path: "character.move_speed",
-        references: ReferencePolicy::None,
-        read: |e| {
-            e.character
-                .as_ref()
-                .map(|c| FieldValue::Scalar(c.move_speed))
-        },
-        write: |e, v| {
-            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.character, v) {
-                c.move_speed = v;
-                Ok(())
-            } else {
-                bail!("missing component or wrong value")
-            }
-        },
-        validate: nonnegative_scalar,
-    },
-    FieldDescriptor {
-        key: JUMP_SPEED,
-        path: "character.jump_speed",
-        references: ReferencePolicy::None,
-        read: |e| {
-            e.character
-                .as_ref()
-                .map(|c| FieldValue::Scalar(c.jump_speed))
-        },
-        write: |e, v| {
-            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.character, v) {
-                c.jump_speed = v;
-                Ok(())
-            } else {
-                bail!("missing component or wrong value")
-            }
-        },
-        validate: nonnegative_scalar,
-    },
-    FieldDescriptor {
-        key: CROUCH_SPEED,
-        path: "character.crouch_speed",
-        references: ReferencePolicy::None,
-        read: |e| {
-            e.character
-                .as_ref()
-                .map(|c| FieldValue::Scalar(c.crouch_speed))
-        },
-        write: |e, v| {
-            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.character, v) {
-                c.crouch_speed = v;
-                Ok(())
-            } else {
-                bail!("missing component or wrong value")
-            }
-        },
-        validate: nonnegative_scalar,
-    },
-    FieldDescriptor {
-        key: CROUCH_HEIGHT_RATIO,
-        path: "character.crouch_height_ratio",
-        references: ReferencePolicy::None,
-        read: |e| {
-            e.character
-                .as_ref()
-                .map(|c| FieldValue::Scalar(c.crouch_height_ratio))
-        },
-        write: |e, v| {
-            if let (Some(c), FieldValue::Scalar(v)) = (&mut e.character, v) {
-                c.crouch_height_ratio = v;
-                Ok(())
-            } else {
-                bail!("missing component or wrong value")
-            }
-        },
-        validate: |v| {
-            ensure!(
-                matches!(v, FieldValue::Scalar(v) if v.is_finite() && (0.1..=1.).contains(v)),
-                "expected crouch height ratio in [0.1, 1]"
-            );
-            Ok(())
-        },
-    },
 ];
 fn fields() -> impl Iterator<Item = &'static FieldDescriptor> {
     FIELDS
         .iter()
+        .chain(physics::FIELDS)
         .chain(joints::FIELDS)
         .chain(navigation::FIELDS)
         .chain(audio::FIELDS)

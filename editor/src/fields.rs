@@ -13,6 +13,8 @@ use comet_scene::{
 use std::{collections::BTreeMap, sync::Arc};
 mod bindings;
 pub(crate) use bindings::accepts_binding;
+mod physics;
+pub(crate) use physics::ColliderKind;
 
 pub(crate) struct FieldReferences {
     pub target: FieldTarget,

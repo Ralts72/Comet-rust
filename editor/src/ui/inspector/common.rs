@@ -12,7 +12,7 @@ pub(super) struct ScalarField {
     min: f32,
     max: f32,
 }
-struct FlagField {
+pub(super) struct FlagField {
     key: FieldKey,
     label: &'static str,
 }
@@ -34,6 +34,12 @@ pub(super) const BODY: &[ScalarField] = &[
         label: "摩擦系数",
         min: 0.,
         max: f32::MAX,
+    },
+    ScalarField {
+        key: schema::RESTITUTION,
+        label: "弹性系数",
+        min: 0.,
+        max: 1.,
     },
 ];
 pub(super) const CHARACTER: &[ScalarField] = &[
@@ -58,10 +64,48 @@ pub(super) const CHARACTER: &[ScalarField] = &[
     ScalarField {
         key: schema::CROUCH_HEIGHT_RATIO,
         label: "蹲伏高度比例",
-        min: 0.001,
+        min: 0.1,
         max: 1.,
     },
+    ScalarField {
+        key: schema::RUN_MULTIPLIER,
+        label: "跑步倍率",
+        min: 0.001,
+        max: f32::MAX,
+    },
+    ScalarField {
+        key: schema::GRAVITY,
+        label: "重力 (m/s²)",
+        min: 0.001,
+        max: f32::MAX,
+    },
+    ScalarField {
+        key: schema::MAX_SLOPE,
+        label: "最大坡度 (°)",
+        min: 0.,
+        max: 89.9,
+    },
+    ScalarField {
+        key: schema::STEP_HEIGHT,
+        label: "台阶高度 (m)",
+        min: 0.,
+        max: f32::MAX,
+    },
+    ScalarField {
+        key: schema::SNAP_DISTANCE,
+        label: "地面吸附距离 (m)",
+        min: 0.,
+        max: f32::MAX,
+    },
 ];
+pub(super) const BODY_FLAGS: &[FlagField] = &[FlagField {
+    key: schema::BODY_SENSOR,
+    label: "触发器",
+}];
+pub(super) const CHARACTER_FLAGS: &[FlagField] = &[FlagField {
+    key: schema::PLAYER_CONTROLLED,
+    label: "玩家控制",
+}];
 const AUDIO: &[ScalarField] = &[ScalarField {
     key: schema::AUDIO_GAIN,
     label: "音量",
@@ -154,6 +198,16 @@ pub(in crate::ui) fn draw(
         }
         ui.separator();
         ui.strong(name);
+        if key == schema::MASS {
+            if super::physics::body_fields(editor, ui, assets, entities) {
+                return;
+            }
+            continue;
+        }
+        if key == schema::MOVE_SPEED {
+            super::physics::character_fields(editor, ui, assets, entities);
+            continue;
+        }
         if key == schema::NAVIGATION_ARRIVAL_DISTANCE
             && super::references::draw(editor, ui, assets, entities, &[schema::NAVIGATION_TARGET])
         {
@@ -318,7 +372,7 @@ pub(super) fn draw_fields(
     }
 }
 
-fn draw_flags(
+pub(super) fn draw_flags(
     editor: &mut Editor,
     ui: &mut egui::Ui,
     assets: &mut AssetStore,

@@ -23,25 +23,13 @@ impl Group {
             value
         }))
     }
-    fn click_flag(&mut self, label: &str) -> Result<()> {
-        self.frame(vec![]);
-        let output = self.frame(vec![]);
-        let position = texts(&output)
-            .into_iter()
-            .find(|(text, pos)| pos.x > 970. && text.starts_with(label))
-            .context("common flag control")?
-            .1;
-        self.frame(vec![Event::PointerMoved(position), button(position, true)]);
-        self.frame(vec![button(position, false)]);
-        Ok(())
-    }
     fn focus_control(&mut self, label: &str) -> Result<()> {
-        let output = self.frame(vec![]);
-        let position = texts(&output)
-            .into_iter()
-            .find(|(text, pos)| pos.x > 970. && text.starts_with(label))
-            .context("common flag control")?
-            .1;
+        let position = self.reveal(|output| {
+            texts(output)
+                .into_iter()
+                .find(|(text, pos)| pos.x > 970. && text.starts_with(label))
+                .map(|(_, pos)| pos)
+        })?;
         let mut visited = std::collections::HashSet::new();
         loop {
             self.frame(vec![

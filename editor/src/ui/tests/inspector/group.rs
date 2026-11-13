@@ -17,6 +17,7 @@ mod harness;
 use harness::*;
 mod model_assets;
 mod overrides;
+mod physics;
 mod references;
 mod resources;
 mod scalars;

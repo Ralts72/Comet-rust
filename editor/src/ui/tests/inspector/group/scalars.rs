@@ -110,6 +110,11 @@ fn character_common_fields_preserve_unedited_configuration() -> Result<()> {
         ("跳跃速度 (m/s)", schema::JUMP_SPEED, 8.),
         ("蹲伏速度 (m/s)", schema::CROUCH_SPEED, 3.),
         ("蹲伏高度比例", schema::CROUCH_HEIGHT_RATIO, 0.75),
+        ("跑步倍率", schema::RUN_MULTIPLIER, 2.5),
+        ("重力 (m/s²)", schema::GRAVITY, 8.),
+        ("最大坡度 (°)", schema::MAX_SLOPE, 50.),
+        ("台阶高度 (m)", schema::STEP_HEIGHT, 0.4),
+        ("地面吸附距离 (m)", schema::SNAP_DISTANCE, 0.2),
     ] {
         f.type_scalar(label, &value.to_string())?;
         f.confirm();
@@ -120,14 +125,22 @@ fn character_common_fields_preserve_unedited_configuration() -> Result<()> {
         assert_eq!(before.transform, after.transform);
         assert_eq!(before.physics, after.physics);
         assert_eq!(before.model, after.model);
-        let before = before.character.as_ref().unwrap();
-        let after = after.character.as_ref().unwrap();
-        assert_eq!(before.run_multiplier, after.run_multiplier);
-        assert_eq!(before.gravity, after.gravity);
-        assert_eq!(before.step_height, after.step_height);
+        let expected = comet_scene::Character {
+            move_speed: 5.,
+            jump_speed: 8.,
+            crouch_speed: 3.,
+            crouch_height_ratio: 0.75,
+            run_multiplier: 2.5,
+            gravity: 8.,
+            max_slope_degrees: 50.,
+            step_height: 0.4,
+            snap_distance: 0.2,
+            ..before.character.as_ref().unwrap().clone()
+        };
+        assert_eq!(after.character.as_ref(), Some(&expected));
     }
-    assert_eq!(f.editor.document.history_len(), 4);
-    for _ in 0..4 {
+    assert_eq!(f.editor.document.history_len(), 9);
+    for _ in 0..9 {
         f.editor.document.undo()?;
     }
     assert_eq!(f.editor.document.shared_source(), original);

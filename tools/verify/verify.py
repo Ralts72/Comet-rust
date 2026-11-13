@@ -1097,6 +1097,15 @@ def main():
                 "entity_fields": bindings["common_properties"]["entity_fields"], "author_dirty": bindings["application"]["dirty"],
                 "png_sha256": inspect_png(OUT / "editor-common-entity-bindings.png")["sha256"],
                 "capture": str(OUT / "editor-common-entity-bindings.png")}
+            physics = offscreen_test("editor_common_physics_gpu",
+                "ui::tests::inspector::group::physics::headless_common_physics_fields_preserve_authoring",
+                "editor-common-physics.json")
+            assert physics["common_properties"]["physics_fields"] == ["运动类型（多值）", "形状", "盒体", "触发器（多值）"]
+            assert physics["common_properties"]["source_unchanged"] and len(physics["application"]["selected"]) == 2
+            checks["editor_common_physics_evidence"] = {"status": "passed", "submitted_frames": physics["submitted_frames"],
+                "physics_fields": physics["common_properties"]["physics_fields"], "author_dirty": physics["application"]["dirty"],
+                "png_sha256": inspect_png(OUT / "editor-common-physics.png")["sha256"],
+                "capture": str(OUT / "editor-common-physics.png")}
             marquee = offscreen_test("editor_marquee_gpu",
                 "ui::tests::viewport::headless_marquee_overlay_draws_without_changing_authoring",
                 "editor-marquee.json")

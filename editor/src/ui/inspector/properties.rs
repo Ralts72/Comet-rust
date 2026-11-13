@@ -28,9 +28,6 @@ impl ComponentEdit {
         );
         self.finish |= response.drag_stopped() || response.lost_focus();
     }
-    pub(super) fn checkbox(&mut self, ui: &mut egui::Ui, value: &mut bool, label: &str) {
-        self.finish |= ui.checkbox(value, label).changed();
-    }
 }
 
 pub(super) fn shared_value(
@@ -57,6 +54,23 @@ pub(super) struct PropertyGesture {
 }
 impl PropertyGesture {
     pub(super) fn number(&self, ui: &mut egui::Ui, widget: egui::DragValue<'_>) -> egui::Response {
+        self.numeric(ui, widget, false)
+    }
+    pub(super) fn mask(&self, ui: &mut egui::Ui, value: &mut u32, label: &str) -> egui::Response {
+        self.numeric(
+            ui,
+            egui::DragValue::new(value)
+                .prefix(format!("{label} "))
+                .hexadecimal(8, false, true),
+            true,
+        )
+    }
+    fn numeric(
+        &self,
+        ui: &mut egui::Ui,
+        widget: egui::DragValue<'_>,
+        hexadecimal: bool,
+    ) -> egui::Response {
         ui.add_enabled_ui(self.enabled, |ui| {
             let id = ui.next_auto_id();
             let context = ui.ctx().clone();
@@ -71,14 +85,27 @@ impl PropertyGesture {
                             .filter(|character| !character.is_whitespace())
                             .map(|character| if character == '−' { '-' } else { character })
                             .collect();
-                        let parsed = text.parse::<f64>().ok();
+                        let parsed = if hexadecimal {
+                            u32::from_str_radix(
+                                text.strip_prefix("0x")
+                                    .or_else(|| text.strip_prefix("0X"))
+                                    .unwrap_or(&text),
+                                16,
+                            )
+                            .ok()
+                            .map(f64::from)
+                        } else {
+                            text.parse::<f64>().ok()
+                        };
                         parser_context
                             .data_mut(|data| data.insert_temp(invalid_text_id, parsed.is_none()));
                         parsed
                     })
                     .custom_formatter(move |value, precision| {
                         // DragValue parses its text on focus loss. Display rounding must not edit data.
-                        if context.memory(|memory| memory.has_focus(id)) {
+                        if hexadecimal {
+                            format!("{:08X}", value as u32)
+                        } else if context.memory(|memory| memory.has_focus(id)) {
                             (value as f32).to_string()
                         } else {
                             formatter.format(value, precision)
