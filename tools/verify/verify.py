@@ -1088,6 +1088,15 @@ def main():
                 "author_dirty": clips["application"]["dirty"],
                 "png_sha256": inspect_png(OUT / "editor-common-animation-clips.png")["sha256"],
                 "capture": str(OUT / "editor-common-animation-clips.png")}
+            bindings = offscreen_test("editor_common_entity_bindings_gpu",
+                "ui::tests::inspector::group::references::headless_common_entity_bindings_preserve_authoring",
+                "editor-common-entity-bindings.json")
+            assert bindings["common_properties"]["entity_fields"] == ["动画实体"]
+            assert bindings["common_properties"]["source_unchanged"] and len(bindings["application"]["selected"]) == 2
+            checks["editor_common_entity_bindings_evidence"] = {"status": "passed", "submitted_frames": bindings["submitted_frames"],
+                "entity_fields": bindings["common_properties"]["entity_fields"], "author_dirty": bindings["application"]["dirty"],
+                "png_sha256": inspect_png(OUT / "editor-common-entity-bindings.png")["sha256"],
+                "capture": str(OUT / "editor-common-entity-bindings.png")}
             marquee = offscreen_test("editor_marquee_gpu",
                 "ui::tests::viewport::headless_marquee_overlay_draws_without_changing_authoring",
                 "editor-marquee.json")

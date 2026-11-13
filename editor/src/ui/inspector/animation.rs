@@ -1,4 +1,3 @@
-use crate::resources::ResourceVersion;
 use crate::session::Editor;
 use comet_asset::AssetStore;
 use comet_asset_data::product::Product;
@@ -6,58 +5,9 @@ use comet_asset_data::product::ProductIndex;
 use comet_core::{AssetId, EntityId, WorldId};
 use comet_editor_core::FieldTarget;
 use comet_scene::{Animator, EntityData, EntityRef, SkinBinding, schema};
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use super::assets::{catalog as choices, pick_draft as asset_picker};
-
-#[derive(Clone)]
-struct Targets {
-    version: ResourceVersion,
-    owner: EntityId,
-    nodes: Arc<Vec<(EntityId, String)>>,
-    animators: Arc<Vec<(EntityId, String, AssetId)>>,
-}
-fn targets(
-    editor: &mut Editor,
-    ui: &egui::Ui,
-    assets: &mut AssetStore,
-    owner: &EntityData,
-) -> Targets {
-    let key = egui::Id::unique("animation-entity-targets");
-    if let Some(value) = ui
-        .data(|data| data.get_temp::<Targets>(key))
-        .filter(|value| value.version.matches(&editor.document, assets) && value.owner == owner.id)
-    {
-        return value;
-    }
-    let nodes = editor
-        .cached_field_references(ui.ctx(), owner.id, assets)
-        .map(|references| references.targets.clone())
-        .unwrap_or_default();
-    let by_id: BTreeMap<_, _> = editor
-        .last_snapshot
-        .entities
-        .iter()
-        .map(|entity| (entity.id, entity))
-        .collect();
-    let animators = nodes
-        .iter()
-        .filter_map(|(id, name)| {
-            by_id
-                .get(id)
-                .and_then(|entity| entity.animator.as_ref())
-                .map(|animator| (*id, name.clone(), animator.skeleton))
-        })
-        .collect();
-    let value = Targets {
-        version: ResourceVersion::capture(&editor.document, assets),
-        owner: owner.id,
-        nodes: Arc::new(nodes),
-        animators: Arc::new(animators),
-    };
-    ui.data_mut(|data| data.insert_temp(key, value.clone()));
-    value
-}
 
 #[derive(Clone)]
 struct Nodes {
@@ -108,44 +58,6 @@ struct Draft {
     skin: Option<AssetId>,
 }
 
-fn entity_picker<'a>(
-    ui: &mut egui::Ui,
-    salt: impl std::hash::Hash + std::fmt::Debug,
-    value: &mut Option<EntityRef>,
-    list: impl Iterator<Item = (EntityId, &'a str)> + Clone,
-) {
-    let current = match value {
-        Some(EntityRef::Local { entity }) => Some(*entity),
-        _ => None,
-    };
-    let mut selected = current;
-    let name = list
-        .clone()
-        .find(|(id, _)| Some(*id) == current)
-        .map(|(_, name)| name)
-        .unwrap_or(if value.is_some() {
-            "当前绑定（只读或不兼容）"
-        } else {
-            "未绑定"
-        });
-    egui::ComboBox::from_id_salt(salt)
-        .width(ui.available_width().min(230.))
-        .truncate()
-        .selected_text(name)
-        .show_ui(ui, |ui| {
-            if ui.selectable_label(value.is_none(), "未绑定").clicked() {
-                *value = None;
-                selected = None;
-            }
-            for (id, name) in list {
-                ui.selectable_value(&mut selected, Some(id), name);
-            }
-        });
-    if selected != current {
-        *value = selected.map(EntityRef::local);
-    }
-}
-
 pub(super) fn draw(
     editor: &mut Editor,
     ui: &mut egui::Ui,
@@ -167,8 +79,10 @@ pub(super) fn draw(
         && ui.is_enabled();
     let cancel = ui.input(|input| input.key_pressed(egui::Key::Escape));
     let choices = choices(ui, assets);
-    let targets = if editable {
-        Some(targets(editor, ui, assets, entity))
+    let targets = if editable && entity.animator.is_some() {
+        editor
+            .cached_field_references(ui.ctx(), entity.id, assets)
+            .ok()
     } else {
         None
     };
@@ -261,11 +175,12 @@ pub(super) fn draw(
                                     ui.label(name);
                                     let before = animator.bindings.get(source).cloned().flatten();
                                     let mut next = before.clone();
-                                    entity_picker(
+                                    super::references::pick(
                                         ui,
                                         ("animation-bone", editor.world(), entity.id, source),
                                         &mut next,
-                                        targets.nodes.iter().map(|(id, name)| (*id, name.as_str())),
+                                        targets.targets.iter().map(|(id, name)| (*id, name.as_str())),
+                                        "未绑定", false, None,
                                     );
                                     if before != next {
                                         binding_edits.push((*source, next));
@@ -345,7 +260,7 @@ pub(super) fn draw(
     if entity.skin.is_some() {
         ui.weak("整体位置由骨骼层级决定；整体移动请选择实例根节点。");
     }
-    if let Some(skin) = &entity.skin {
+    if entity.skin.is_some() {
         let revision = editor.document.revision();
         ui.add_enabled_ui(editable, |ui| {
             super::assets::draw_common(editor, ui, assets, &[entity], &[schema::SKIN_ASSET]);
@@ -353,42 +268,17 @@ pub(super) fn draw(
         if editor.document.revision() != revision {
             return;
         }
-        let mut animator = skin.animator.clone();
-        let mut remove = false;
-        ui.add_enabled_ui(editable, |ui| {
-            ui.label("动画实体");
-            entity_picker(
-                ui,
-                ("skin-animator", editor.world(), entity.id),
-                &mut animator,
-                targets
-                    .as_ref()
-                    .into_iter()
-                    .flat_map(|targets| targets.animators.iter())
-                    .filter(|(_, _, skeleton)| choices.skeleton.get(&skin.skin) == Some(skeleton))
-                    .map(|(id, name, _)| (*id, name.as_str())),
-            );
-            if authored {
-                remove = ui.small_button("移除蒙皮绑定").clicked();
-            }
-        });
-        if editable && !cancel {
-            if remove {
-                replace(editor, assets, entity, entity.animator.clone(), None);
-                return;
-            }
-            if animator != skin.animator {
-                replace(
-                    editor,
-                    assets,
-                    entity,
-                    entity.animator.clone(),
-                    Some(SkinBinding {
-                        skin: skin.skin,
-                        animator,
-                    }),
-                );
-            }
+        if super::references::draw(editor, ui, assets, &[entity], &[schema::SKIN_ANIMATOR]) {
+            return;
+        }
+        if authored
+            && ui
+                .add_enabled(editable, egui::Button::new("移除蒙皮绑定"))
+                .clicked()
+            && !cancel
+        {
+            replace(editor, assets, entity, entity.animator.clone(), None);
+            return;
         }
     } else if authored && entity.model.is_some() {
         ui.add_enabled_ui(editable, |ui| {
@@ -421,16 +311,7 @@ pub(super) fn draw(
     } else if authored {
         ui.weak("先为实体添加网格渲染，再绑定蒙皮。");
     }
-    draw_character_driver(
-        editor,
-        ui,
-        assets,
-        entity,
-        targets.as_ref(),
-        authored,
-        editable,
-        cancel,
-    );
+    draw_character_driver(editor, ui, assets, entity, authored, editable, cancel);
     if !editable {
         ui.weak(if editor.play.is_some() {
             "运行期间动画配置只读。"
@@ -461,13 +342,11 @@ fn replace(
     editor.notice(result);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_character_driver(
     editor: &mut Editor,
     ui: &mut egui::Ui,
     assets: &mut AssetStore,
     entity: &EntityData,
-    targets: Option<&Targets>,
     authored: bool,
     editable: bool,
     cancel: bool,
@@ -479,29 +358,20 @@ fn draw_character_driver(
     let mut next = entity.character_animation.clone();
     let mut changed = false;
     ui.add_enabled_ui(editable, |ui| {
-        if let Some(driver) = &mut next {
+        if next.is_some() {
             ui.weak("从父角色的实际移动、着地和蹲伏状态驱动动画；本实体负责外观的脚底位置与朝向。");
-            ui.label("角色实体");
-            entity_picker(
+            if super::references::draw(
+                editor,
                 ui,
-                ("animation-character", editor.world(), entity.id),
-                &mut driver.character,
-                targets
-                    .into_iter()
-                    .flat_map(|t| t.nodes.iter())
-                    .filter(|(id, _)| Some(*id) == entity.parent)
-                    .map(|(id, name)| (*id, name.as_str())),
-            );
-            ui.label("动画实体");
-            entity_picker(
-                ui,
-                ("character-animator", editor.world(), entity.id),
-                &mut driver.animator,
-                targets
-                    .into_iter()
-                    .flat_map(|t| t.animators.iter())
-                    .map(|(id, name, _)| (*id, name.as_str())),
-            );
+                assets,
+                &[entity],
+                &[
+                    schema::CHARACTER_ANIMATION_CHARACTER,
+                    schema::CHARACTER_ANIMATION_ANIMATOR,
+                ],
+            ) {
+                return;
+            }
             if authored && ui.small_button("移除角色动画").clicked() {
                 next = None;
             }

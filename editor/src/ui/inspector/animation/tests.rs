@@ -834,7 +834,7 @@ fn skin_controller_choices_keep_prefab_reference_scope_and_nested_instances_read
             .iter()
             .any(|(text, _)| text == "Prefab 组件结构或嵌套配置请在源 Prefab 中编辑。")
     );
-    let anchor = label(&output, "当前绑定（只读或不兼容）");
+    let anchor = label(&output, &controller_name);
     f.click(anchor);
     assert!(Arc::ptr_eq(&nested, &f.source()));
     assert!(

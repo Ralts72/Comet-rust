@@ -3,8 +3,8 @@ use comet_asset_data::product::{AssetKind, Product};
 use comet_asset_pipeline::{SourceMeta, prepare};
 use comet_core::AssetId;
 use comet_scene::{
-    Animator, AudioSource, BodyMotion, Character, ColliderShape, EntityRef, PhysicsBody, Script,
-    ScriptValue,
+    Animator, AudioSource, BodyMotion, Character, ColliderShape, EntityRef, PhysicsBody,
+    PrefabResolver, Script, ScriptValue,
 };
 use std::path::PathBuf;
 
@@ -201,6 +201,45 @@ pub(super) struct AnimationAssets {
 }
 
 impl Group {
+    pub(super) fn skin_bindings(&mut self, rig: &AnimationAssets) -> Result<(EntityId, EntityId)> {
+        let mut source = self.assets.prefab(rig.prefab)?;
+        let owner = source
+            .base
+            .entities
+            .iter_mut()
+            .find(|e| e.animator.is_some())
+            .unwrap();
+        owner.name = "兼容的动画实体".into();
+        let owner = owner.id;
+        self.ids = source
+            .base
+            .entities
+            .iter()
+            .filter(|e| e.skin.is_some())
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("two skin targets"))?;
+        let foreign = self.assets.index().products[&rig.foreign_skeleton]
+            .editor
+            .as_ref()
+            .unwrap()
+            .source;
+        let mut foreign = self.assets.prefab(foreign)?;
+        let other = foreign
+            .base
+            .entities
+            .iter_mut()
+            .find(|e| e.animator.is_some())
+            .unwrap();
+        other.name = "不兼容的动画实体".into();
+        let other = other.id;
+        source.base.entities.extend(foreign.base.entities);
+        self.editor.document = Document::open_source(source)?;
+        self.editor.selection.replace(self.ids);
+        Ok((owner, other))
+    }
+
     pub(super) fn prepare_animations(&mut self) -> Result<AnimationAssets> {
         let prefab = crate::test_support::prepare_skin_asset(&self.editor)?;
         let path = self

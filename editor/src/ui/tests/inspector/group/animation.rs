@@ -5,7 +5,7 @@ use comet_scene::{ContentSource, PrefabInstance, PrefabResolver};
 
 impl Group {
     fn select_empty_animation_asset(&mut self, field: &str, empty: &str) -> Result<()> {
-        let anchor = self.open_asset_picker(field)?;
+        let anchor = self.open_picker(field)?;
         let output = self.frame(vec![]);
         let position = texts(&output)
             .into_iter()
@@ -25,7 +25,7 @@ fn common_animation_clip_choices_filter_by_every_skeleton_and_preserve_binding_c
     let clips = f.prepare_animations()?;
     f.animators(&clips, false)?;
     let original = f.editor.document.shared_source();
-    f.open_asset_picker("播放片段")?;
+    f.open_picker("播放片段")?;
     let output = f.frame(vec![]);
     let labels = texts(&output);
     assert!(
@@ -97,7 +97,7 @@ fn different_skeletons_allow_only_no_clip_and_reject_incompatible_or_wrong_kind_
     );
     assert_eq!(f.editor.document.shared_source(), original);
     assert!(!f.editor.document.is_editing());
-    f.open_asset_picker("播放片段")?;
+    f.open_picker("播放片段")?;
     let output = f.frame(vec![]);
     assert!(
         texts(&output)
@@ -266,7 +266,7 @@ fn direct_prefab_clip_choices_keep_source_identity_and_remain_read_only_in_play(
     assert_eq!(f.editor.document.shared_source(), original);
     f.editor.start(&mut f.assets)?;
     f.editor.selection.replace(f.ids);
-    f.open_asset_picker("播放片段")?;
+    f.open_picker("播放片段")?;
     assert!(
         f.editor
             .replace_animation_clips(&f.ids, None, &mut f.assets)
@@ -345,7 +345,7 @@ fn common_controllers_clear_clips_atomically_and_preserve_bindings_history_and_f
     let rig = f.prepare_animations()?;
     f.animators(&rig, false)?;
     let original = f.editor.document.shared_source();
-    f.open_asset_picker("动画控制器")?;
+    f.open_picker("动画控制器")?;
     let output = f.frame(vec![]);
     assert!(
         texts(&output)

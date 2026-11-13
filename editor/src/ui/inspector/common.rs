@@ -154,6 +154,11 @@ pub(in crate::ui) fn draw(
         }
         ui.separator();
         ui.strong(name);
+        if key == schema::NAVIGATION_ARRIVAL_DISTANCE
+            && super::references::draw(editor, ui, assets, entities, &[schema::NAVIGATION_TARGET])
+        {
+            return;
+        }
         let assets_fields: &[FieldKey] = match key {
             schema::ROUGHNESS => &[schema::MESH, schema::MATERIAL],
             schema::AUDIO_GAIN => &[schema::AUDIO_CLIP],
@@ -216,8 +221,34 @@ pub(in crate::ui) fn draw(
     if entities.iter().all(|entity| entity.skin.is_some()) {
         ui.separator();
         ui.strong("蒙皮");
+        let revision = editor.document.revision();
         super::assets::draw_common(editor, ui, assets, entities, &[schema::SKIN_ASSET]);
+        if editor.document.revision() != revision {
+            return;
+        }
+        if super::references::draw(editor, ui, assets, entities, &[schema::SKIN_ANIMATOR]) {
+            return;
+        }
         ui.weak("替换蒙皮会保留各对象的动画实体绑定。");
+    }
+    if entities
+        .iter()
+        .all(|entity| entity.character_animation.is_some())
+    {
+        ui.separator();
+        ui.strong("角色动画");
+        if super::references::draw(
+            editor,
+            ui,
+            assets,
+            entities,
+            &[
+                schema::CHARACTER_ANIMATION_CHARACTER,
+                schema::CHARACTER_ANIMATION_ANIMATOR,
+            ],
+        ) {
+            return;
+        }
     }
     super::overrides::draw_group(editor, ui, assets, entities);
     super::components::draw(editor, ui, assets, entities);

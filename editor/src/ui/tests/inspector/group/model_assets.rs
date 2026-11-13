@@ -33,7 +33,7 @@ fn common_model_pickers_unify_primary_assets_preserve_roughness_and_commit_each_
     let path = f.editor.project_root().join("assets/showcase.gltf");
     let bytes = std::fs::read(&path)?;
     let metadata = std::fs::read(SourceMeta::path(&path))?;
-    f.open_asset_picker("网格")?;
+    f.open_picker("网格")?;
     assert_eq!(f.editor.document.shared_source(), original);
     f.frame(vec![key(egui::Key::Escape, true, Default::default())]);
     f.frame(vec![key(egui::Key::Escape, false, Default::default())]);
@@ -367,8 +367,8 @@ fn common_model_resources_are_read_only_in_play() -> Result<()> {
     let original = f.editor.document.shared_source();
     f.editor.start(&mut f.assets)?;
     f.editor.selection.replace(f.ids);
-    f.open_asset_picker("网格")?;
-    f.open_asset_picker("材质")?;
+    f.open_picker("网格")?;
+    f.open_picker("材质")?;
     assert!(
         f.editor
             .replace_model_asset(&f.ids, schema::MESH, meshes[1], &mut f.assets)

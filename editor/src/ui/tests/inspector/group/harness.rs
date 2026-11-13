@@ -174,7 +174,7 @@ impl Group {
             format!("{} / {}", source.label, metadata.label)
         }
     }
-    pub(super) fn open_asset_picker(&mut self, field: &str) -> Result<Pos2> {
+    pub(super) fn open_picker(&mut self, field: &str) -> Result<Pos2> {
         self.frame(vec![]);
         let output = self.frame(vec![]);
         let values = texts(&output);
@@ -189,14 +189,14 @@ impl Group {
                     .find(|(_, pos)| (pos.y - row.y).abs() < 2. && pos.x > row.x + 20.)
                     .map(|(_, pos)| *pos)
             })
-            .context("common asset selector")?;
+            .with_context(|| format!("common selector {field}: {values:?}"))?;
         self.frame(vec![Event::PointerMoved(anchor), button(anchor, true)]);
         self.frame(vec![button(anchor, false)]);
         Ok(anchor)
     }
     pub(super) fn select_asset(&mut self, field: &str, asset: AssetId) -> Result<()> {
         let label = self.asset_label(asset);
-        let anchor = self.open_asset_picker(field)?;
+        let anchor = self.open_picker(field)?;
         let output = self.frame(vec![]);
         let position = texts(&output)
             .into_iter()
@@ -217,6 +217,20 @@ pub(super) fn scalar_control(output: &egui::FullOutput, field: &str) -> Result<P
 }
 
 impl Group {
+    pub(super) fn select_reference(&mut self, field: &str, option: &str) -> Result<()> {
+        let anchor = self.open_picker(field)?;
+        let output = self.frame(vec![]);
+        let position = texts(&output)
+            .into_iter()
+            .rev()
+            .find(|(text, pos)| text.ends_with(option) && pos.x > 970. && pos.y > anchor.y + 3.)
+            .with_context(|| format!("entity choice {option}: {:?}", texts(&output)))?
+            .1;
+        self.frame(vec![Event::PointerMoved(position), button(position, true)]);
+        self.frame(vec![button(position, false)]);
+        Ok(())
+    }
+
     pub(super) fn click_text(&mut self, label: &str) -> Result<()> {
         let output = self.frame(vec![]);
         let pos = texts(&output)

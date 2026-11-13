@@ -11,6 +11,8 @@ use comet_scene::{
     schema::{self, FieldKey, FieldValue},
 };
 use std::{collections::BTreeMap, sync::Arc};
+mod bindings;
+pub(crate) use bindings::accepts_binding;
 
 pub(crate) struct FieldReferences {
     pub target: FieldTarget,

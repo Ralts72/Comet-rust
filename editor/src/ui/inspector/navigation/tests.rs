@@ -3,6 +3,7 @@ use anyhow::{Context, Result, ensure};
 use comet_application::{Application, FrameContext};
 use comet_core::{AssetId, InstanceId};
 use comet_editor_core::Document;
+use comet_scene::EntityRef;
 use comet_scene::{
     Character, ColliderShape, ContentSource, PhysicsBody, PrefabInstance, SceneSnapshot,
     schema::{self, FieldValue},

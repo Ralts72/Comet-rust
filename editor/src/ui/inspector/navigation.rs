@@ -7,7 +7,7 @@ use comet_asset::AssetStore;
 use comet_asset_data::product::AssetKind;
 use comet_core::{EntityId, WorldId};
 use comet_editor_core::FieldTarget;
-use comet_scene::{BodyMotion, EntityData, EntityRef, NavigationAgent, NavigationRegion};
+use comet_scene::{BodyMotion, EntityData, NavigationAgent, NavigationRegion};
 
 pub(super) fn draw(
     editor: &mut Editor,
@@ -159,15 +159,17 @@ pub(super) fn draw(
         egui::CollapsingHeader::new("导航代理")
             .default_open(true)
             .show(ui, |ui| {
+                if super::references::draw(
+                    editor,
+                    ui,
+                    assets,
+                    &[entity],
+                    &[comet_scene::schema::NAVIGATION_TARGET],
+                ) {
+                    return;
+                }
                 let mut next = entity.clone();
                 let value = next.navigation_agent.as_mut().unwrap();
-                let choices = if editable {
-                    editor
-                        .cached_field_references(ui.ctx(), entity.id, assets)
-                        .ok()
-                } else {
-                    None
-                };
                 let mut edit = ComponentEdit::default();
                 let mut remove = false;
                 ui.add_enabled_ui(editable, |ui| {
@@ -175,44 +177,6 @@ pub(super) fn draw(
                         remove = ui.small_button("移除导航代理").clicked();
                     }
                     edit.finish |= ui.checkbox(&mut value.enabled, "启用导航代理").changed();
-                    let before = value.target.clone();
-                    let name = match &value.target {
-                        Some(EntityRef::Local { entity }) => choices
-                            .as_ref()
-                            .and_then(|choices| choices.targets.iter().find(|(id, _)| id == entity))
-                            .map(|(_, name)| name.as_str())
-                            .or_else(|| {
-                                editor
-                                    .last_snapshot
-                                    .entities
-                                    .iter()
-                                    .find(|node| node.id == *entity)
-                                    .map(|node| node.name.as_str())
-                            })
-                            .unwrap_or("目标已缺失"),
-                        Some(EntityRef::External { .. }) => "其他场景目标",
-                        Some(EntityRef::InInstance { .. }) => "实例目标",
-                        None => "无目标",
-                    };
-                    egui::ComboBox::from_id_salt(("navigation-target", entity.id))
-                        .width(ui.available_width().min(240.))
-                        .truncate()
-                        .selected_text(name)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut value.target, None, "无目标");
-                            for (id, name) in choices
-                                .iter()
-                                .flat_map(|choices| &choices.targets)
-                                .filter(|(id, _)| *id != entity.id)
-                            {
-                                ui.selectable_value(
-                                    &mut value.target,
-                                    Some(EntityRef::local(*id)),
-                                    name,
-                                );
-                            }
-                        });
-                    edit.finish |= value.target != before;
                     edit.number(ui, "到达距离", &mut value.arrival_distance, 0., f32::MAX);
                 });
                 if editable {

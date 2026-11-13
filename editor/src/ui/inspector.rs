@@ -12,6 +12,7 @@ mod navigation;
 mod overrides;
 mod physics;
 mod properties;
+mod references;
 mod script;
 pub(super) mod transform;
 

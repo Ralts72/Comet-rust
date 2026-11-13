@@ -14,7 +14,7 @@ fn common_audio_and_script_choices_unify_primary_values_without_changing_configu
     let (clips, scripts) = f.resource_components()?;
     let original = f.editor.document.shared_source();
     let source_bytes = std::fs::read(&f.editor.source)?;
-    f.open_asset_picker("音频片段")?;
+    f.open_picker("音频片段")?;
     f.frame(vec![key(egui::Key::Escape, true, Default::default())]);
     f.frame(vec![key(egui::Key::Escape, false, Default::default())]);
     assert_eq!(f.editor.document.shared_source(), original);
@@ -187,8 +187,8 @@ fn common_resource_menus_and_commands_remain_read_only_in_play() -> Result<()> {
     let original = f.editor.document.shared_source();
     f.editor.start(&mut f.assets)?;
     f.editor.selection.replace(f.ids);
-    f.open_asset_picker("音频片段")?;
-    f.open_asset_picker("脚本")?;
+    f.open_picker("音频片段")?;
+    f.open_picker("脚本")?;
     assert!(
         f.editor
             .replace_audio_clips(&f.ids, clips[1], &mut f.assets)
