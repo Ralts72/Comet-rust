@@ -130,10 +130,9 @@ impl Editor {
             "只能替换网格或材质资源"
         );
         let mut transforms = None;
-        self.preview_common_field(
+        self.preview_common_fields(
             ids,
-            field,
-            FieldValue::Asset(asset),
+            &[(field, FieldValue::Asset(asset))],
             assets,
             |candidate, snapshot, assets| {
                 if transforms.is_none() {

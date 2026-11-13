@@ -1069,9 +1069,9 @@ def main():
                 "png_sha256": inspect_png(OUT / "editor-common-properties.png")["sha256"],
                 "capture": str(OUT / "editor-common-properties.png")}
             clips = offscreen_test("editor_common_animation_clips_gpu",
-                "ui::tests::inspector::group::clips::headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged",
+                "ui::tests::inspector::group::animation::headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged",
                 "editor-common-animation-clips.json")
-            assert clips["common_properties"]["asset_fields"] == ["播放片段（多值）"]
+            assert clips["common_properties"]["asset_fields"] == ["动画控制器", "播放片段（多值）"]
             assert clips["common_properties"]["source_unchanged"] and len(clips["application"]["selected"]) == 2
             checks["editor_common_animation_clips_evidence"] = {"status": "passed", "submitted_frames": clips["submitted_frames"],
                 "asset_fields": clips["common_properties"]["asset_fields"], "author_dirty": clips["application"]["dirty"],

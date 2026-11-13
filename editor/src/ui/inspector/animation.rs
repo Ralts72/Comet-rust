@@ -5,7 +5,7 @@ use comet_asset_data::product::Product;
 use comet_asset_data::product::ProductIndex;
 use comet_core::{AssetId, EntityId, WorldId};
 use comet_editor_core::FieldTarget;
-use comet_scene::{Animator, EntityData, EntityRef, SkinBinding};
+use comet_scene::{Animator, EntityData, EntityRef, SkinBinding, schema};
 use std::{collections::BTreeMap, sync::Arc};
 
 use super::assets::{Catalog as Choices, catalog as choices};
@@ -250,40 +250,28 @@ pub(super) fn draw(
                 ui.weak("运行世界：宿主挂起");
             }
         }
-        let (mut clip, mut looping, mut speed) = (animator.clip, animator.looping, animator.speed);
-        let mut controller = animator.controller;
+        let revision = editor.document.revision();
+        ui.add_enabled_ui(editable, |ui| {
+            super::assets::draw_common(
+                editor,
+                ui,
+                assets,
+                &[entity],
+                &[schema::ANIMATOR_CONTROLLER, schema::ANIMATOR_CLIP],
+            );
+        });
+        if editor.document.revision() != revision {
+            return;
+        }
+        let (mut looping, mut speed) = (animator.looping, animator.speed);
         let mut discrete = false;
         let mut finish = false;
         let mut remove = false;
         let mut binding_edits = vec![];
         let mut rebuild = None;
         ui.add_enabled_ui(editable, |ui| {
-            asset_picker(
-                ui,
-                ("animator-controller", editor.world(), entity.id),
-                "动画控制器",
-                &mut controller,
-                choices.controllers.iter().copied()
-                    .filter(|id| choices.skeleton.get(id) == Some(&animator.skeleton)),
-                &choices,
-                Some("单片段播放"),
-            );
-            if controller != animator.controller && controller.is_some() { clip = None; }
-            ui.add_enabled_ui(controller.is_none(), |ui| {
-            asset_picker(
-                ui,
-                ("animator-clip", editor.world(), entity.id),
-                "播放片段",
-                &mut clip,
-                choices
-                    .clips
-                    .iter()
-                    .copied()
-                    .filter(|id| choices.skeleton.get(id) == Some(&animator.skeleton)),
-                &choices,
-                Some("不播放片段"),
-            );
-            discrete |= ui.checkbox(&mut looping, "循环").changed();
+            ui.add_enabled_ui(animator.controller.is_none(), |ui| {
+                discrete |= ui.checkbox(&mut looping, "循环").changed();
             });
             let response = ui.add(
                 egui::DragValue::new(&mut speed)
@@ -338,20 +326,13 @@ pub(super) fn draw(
                 replace(editor, assets, entity, None, entity.skin.clone());
                 return;
             }
-            let changed = controller != animator.controller
-                || clip != animator.clip
-                || looping != animator.looping
+            let changed = looping != animator.looping
                 || speed != animator.speed
                 || !binding_edits.is_empty()
                 || rebuild.is_some();
             if changed {
-                discrete |= controller != animator.controller
-                    || clip != animator.clip
-                    || !binding_edits.is_empty()
-                    || rebuild.is_some();
+                discrete |= !binding_edits.is_empty() || rebuild.is_some();
                 let mut next = animator.clone();
-                next.controller = controller;
-                next.clip = clip;
                 next.looping = looping;
                 next.speed = speed;
                 if let Some(nodes) = rebuild {
@@ -403,24 +384,16 @@ pub(super) fn draw(
         ui.weak("整体位置由骨骼层级决定；整体移动请选择实例根节点。");
     }
     if let Some(skin) = &entity.skin {
-        let mut asset = Some(skin.skin);
+        let revision = editor.document.revision();
+        ui.add_enabled_ui(editable, |ui| {
+            super::assets::draw_common(editor, ui, assets, &[entity], &[schema::SKIN_ASSET]);
+        });
+        if editor.document.revision() != revision {
+            return;
+        }
         let mut animator = skin.animator.clone();
         let mut remove = false;
         ui.add_enabled_ui(editable, |ui| {
-            asset_picker(
-                ui,
-                ("skin-asset", editor.world(), entity.id),
-                "蒙皮资源",
-                &mut asset,
-                choices.skins.iter().copied(),
-                &choices,
-                None,
-            );
-            if asset.and_then(|asset| choices.skeleton.get(&asset))
-                != choices.skeleton.get(&skin.skin)
-            {
-                animator = None;
-            }
             ui.label("动画实体");
             entity_picker(
                 ui,
@@ -430,9 +403,7 @@ pub(super) fn draw(
                     .as_ref()
                     .into_iter()
                     .flat_map(|targets| targets.animators.iter())
-                    .filter(|(_, _, skeleton)| {
-                        asset.and_then(|asset| choices.skeleton.get(&asset)) == Some(skeleton)
-                    })
+                    .filter(|(_, _, skeleton)| choices.skeleton.get(&skin.skin) == Some(skeleton))
                     .map(|(id, name, _)| (*id, name.as_str())),
             );
             if authored {
@@ -444,16 +415,14 @@ pub(super) fn draw(
                 replace(editor, assets, entity, entity.animator.clone(), None);
                 return;
             }
-            if let Some(asset) = asset
-                && (asset != skin.skin || animator != skin.animator)
-            {
+            if animator != skin.animator {
                 replace(
                     editor,
                     assets,
                     entity,
                     entity.animator.clone(),
                     Some(SkinBinding {
-                        skin: asset,
+                        skin: skin.skin,
                         animator,
                     }),
                 );

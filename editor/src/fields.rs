@@ -382,11 +382,10 @@ impl Editor {
     }
 
     /// Existing-field assignment validates every target before opening a single authoring preview.
-    pub(crate) fn preview_common_field(
+    pub(crate) fn preview_common_fields(
         &mut self,
         ids: &[EntityId],
-        field: FieldKey,
-        value: FieldValue,
+        values: &[(FieldKey, FieldValue)],
         assets: &mut AssetStore,
         mut validate: impl FnMut(
             &comet_scene::EntityData,
@@ -395,9 +394,15 @@ impl Editor {
         ) -> Result<()>,
     ) -> Result<()> {
         self.ensure_authoring_editable()?;
-        let descriptor = schema::descriptor(field)?;
-        descriptor.validate_value(&value)?;
-        if ids.is_empty() {
+        let mut fields = std::collections::BTreeSet::new();
+        for (field, value) in values {
+            ensure!(
+                fields.insert((field.component, field.field)),
+                "共同属性字段重复"
+            );
+            schema::descriptor(*field)?.validate_value(value)?;
+        }
+        if ids.is_empty() || values.is_empty() {
             return Ok(());
         }
         let snapshot = self.document.expand(assets)?;
@@ -414,26 +419,29 @@ impl Editor {
                 .binary_search_by_key(&id, |entity| entity.id)
                 .map_err(|_| anyhow::anyhow!("共同属性对象已失效：{id}"))?;
             let before = &snapshot.entities[index];
-            let initial = descriptor.read(before).with_context(|| {
-                format!(
-                    "实体 {} ({id}) 缺少共同属性 {}",
-                    before.name, descriptor.path
-                )
-            })?;
             let mut candidate = before.clone();
-            descriptor.write(&mut candidate, value.clone())?;
+            for (field, value) in values {
+                let descriptor = schema::descriptor(*field)?;
+                let initial = descriptor.read(before).with_context(|| {
+                    format!(
+                        "实体 {} ({id}) 缺少共同属性 {}",
+                        before.name, descriptor.path
+                    )
+                })?;
+                descriptor.write(&mut candidate, value.clone())?;
+                if initial != *value {
+                    let mut source_value = value.clone();
+                    self.source_field_value(target, &mut source_value, assets)?;
+                    self.source_translation_value(target, *field, &mut source_value, assets)?;
+                    edits.push(comet_editor_core::FieldEdit {
+                        target,
+                        field: *field,
+                        value: source_value,
+                    });
+                }
+            }
             validate(&candidate, &snapshot, assets)
                 .with_context(|| format!("实体 {} ({id}) 的共同属性候选无效", before.name))?;
-            if initial != value {
-                let mut source_value = value.clone();
-                self.source_field_value(target, &mut source_value, assets)?;
-                self.source_translation_value(target, field, &mut source_value, assets)?;
-                edits.push(comet_editor_core::FieldEdit {
-                    target,
-                    field,
-                    value: source_value,
-                });
-            }
         }
         if edits.is_empty() {
             return Ok(());

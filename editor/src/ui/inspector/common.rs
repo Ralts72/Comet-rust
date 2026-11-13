@@ -158,7 +158,7 @@ pub(in crate::ui) fn draw(
             schema::ROUGHNESS => &[schema::MESH, schema::MATERIAL],
             schema::AUDIO_GAIN => &[schema::AUDIO_CLIP],
             schema::SCRIPT_ENABLED => &[schema::SCRIPT_ASSET],
-            schema::ANIMATOR_SPEED => &[schema::ANIMATOR_CLIP],
+            schema::ANIMATOR_SPEED => &[schema::ANIMATOR_CONTROLLER, schema::ANIMATOR_CLIP],
             _ => &[],
         };
         if !assets_fields.is_empty() {
@@ -188,6 +188,12 @@ pub(in crate::ui) fn draw(
                 editor.play.is_none() && spatial,
             );
         }
+    }
+    if entities.iter().all(|entity| entity.skin.is_some()) {
+        ui.separator();
+        ui.strong("蒙皮");
+        super::assets::draw_common(editor, ui, assets, entities, &[schema::SKIN_ASSET]);
+        ui.weak("替换蒙皮会保留各对象的动画实体绑定。");
     }
     super::overrides::draw_group(editor, ui, assets, entities);
 }

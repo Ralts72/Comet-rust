@@ -88,6 +88,7 @@ pub(super) fn catalog(ui: &egui::Ui, assets: &AssetStore) -> Arc<Catalog> {
         &mut value.scripts,
         &mut value.skeletons,
         &mut value.clips,
+        &mut value.controllers,
         &mut value.skins,
     ] {
         list.sort_by(|a, b| value.labels[a].cmp(&value.labels[b]).then(a.cmp(b)));
@@ -128,6 +129,8 @@ pub(super) fn draw_common(
             schema::AUDIO_CLIP => ("音频片段", &choices.audio, None),
             schema::SCRIPT_ASSET => ("脚本", &choices.scripts, None),
             schema::ANIMATOR_CLIP => ("播放片段", &choices.clips, Some("不播放片段")),
+            schema::ANIMATOR_CONTROLLER => ("动画控制器", &choices.controllers, Some("单片段播放")),
+            schema::SKIN_ASSET => ("蒙皮资源", &choices.skins, None),
             _ => unreachable!("common asset menu field"),
         };
         let selected = ui
@@ -152,14 +155,17 @@ pub(super) fn draw_common(
                         list.iter()
                             .copied()
                             .filter(|id| {
-                                field != schema::ANIMATOR_CLIP
-                                    || choices.skeleton.get(id).is_some_and(|skeleton| {
-                                        entities.iter().all(|entity| {
-                                            entity.animator.as_ref().is_some_and(|animator| {
-                                                animator.skeleton == *skeleton
-                                            })
-                                        })
+                                !matches!(
+                                    field,
+                                    schema::ANIMATOR_CLIP | schema::ANIMATOR_CONTROLLER
+                                ) || choices.skeleton.get(id).is_some_and(|skeleton| {
+                                    entities.iter().all(|entity| {
+                                        entity
+                                            .animator
+                                            .as_ref()
+                                            .is_some_and(|animator| animator.skeleton == *skeleton)
                                     })
+                                })
                             })
                             .map(|id| (id, choices.labels[&id].as_str())),
                     )
@@ -184,6 +190,12 @@ pub(super) fn draw_common(
                         editor.replace_script_assets(&ids, selected.unwrap(), assets)
                     }
                     schema::ANIMATOR_CLIP => editor.replace_animation_clips(&ids, selected, assets),
+                    schema::ANIMATOR_CONTROLLER => {
+                        editor.replace_animation_controllers(&ids, selected, assets)
+                    }
+                    schema::SKIN_ASSET => {
+                        editor.replace_skin_assets(&ids, selected.unwrap(), assets)
+                    }
                     _ => unreachable!("common asset menu field"),
                 })
                 .and_then(|_| editor.commit());

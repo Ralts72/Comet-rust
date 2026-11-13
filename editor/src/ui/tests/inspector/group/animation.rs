@@ -1,116 +1,15 @@
 use super::*;
-use comet_asset_data::product::{AssetKind, Product};
-use comet_asset_pipeline::{SourceMeta, prepare};
-use comet_core::{AssetId, InstanceId};
-use comet_scene::{Animator, ContentSource, EntityRef, PrefabInstance, PrefabResolver};
 
-struct Clips {
-    prefab: AssetId,
-    skeleton: AssetId,
-    clips: [AssetId; 2],
-    foreign_skeleton: AssetId,
-    foreign_clip: AssetId,
-}
+use comet_core::InstanceId;
+use comet_scene::{ContentSource, PrefabInstance, PrefabResolver};
 
 impl Group {
-    fn prepare_clips(&mut self) -> Result<Clips> {
-        let prefab = crate::test_support::prepare_skin_asset(&self.editor)?;
-        let path = self
-            .editor
-            .project_root()
-            .join("assets/model/SimpleSkin.gltf");
-        let mut data: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
-        let mut second = data["animations"][0].clone();
-        second["name"] = "第二片段".into();
-        data["animations"].as_array_mut().unwrap().push(second);
-        std::fs::write(&path, serde_json::to_vec_pretty(&data)?)?;
-        let foreign = path.with_file_name("Foreign.gltf");
-        std::fs::write(&foreign, serde_json::to_vec_pretty(&data)?)?;
-        prepare(self.editor.project_root(), &self.editor.products)?;
-        self.assets.refresh()?;
-        let foreign = SourceMeta::load(&foreign)?.id;
-        let skeleton = |source| {
-            self.assets
-                .index()
-                .products
-                .iter()
-                .find_map(|(&id, entry)| {
-                    (entry.kind == AssetKind::Skeleton
-                        && entry
-                            .editor
-                            .as_ref()
-                            .is_some_and(|metadata| metadata.source == source))
-                    .then_some(id)
-                })
-                .context("fixture skeleton")
-        };
-        let original = skeleton(prefab)?;
-        let other = skeleton(foreign)?;
-        let clips = |skeleton| {
-            self.assets
-                .index()
-                .products
-                .iter()
-                .filter_map(|(&id, entry)| {
-                    (entry.kind == AssetKind::AnimationClip
-                        && entry.dependencies.contains(&skeleton))
-                    .then_some(id)
-                })
-                .collect::<Vec<_>>()
-        };
-        let own: [AssetId; 2] = clips(original)
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("two compatible clips"))?;
-        Ok(Clips {
-            prefab,
-            skeleton: original,
-            clips: own,
-            foreign_skeleton: other,
-            foreign_clip: clips(other)[0],
-        })
-    }
-    fn animators(&mut self, clips: &Clips, foreign: bool) -> Result<()> {
-        let mut source = self.editor.document.source();
-        for (index, id) in self.ids.iter().enumerate() {
-            let skeleton = if foreign && index == 1 {
-                clips.foreign_skeleton
-            } else {
-                clips.skeleton
-            };
-            let product = self.assets.load(skeleton)?;
-            let Product::Skeleton(data) = &product.payload else {
-                unreachable!()
-            };
-            source
-                .base
-                .entities
-                .iter_mut()
-                .find(|entity| entity.id == *id)
-                .unwrap()
-                .animator = Some(Animator {
-                clip: if index == 0 {
-                    Some(clips.clips[0])
-                } else {
-                    None
-                },
-                looping: index == 0,
-                speed: index as f32 + 0.5,
-                bindings: std::collections::BTreeMap::from([(
-                    data.nodes[0].id,
-                    Some(EntityRef::local(*id)),
-                )]),
-                ..Animator::new(skeleton)
-            });
-        }
-        self.editor.document = Document::open_source(source)?;
-        Ok(())
-    }
-    fn select_no_clip(&mut self) -> Result<()> {
-        let anchor = self.open_asset_picker("播放片段")?;
+    fn select_empty_animation_asset(&mut self, field: &str, empty: &str) -> Result<()> {
+        let anchor = self.open_asset_picker(field)?;
         let output = self.frame(vec![]);
         let position = texts(&output)
             .into_iter()
-            .find(|(text, point)| text == "不播放片段" && point.y > anchor.y + 3.)
+            .find(|(text, point)| text == empty && point.y > anchor.y + 3.)
             .context("no clip option")?
             .1;
         self.frame(vec![Event::PointerMoved(position), button(position, true)]);
@@ -123,7 +22,7 @@ impl Group {
 fn common_animation_clip_choices_filter_by_every_skeleton_and_preserve_binding_configuration()
 -> Result<()> {
     let mut f = Group::new()?;
-    let clips = f.prepare_clips()?;
+    let clips = f.prepare_animations()?;
     f.animators(&clips, false)?;
     let original = f.editor.document.shared_source();
     f.open_asset_picker("播放片段")?;
@@ -157,7 +56,7 @@ fn common_animation_clip_choices_filter_by_every_skeleton_and_preserve_binding_c
     }
     f.select_asset("播放片段", clips.clips[0])?;
     assert_eq!(f.editor.document.history_len(), 1);
-    f.select_no_clip()?;
+    f.select_empty_animation_asset("播放片段", "不播放片段")?;
     assert!(
         f.editor
             .document
@@ -178,7 +77,7 @@ fn common_animation_clip_choices_filter_by_every_skeleton_and_preserve_binding_c
 fn different_skeletons_allow_only_no_clip_and_reject_incompatible_or_wrong_kind_commands()
 -> Result<()> {
     let mut f = Group::new()?;
-    let clips = f.prepare_clips()?;
+    let clips = f.prepare_animations()?;
     f.animators(&clips, true)?;
     let original = f.editor.document.shared_source();
     assert!(
@@ -189,6 +88,11 @@ fn different_skeletons_allow_only_no_clip_and_reject_incompatible_or_wrong_kind_
     assert!(
         f.editor
             .replace_animation_clips(&f.ids, Some(clips.skeleton), &mut f.assets)
+            .is_err()
+    );
+    assert!(
+        f.editor
+            .replace_animation_controllers(&f.ids, Some(clips.controllers[0]), &mut f.assets)
             .is_err()
     );
     assert_eq!(f.editor.document.shared_source(), original);
@@ -208,7 +112,7 @@ fn different_skeletons_allow_only_no_clip_and_reject_incompatible_or_wrong_kind_
     );
     f.frame(vec![key(egui::Key::Escape, true, Default::default())]);
     f.frame(vec![key(egui::Key::Escape, false, Default::default())]);
-    f.select_no_clip()?;
+    f.select_empty_animation_asset("播放片段", "不播放片段")?;
     assert_eq!(f.editor.document.history_len(), 1);
     assert!(
         f.editor
@@ -227,7 +131,7 @@ fn different_skeletons_allow_only_no_clip_and_reject_incompatible_or_wrong_kind_
 #[test]
 fn idle_common_asset_menus_use_metadata_without_loading_rig_products() -> Result<()> {
     let mut f = Group::new()?;
-    let clips = f.prepare_clips()?;
+    let clips = f.prepare_animations()?;
     f.animators(&clips, false)?;
     let snapshot = f.editor.snapshot(&mut f.assets)?;
     let entities: Vec<_> = f
@@ -274,7 +178,7 @@ fn idle_common_asset_menus_use_metadata_without_loading_rig_products() -> Result
 #[test]
 fn direct_prefab_clip_choices_keep_source_identity_and_remain_read_only_in_play() -> Result<()> {
     let mut f = Group::new()?;
-    let clips = f.prepare_clips()?;
+    let clips = f.prepare_animations()?;
     let prefab = f.assets.prefab(clips.prefab)?;
     let controller = prefab
         .base
@@ -329,12 +233,48 @@ fn direct_prefab_clip_choices_keep_source_identity_and_remain_read_only_in_play(
     assert_eq!(f.assets.prefab(clips.prefab)?, prefab);
     f.editor.document.undo()?;
     assert_eq!(f.editor.document.shared_source(), original);
+    f.select_asset("动画控制器", clips.controllers[0])?;
+    let controlled = f.editor.document.shared_source();
+    for instance in &controlled.instances {
+        assert_eq!(instance.overrides.len(), 2);
+        assert!(
+            instance
+                .overrides
+                .iter()
+                .all(|value| value.entity == controller)
+        );
+        assert!(
+            instance
+                .overrides
+                .iter()
+                .any(|value| value.field == comet_scene::schema::ANIMATOR_CONTROLLER)
+        );
+        assert!(
+            instance
+                .overrides
+                .iter()
+                .any(|value| value.field == comet_scene::schema::ANIMATOR_CLIP)
+        );
+    }
+    f.editor.save(&mut f.assets)?;
+    assert_eq!(
+        Document::load(&f.editor.source)?.shared_source(),
+        controlled
+    );
+    assert_eq!(f.assets.prefab(clips.prefab)?, prefab);
+    f.editor.document.undo()?;
+    assert_eq!(f.editor.document.shared_source(), original);
     f.editor.start(&mut f.assets)?;
     f.editor.selection.replace(f.ids);
     f.open_asset_picker("播放片段")?;
     assert!(
         f.editor
             .replace_animation_clips(&f.ids, None, &mut f.assets)
+            .is_err()
+    );
+    assert!(
+        f.editor
+            .replace_animation_controllers(&f.ids, Some(clips.controllers[0]), &mut f.assets)
             .is_err()
     );
     assert_eq!(f.editor.document.shared_source(), original);
@@ -347,7 +287,7 @@ fn direct_prefab_clip_choices_keep_source_identity_and_remain_read_only_in_play(
 #[ignore = "requires a native offscreen GPU; tools/verify/verify.py --gpu runs this test"]
 fn headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged() -> Result<()> {
     let mut f = Group::new()?;
-    let clips = f.prepare_clips()?;
+    let clips = f.prepare_animations()?;
     let prefab = f.assets.prefab(clips.prefab)?;
     let controller = prefab
         .base
@@ -390,6 +330,155 @@ fn headless_common_animation_clip_menu_keeps_bindings_and_authoring_unchanged() 
     capture_common(
         f,
         "editor-common-animation-clips",
-        serde_json::json!({"asset_fields": ["播放片段（多值）"], "source_unchanged": true}),
+        serde_json::json!({"asset_fields": ["动画控制器", "播放片段（多值）"], "source_unchanged": true}),
     )
+}
+
+#[test]
+fn common_controllers_clear_clips_atomically_and_preserve_bindings_history_and_failed_previews()
+-> Result<()> {
+    let mut f = Group::new()?;
+    let rig = f.prepare_animations()?;
+    f.animators(&rig, false)?;
+    let original = f.editor.document.shared_source();
+    f.open_asset_picker("动画控制器")?;
+    let output = f.frame(vec![]);
+    assert!(
+        texts(&output)
+            .iter()
+            .any(|(text, _)| text == &f.asset_label(rig.controllers[0]))
+    );
+    assert!(
+        !texts(&output)
+            .iter()
+            .any(|(text, _)| text == &f.asset_label(rig.foreign_controller))
+    );
+    f.frame(vec![key(egui::Key::Escape, true, Default::default())]);
+    f.frame(vec![key(egui::Key::Escape, false, Default::default())]);
+    assert_eq!(f.editor.document.shared_source(), original);
+    f.select_asset("动画控制器", rig.controllers[0])?;
+    let changed = f.editor.document.shared_source();
+    for (before, after) in original.base.entities.iter().zip(&changed.base.entities) {
+        let mut expected = before.animator.clone().unwrap();
+        expected.controller = Some(rig.controllers[0]);
+        expected.clip = None;
+        assert_eq!(after.animator, Some(expected));
+    }
+    assert_eq!(f.editor.document.history_len(), 1);
+    f.select_asset("动画控制器", rig.controllers[0])?;
+    assert_eq!(f.editor.document.history_len(), 1);
+    f.select_empty_animation_asset("动画控制器", "单片段播放")?;
+    assert!(
+        f.editor
+            .document
+            .shared_source()
+            .base
+            .entities
+            .iter()
+            .all(|e| {
+                let a = e.animator.as_ref().unwrap();
+                a.controller.is_none() && a.clip.is_none()
+            })
+    );
+    f.editor.document.undo()?;
+    assert_eq!(f.editor.document.shared_source(), changed);
+    f.editor.document.undo()?;
+    assert_eq!(f.editor.document.shared_source(), original);
+    f.editor.document.redo()?;
+    f.editor.save(&mut f.assets)?;
+    assert_eq!(Document::load(&f.editor.source)?.shared_source(), changed);
+    f.editor.edit(
+        f.ids[0],
+        comet_scene::schema::ANIMATOR_SPEED,
+        comet_scene::schema::FieldValue::Scalar(2.),
+        &mut f.assets,
+    )?;
+    let preview = f.editor.document.shared_source();
+    for controller in [rig.foreign_controller, rig.skeleton] {
+        assert!(
+            f.editor
+                .replace_animation_controllers(&f.ids, Some(controller), &mut f.assets)
+                .is_err()
+        );
+        assert_eq!(f.editor.document.shared_source(), preview);
+        assert!(f.editor.document.is_editing());
+        assert_eq!(f.editor.document.history_len(), 1);
+    }
+    f.editor.cancel()?;
+    Ok(())
+}
+
+#[test]
+fn common_skin_replacement_preserves_bindings_and_rejects_a_later_incompatible_mesh_atomically()
+-> Result<()> {
+    let mut f = Group::new()?;
+    let rig = f.prepare_animations()?;
+    let static_mesh = f.editor.document.shared_source().base.entities[0]
+        .model
+        .as_ref()
+        .unwrap()
+        .mesh;
+    let mut source = f.assets.prefab(rig.prefab)?;
+    let mesh = source
+        .base
+        .entities
+        .iter()
+        .find(|e| e.skin.is_some())
+        .unwrap()
+        .clone();
+    let mut second = mesh.clone();
+    second.id = comet_core::EntityId::new();
+    second.skin.as_mut().unwrap().skin = rig.skins[1];
+    f.ids = [mesh.id, second.id];
+    source.base.entities.push(second);
+    f.editor.document = Document::open_source(source)?;
+    f.editor.selection.replace(f.ids);
+    let original = f.editor.document.shared_source();
+    f.select_asset("蒙皮资源", rig.skins[0])?;
+    let changed = f.editor.document.shared_source();
+    for &id in &f.ids {
+        let before = original.base.entities.iter().find(|e| e.id == id).unwrap();
+        let after = changed.base.entities.iter().find(|e| e.id == id).unwrap();
+        let mut expected = before.clone();
+        expected.skin.as_mut().unwrap().skin = rig.skins[0];
+        assert_eq!(after, &expected);
+    }
+    assert_eq!(f.editor.document.history_len(), 1);
+    assert!(
+        f.editor
+            .replace_skin_assets(&f.ids, rig.foreign_skin, &mut f.assets)
+            .is_err()
+    );
+    assert_eq!(f.editor.document.shared_source(), changed);
+    f.editor.document.undo()?;
+    assert_eq!(f.editor.document.shared_source(), original);
+    let mut invalid = (*original).clone();
+    invalid
+        .base
+        .entities
+        .iter_mut()
+        .find(|e| e.id == f.ids[1])
+        .unwrap()
+        .model
+        .as_mut()
+        .unwrap()
+        .mesh = static_mesh;
+    f.editor.document = Document::open_source(invalid)?;
+    f.editor.edit(
+        f.ids[0],
+        comet_scene::schema::ROUGHNESS,
+        comet_scene::schema::FieldValue::Scalar(0.3),
+        &mut f.assets,
+    )?;
+    let preview = f.editor.document.shared_source();
+    assert!(
+        f.editor
+            .replace_skin_assets(&f.ids, rig.skins[0], &mut f.assets)
+            .is_err()
+    );
+    assert_eq!(f.editor.document.shared_source(), preview);
+    assert!(f.editor.document.is_editing());
+    assert_eq!(f.editor.document.history_len(), 0);
+    f.editor.cancel()?;
+    Ok(())
 }

@@ -64,10 +64,45 @@ impl Editor {
         clip: Option<AssetId>,
         assets: &mut AssetStore,
     ) -> Result<()> {
-        self.preview_common_field(
+        self.preview_common_fields(
             ids,
-            schema::ANIMATOR_CLIP,
-            schema::FieldValue::OptionalAsset(clip),
+            &[(
+                schema::ANIMATOR_CLIP,
+                schema::FieldValue::OptionalAsset(clip),
+            )],
+            assets,
+            validate_configuration,
+        )
+    }
+
+    pub(crate) fn replace_animation_controllers(
+        &mut self,
+        ids: &[EntityId],
+        controller: Option<AssetId>,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        let mut values = vec![(
+            schema::ANIMATOR_CONTROLLER,
+            schema::FieldValue::OptionalAsset(controller),
+        )];
+        if controller.is_some() {
+            values.push((
+                schema::ANIMATOR_CLIP,
+                schema::FieldValue::OptionalAsset(None),
+            ));
+        }
+        self.preview_common_fields(ids, &values, assets, validate_configuration)
+    }
+
+    pub(crate) fn replace_skin_assets(
+        &mut self,
+        ids: &[EntityId],
+        skin: AssetId,
+        assets: &mut AssetStore,
+    ) -> Result<()> {
+        self.preview_common_fields(
+            ids,
+            &[(schema::SKIN_ASSET, schema::FieldValue::Asset(skin))],
             assets,
             validate_configuration,
         )

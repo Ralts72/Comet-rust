@@ -24,10 +24,9 @@ impl Editor {
         asset: AssetId,
         assets: &mut AssetStore,
     ) -> Result<()> {
-        self.preview_common_field(
+        self.preview_common_fields(
             ids,
-            schema::SCRIPT_ASSET,
-            FieldValue::Asset(asset),
+            &[(schema::SCRIPT_ASSET, FieldValue::Asset(asset))],
             assets,
             |candidate, _, assets| {
                 let script = candidate.script.as_ref().context("脚本组件已不存在")?;

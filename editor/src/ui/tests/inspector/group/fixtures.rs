@@ -1,9 +1,10 @@
 use super::*;
-use comet_asset_data::product::AssetKind;
+use comet_asset_data::product::{AssetKind, Product};
 use comet_asset_pipeline::{SourceMeta, prepare};
 use comet_core::AssetId;
 use comet_scene::{
-    AudioSource, BodyMotion, Character, ColliderShape, EntityRef, PhysicsBody, Script, ScriptValue,
+    Animator, AudioSource, BodyMotion, Character, ColliderShape, EntityRef, PhysicsBody, Script,
+    ScriptValue,
 };
 use std::path::PathBuf;
 
@@ -184,5 +185,171 @@ impl Group {
         }
         self.editor.document = Document::open_source(source)?;
         Ok((clips, scripts))
+    }
+}
+
+pub(super) struct AnimationAssets {
+    pub(super) prefab: AssetId,
+    pub(super) skeleton: AssetId,
+    pub(super) clips: [AssetId; 2],
+    pub(super) foreign_skeleton: AssetId,
+    pub(super) foreign_clip: AssetId,
+    pub(super) controllers: [AssetId; 2],
+    pub(super) foreign_controller: AssetId,
+    pub(super) skins: [AssetId; 2],
+    pub(super) foreign_skin: AssetId,
+}
+
+impl Group {
+    pub(super) fn prepare_animations(&mut self) -> Result<AnimationAssets> {
+        let prefab = crate::test_support::prepare_skin_asset(&self.editor)?;
+        let path = self
+            .editor
+            .project_root()
+            .join("assets/model/SimpleSkin.gltf");
+        let mut data: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        let mut second = data["animations"][0].clone();
+        second["name"] = "第二片段".into();
+        data["animations"].as_array_mut().unwrap().push(second);
+        std::fs::write(&path, serde_json::to_vec_pretty(&data)?)?;
+        let mut skin = data["skins"][0].clone();
+        skin["name"] = "第二蒙皮".into();
+        data["skins"].as_array_mut().unwrap().push(skin);
+        let mut node = data["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["skin"] == 0)
+            .unwrap()
+            .clone();
+        node["skin"] = 1.into();
+        node["name"] = "第二蒙皮网格".into();
+        node["translation"] = serde_json::json!([2., 0., 0.]);
+        let index = data["nodes"].as_array().unwrap().len();
+        data["nodes"].as_array_mut().unwrap().push(node);
+        data["scenes"][0]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(index.into());
+        std::fs::write(&path, serde_json::to_vec_pretty(&data)?)?;
+        let foreign = path.with_file_name("Foreign.gltf");
+        std::fs::write(&foreign, serde_json::to_vec_pretty(&data)?)?;
+        prepare(self.editor.project_root(), &self.editor.products)?;
+        self.assets.refresh()?;
+        let foreign = SourceMeta::load(&foreign)?.id;
+        let skeleton = |source| {
+            self.assets
+                .index()
+                .products
+                .iter()
+                .find_map(|(&id, entry)| {
+                    (entry.kind == AssetKind::Skeleton
+                        && entry
+                            .editor
+                            .as_ref()
+                            .is_some_and(|metadata| metadata.source == source))
+                    .then_some(id)
+                })
+                .context("fixture skeleton")
+        };
+        let original = skeleton(prefab)?;
+        let other = skeleton(foreign)?;
+        let clips = |skeleton| {
+            self.assets
+                .index()
+                .products
+                .iter()
+                .filter_map(|(&id, entry)| {
+                    (entry.kind == AssetKind::AnimationClip
+                        && entry.dependencies.contains(&skeleton))
+                    .then_some(id)
+                })
+                .collect::<Vec<_>>()
+        };
+        let own: [AssetId; 2] = clips(original)
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("two compatible clips"))?;
+        let foreign_clip = clips(other)[0];
+        let skin_ids = |skeleton| {
+            self.assets
+                .index()
+                .products
+                .iter()
+                .filter_map(|(&id, entry)| {
+                    (entry.kind == AssetKind::Skin && entry.dependencies.contains(&skeleton))
+                        .then_some(id)
+                })
+                .collect::<Vec<_>>()
+        };
+        let skins: [AssetId; 2] = skin_ids(original)
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("two compatible skins"))?;
+        let foreign_skin = skin_ids(other)[0];
+        let paths = ["first.ani", "second.ani", "foreign.ani"]
+            .map(|name| self.editor.project_root().join("assets").join(name));
+        for (index, path) in paths.iter().enumerate() {
+            let (skeleton, clip) = if index == 2 {
+                (other, foreign_clip)
+            } else {
+                (original, own[index])
+            };
+            std::fs::write(
+                path,
+                serde_json::to_vec(&serde_json::json!({
+                    "version":1, "skeleton":skeleton, "parameters":{}, "initial":"idle",
+                    "states":[{"name":"idle", "looping":true, "motions":[{"threshold":0., "clip":clip}]}], "transitions":[]
+                }))?,
+            )?;
+        }
+        prepare(self.editor.project_root(), &self.editor.products)?;
+        self.assets.refresh()?;
+        Ok(AnimationAssets {
+            prefab,
+            skeleton: original,
+            clips: own,
+            foreign_skeleton: other,
+            foreign_clip,
+            controllers: [
+                SourceMeta::load(&paths[0])?.id,
+                SourceMeta::load(&paths[1])?.id,
+            ],
+            foreign_controller: SourceMeta::load(&paths[2])?.id,
+            skins,
+            foreign_skin,
+        })
+    }
+
+    pub(super) fn animators(&mut self, clips: &AnimationAssets, foreign: bool) -> Result<()> {
+        let mut source = self.editor.document.source();
+        for (index, id) in self.ids.iter().enumerate() {
+            let skeleton = if foreign && index == 1 {
+                clips.foreign_skeleton
+            } else {
+                clips.skeleton
+            };
+            let product = self.assets.load(skeleton)?;
+            let Product::Skeleton(data) = &product.payload else {
+                unreachable!()
+            };
+            source
+                .base
+                .entities
+                .iter_mut()
+                .find(|entity| entity.id == *id)
+                .unwrap()
+                .animator = Some(Animator {
+                clip: if index == 0 {
+                    Some(clips.clips[0])
+                } else {
+                    None
+                },
+                looping: index == 0,
+                speed: index as f32 + 0.5,
+                bindings: std::collections::BTreeMap::from([(data.nodes[0].id, None)]),
+                ..Animator::new(skeleton)
+            });
+        }
+        self.editor.document = Document::open_source(source)?;
+        Ok(())
     }
 }

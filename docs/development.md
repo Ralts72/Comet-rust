@@ -91,12 +91,12 @@ Inspector 回归按行为边界组织，共同测试的场景准备归 `group/fi
 | 层次 | 重点约束 |
 | --- | --- |
 | Editor Core | 原子候选、字段基线、显式覆盖/继承、版本与保存点恢复；批量恢复的失败、redo 与旧声明清理 |
-| Editor 命令 | 全部目标及产品类型/兼容性校验、词法身份转换、脚本参数保护；无关错误不阻止修复，失败保留有效预览 |
+| Editor 命令 | 全部目标及产品类型/兼容性校验、控制器与片段的联合候选、蒙皮替换保留动画实体绑定、词法身份转换、脚本参数保护；无关错误不阻止修复，失败保留有效预览 |
 | egui 输入 | 组件交集、多值与同值统一、局部轴/其他配置保持、精度与焦点、Esc、单条撤销及 Play/模态只读；菜单打开/取消不产生历史 |
 | 缓存与资产 | 空闲菜单只消费元数据，产品 revision 后失效；源文件、metadata、未选中覆盖与引用身份保持 |
 | 原生离屏 | 实体及蒙皮实际绘制、共同控件与资源菜单、保存点/历史不变；GPU 图像与 JSON 记录相互对应 |
 
-`--gpu` / `--native` 生成 `target/verification/editor-common-properties.json` / `.png`，覆盖 TRS、标量、混合开关及网格/材质/音频/脚本菜单；`editor-common-animation-clips.json` / `.png` 绘制两个完整骨架实例与共同片段菜单。合成输入、离屏图像和窗口烟测分别记录，人工输入与 Windows/Linux 目标设备仍需单独验收。
+`--gpu` / `--native` 生成 `target/verification/editor-common-properties.json` / `.png`，覆盖 TRS、标量、混合开关及网格/材质/音频/脚本菜单；`editor-common-animation-clips.json` / `.png` 绘制两个完整骨架实例与共同控制器/片段菜单。合成输入、离屏图像和窗口烟测分别记录，人工输入与 Windows/Linux 目标设备仍需单独验收。
 
 内容与运行规则见[架构约定](architecture.md)，具体操作见 [README](../README.md)，尚未迁移的完整能力见[迁移清单](migration.md)。导航、动画、声音、脚本和检查点的专项验证在下文维护。
 

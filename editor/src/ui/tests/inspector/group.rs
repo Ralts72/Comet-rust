@@ -9,7 +9,7 @@ use comet_core::{
 use comet_editor_core::Document;
 use comet_scene::{EntityData, SceneSnapshot, Transform};
 use egui::{Event, PointerButton, Pos2, Vec2};
-mod clips;
+mod animation;
 mod configurations;
 mod fixtures;
 mod harness;
@@ -91,7 +91,14 @@ fn headless_common_properties_draws_mixed_transforms_without_authoring_changes()
     )
 }
 
-fn capture_common(f: Group, name: &str, properties: serde_json::Value) -> Result<()> {
+fn capture_common(mut f: Group, name: &str, properties: serde_json::Value) -> Result<()> {
+    let draw_count = f
+        .editor
+        .snapshot(&mut f.assets)?
+        .entities
+        .iter()
+        .filter(|entity| entity.model.is_some())
+        .count();
     let author_file = f.editor.source.clone();
     let author_bytes = std::fs::read(&author_file)?;
     let world = f.editor.document.world_id();
@@ -125,7 +132,8 @@ fn capture_common(f: Group, name: &str, properties: serde_json::Value) -> Result
             .as_array()
             .unwrap()
             .iter()
-            .all(|frame| frame["token"]["world"] == world.to_string() && frame["draw_count"] == 2)
+            .all(|frame| frame["token"]["world"] == world.to_string()
+                && frame["draw_count"] == draw_count)
     );
     assert!(std::fs::metadata(&capture)?.len() > 8);
     assert_eq!(std::fs::read(author_file)?, author_bytes);

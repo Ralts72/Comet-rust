@@ -27,10 +27,9 @@ impl Editor {
         clip: AssetId,
         assets: &mut AssetStore,
     ) -> Result<()> {
-        self.preview_common_field(
+        self.preview_common_fields(
             ids,
-            schema::AUDIO_CLIP,
-            FieldValue::Asset(clip),
+            &[(schema::AUDIO_CLIP, FieldValue::Asset(clip))],
             assets,
             |candidate, _, assets| {
                 let source = candidate.audio_source.as_ref().context("音频源已不存在")?;
