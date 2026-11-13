@@ -16,6 +16,15 @@ fn frame(
     text_focus: bool,
     active: bool,
 ) -> ActionInput {
+    frame_with_pad(ctx, events, text_focus, active, Default::default())
+}
+fn frame_with_pad(
+    ctx: &egui::Context,
+    events: Vec<egui::Event>,
+    text_focus: bool,
+    active: bool,
+    gamepad: comet_application::GamepadFrame,
+) -> ActionInput {
     let mut sampled = None;
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -36,7 +45,13 @@ fn frame(
                 ui.available_rect_before_wrap(),
                 egui::Sense::click_and_drag(),
             );
-            sampled = Some(sample_actions(&response, active, Camera::default()));
+            sampled = Some(sample_actions(
+                &response,
+                active,
+                Camera::default(),
+                &gamepad,
+                1. / 60.,
+            ));
         },
     );
     output.textures_delta.clear();
@@ -238,4 +253,34 @@ fn following_preserves_camera_offset_and_initially_focuses_the_character() {
     follow_target(&mut camera, Some([2., 1., 3.]), Some([4., 2., 5.]));
     assert_eq!(camera.target, comet_core::math::Vec3::new(4., 2., 5.));
     assert!((camera.eye - camera.target - offset).length() < 1e-6);
+}
+
+#[test]
+fn analog_gamepad_movement_and_look_obey_text_and_window_authorization() {
+    let mut pad = comet_application::GamepadFrame {
+        look_rate: [120., -60.],
+        ..Default::default()
+    };
+    pad.actions.enabled = true;
+    pad.actions.movement = [0.25, 0.];
+    pad.actions.held.set(Action::Jump, true);
+    pad.actions.events.push(ActionEvent {
+        action: Action::Jump,
+        pressed: true,
+    });
+    let ctx = egui::Context::default();
+    let sample = frame_with_pad(&ctx, vec![], false, true, pad.clone());
+    assert!(sample.enabled && sample.held.contains(Action::Jump));
+    assert!((sample.movement[0].hypot(sample.movement[1]) - 0.25).abs() < 1e-6);
+    assert_eq!(sample.look_delta, [2., -1.]);
+    assert_eq!(sample.events, pad.actions.events);
+    assert_eq!(
+        frame_with_pad(&ctx, vec![], true, true, pad.clone()),
+        ActionInput::default()
+    );
+    let ctx = egui::Context::default();
+    assert_eq!(
+        frame_with_pad(&ctx, vec![], false, false, pad),
+        ActionInput::default()
+    );
 }

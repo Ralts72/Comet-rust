@@ -221,6 +221,7 @@ fn snap_settings_reject_invalid_steps_and_ui_toggle_does_not_edit_the_document()
     let ctx = egui::Context::default();
     comet_application::configure_ui(&ctx);
     let context = |number| FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,

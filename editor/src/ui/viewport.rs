@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::Context;
 use comet_asset::AssetStore;
-use comet_core::{ActionInput, WorldId, math::Mat4};
+use comet_core::{WorldId, math::Mat4};
 use comet_render::PickRequest;
 use egui::{Color32, Pos2, Rect, Vec2};
 
@@ -89,7 +89,7 @@ pub(crate) fn cancel_gesture(ctx: &egui::Context) {
 pub(super) struct ViewportResponse {
     viewport: Rect,
     pick: Option<SelectionPick>,
-    actions: ActionInput,
+    gameplay_input: bool,
     pub owns_pointer: bool,
     rectangle_context: Option<GestureContext>,
     response: Option<egui::Response>,
@@ -99,7 +99,7 @@ pub(crate) struct ViewportFrame {
     pub visible: bool,
     pub viewport: Rect,
     pub pick: Option<SelectionPick>,
-    pub actions: ActionInput,
+    pub gameplay_input: bool,
     pub response: egui::Response,
 }
 
@@ -112,7 +112,7 @@ impl ViewportResponse {
         Self {
             viewport: Rect::from_min_size(Pos2::ZERO, Vec2::splat(1.)),
             pick: None,
-            actions: ActionInput::default(),
+            gameplay_input: bool::default(),
             owns_pointer: false,
             rectangle_context: None,
             response: Some(ui.interact(
@@ -125,7 +125,7 @@ impl ViewportResponse {
     pub(super) fn cancel_input(&mut self, ctx: &egui::Context) {
         cancel_gesture(ctx);
         self.pick = None;
-        self.actions = ActionInput::default();
+        self.gameplay_input = false;
         self.rectangle_context = None;
     }
     pub fn finish(
@@ -154,7 +154,7 @@ impl ViewportResponse {
             visible: self.is_visible(),
             viewport: self.viewport,
             pick: self.pick,
-            actions: self.actions,
+            gameplay_input: self.gameplay_input,
             response: self.response.context("缺少视口输入响应")?,
         };
         super::resources::finish_drag(editor, assets, ctx, active, &mut frame);
@@ -171,7 +171,7 @@ pub(super) fn show(
     let mut result = ViewportResponse {
         viewport: Rect::NOTHING,
         pick: None,
-        actions: ActionInput::default(),
+        gameplay_input: bool::default(),
         owns_pointer: false,
         rectangle_context: None,
         response: None,
@@ -223,18 +223,13 @@ pub(super) fn show(
         && !editor.is_busy()
     {
         let before = editor.camera;
-        comet_application::navigate_camera(
-            &mut editor.camera,
-            &response,
-            active,
-            editor.play.is_none(),
-        );
+        comet_application::navigate_camera(&mut editor.camera, &response, active, true, [0.; 2]);
         if before != editor.camera {
             editor.picking.clear();
         }
     }
     if editor.play.is_some() && !resource_drag {
-        result.actions = comet_application::sample_actions(&response, active, editor.camera);
+        result.gameplay_input = active;
     }
     ui.painter().text(
         viewport.left_top() + Vec2::new(18., 16.),

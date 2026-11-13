@@ -45,7 +45,13 @@ impl Harness {
                 if response.clicked() {
                     response.request_focus();
                 }
-                result = Some(self.menu.show(&response, &self.settings, active, changed));
+                result = Some(self.menu.show(
+                    &response,
+                    &self.settings,
+                    active,
+                    changed,
+                    &Default::default(),
+                ));
             },
         );
         self.texts.clear();

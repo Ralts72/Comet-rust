@@ -59,6 +59,7 @@ impl Group {
     }
     pub(super) fn frame(&mut self, events: Vec<Event>) -> egui::FullOutput {
         let context = FrameContext {
+            gamepad: Default::default(),
             number: self.number,
             dt: 1. / 60.,
             active: true,

@@ -46,6 +46,8 @@ def audit(target=None):
             pending.extend(d["pkg"] for d in nodes[node]["deps"] if any(k["kind"] != "dev" for k in d["dep_kinds"]))
         names = {packages[p]["name"] for p in seen}
         forbidden = {"wgpu", "wgpu-core", "cc", "cmake"}
+        if name not in {"comet-application", "comet-editor", "comet-app"}:
+            forbidden |= {"gilrs", "gilrs-core", "libudev-sys"}
         if name in DATA:
             forbidden |= {"winit", "ash", "objc2-metal", "egui", "rapier3d", "rhai", "rune"}
         if name != "comet-editor":
@@ -79,6 +81,8 @@ def audit(target=None):
         direct_packages={packages[d["pkg"]]["name"] for d in nodes[root]["deps"] if any(k["kind"] != "dev" for k in d["dep_kinds"])}
         if name != "comet-core" and "glam" in direct_packages:
             raise RuntimeError(f"{name} must use comet_core::math instead of depending directly on glam")
+        if name != "comet-application" and direct_packages & {"gilrs", "gilrs-core"}:
+            raise RuntimeError(f"{name} must use the Application gamepad adapter instead of depending directly on Gilrs")
         if name != "comet-application" and "arboard" in direct_packages:
             raise RuntimeError(f"{name} must use the Application clipboard adapter instead of depending directly on arboard")
         if name != "comet-runtime" and "rhai" in direct_packages:

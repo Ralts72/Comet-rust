@@ -60,6 +60,7 @@ pub(super) fn frame(
                 ui,
                 assets,
                 &FrameContext {
+                    gamepad: Default::default(),
                     number,
                     dt: comet_runtime::FIXED_DELTA,
                     active,

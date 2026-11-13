@@ -118,6 +118,7 @@ fn project_resource_drag_places_real_roots_once_and_rejects_changed_contexts() -
             &mut c.editor,
             &mut c.assets,
             FrameContext {
+                gamepad: Default::default(),
                 number: c.number,
                 dt: 1. / 60.,
                 active: rejected != "inactive",

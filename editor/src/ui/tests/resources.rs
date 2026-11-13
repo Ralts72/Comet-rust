@@ -247,6 +247,7 @@ impl Case {
             &mut self.editor,
             &mut self.assets,
             FrameContext {
+                gamepad: Default::default(),
                 number,
                 dt: 1. / 60.,
                 active: true,
@@ -753,6 +754,7 @@ fn placement_window_cancels_without_editing_and_places_model_groups_in_one_undo_
         &mut c.editor,
         &mut c.assets,
         FrameContext {
+            gamepad: Default::default(),
             number: c.number,
             dt: 1. / 60.,
             active: true,

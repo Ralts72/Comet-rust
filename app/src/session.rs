@@ -192,6 +192,7 @@ impl Application for App {
             &self.settings,
             input.active,
             input.activity_changed,
+            &input.gamepad,
         );
         let mut menu_changed = menu_frame.changed;
         match menu_frame.action {
@@ -238,10 +239,17 @@ impl Application for App {
                 &response,
                 input.active && !input.activity_changed,
                 false,
+                input.gamepad.look_delta(input.dt),
             );
             self.play.advance_with_input(
                 input.dt,
-                comet_application::sample_actions(&response, input.active, self.camera),
+                comet_application::sample_actions(
+                    &response,
+                    input.active,
+                    self.camera,
+                    &input.gamepad,
+                    input.dt,
+                ),
             )?;
             if input.active {
                 self.process_scene_request(assets);

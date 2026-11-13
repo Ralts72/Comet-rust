@@ -140,6 +140,7 @@ Render 的直接工程依赖只保留 Core 与资产数据；Scene 和 Store 的
 | Shader 翻译 | `naga` | `engine/render`：WGSL 输入、MSL/SPIR-V 输出 |
 | 窗口与 UI | `winit`、`egui`、`egui-winit`、`egui_tiles` | 根 workspace、Application、Editor、Render |
 | 原生文本剪贴板 | `arboard = 3.7.0`，关闭默认及图片功能 | 根 workspace、Application 私有适配；macOS/Windows 系统 API、Linux X11 |
+| 原生手柄 | `gilrs = 0.11.2`，Windows 使用 XInput | Application 私有设备适配；macOS IOKit、Linux udev，其他模块只接收逻辑输入 |
 | 静态模型导入 | `gltf`、`base64`、`percent-encoding` | `engine/asset/pipeline` |
 | PNG/JPEG 解码 | `image`、`png` | `engine/asset/pipeline` |
 | 窗口图标解码、验收截图编码 | `png` | `engine/application` / `engine/render`，不用于导入作者源 |
@@ -285,6 +286,14 @@ Runtime 保留本次启动的不可变快照作为重开基线。`restart()` 先
 换关意图属于 Runtime，产品读取与接纳政策属于宿主。`SceneRequest` 只携带目标 AssetId 和原回调诊断上下文，不拥有 Store 或路径。请求随整个回调命令及状态校验成功后才发布，单槽首个目标优先；同目标幂等，冲突返回 false。宿主在本帧 Runtime 推进完成且仍活跃、未被模态或后台任务阻挡时最多消费一次，候选 on_start 产生的新请求留待下一帧，避免递归换关；已计划的固定步仍完整执行。
 Editor 的 `session/play.rs` 与 App 分别从已接纳 Store 展开目标、加载脚本、导航及音频产品并创建独立 PlaySession；on_start 完成后再预检其当前绘制数据，成功才调用 `accept_candidate`。接纳与重开共用旧世界停止、诊断交接、暂停/冻结和时间重置规则，新候选的入关快照成为后续重开基线。准备失败只向原世界写有界诊断，不停用请求绑定；单绑定回调异常仍按原脚本隔离规则处理。Editor 清除选择/拖动/拾取并更新跟随相机，作者文档、路径及历史不交换；Stop 回到原作者文档。
 App 保留 PackageManifest 明确列出的场景，依赖闭包附带的其他 Scene 不因此获得换关资格；显式 `--products` 开发模式可加载该 Store 的 Scene。当前同步准备候选，存在加载停顿与双世界同时驻留的峰值内存；CPU 预检不保证 GPU 设备失败回滚，异步流式仍待迁移。Application 不因此依赖 Runtime，两个宿主的短准备流程按各自政策维护，不添加通用加载器框架。
+
+Application 的 `gamepad.rs` 持有单帧逻辑输入及暂停授权，`gamepad/native.rs` 独占 Gilrs 设备、连接身份、事件预算和关闭路径；原生对象只在宿主主线程创建、轮询、释放，不传给 Editor、Runtime 或 Render。Gilrs 0.11.2 使用系统 IOKit／Linux udev／Windows XInput，不接入 SDL 或旧 C++ 输入实现。边界门禁限制仅 Application 直接依赖 Gilrs；Linux 交叉 SDK 与 CI 同时提供真实 ALSA 和 udev 开发文件，校验候选及摘要后复用。
+
+`FrameContext.gamepad` 是瞬时值，不参与作者或产品序列化，协议仍为 1。键鼠和手柄批次按逻辑 OR 合并，另一来源仍按住时不释放或重复按下；键鼠保持原有事件顺序，两类设备批次按键鼠后手柄的确定顺序合并。摇杆径向死区后保留幅度，移动合并后才投影到当前相机朝向；右摇杆速率用宿主 dt 积分并限制长帧增量，与鼠标增量共用相机规则。
+
+新设备、失焦恢复及事件溢出先同步基线，按钮须释放、摇杆须回中。原生每帧最多读取 512 个事件，动作批次预留键鼠预算；积压期间丢弃手柄意图，继续有界排空后重新同步，键鼠仍可用。设备错误降级并写入宿主报告；headless 不初始化设备，窗口 smoke 可记录设备可用状态，但不让真实控制器改变验收场景。
+
+编辑器在所有面板及延迟弹窗处理后统一采样 Play 动作和相机，视口层只交付可见性与输入授权，不再提前生成动作再逐层取消。暂停属于宿主命令，Editor 切换 Play 暂停、App 复用原暂停菜单；开关当帧不推进模拟，保持 Start 不重复切换，文字输入及模态边界拒绝旧意图。Runtime 固定步输入缓冲沿用原实现；当前只接入一个活动手柄，改键、设备选择、震动与菜单方向导航仍未接入。
 
 Inspector 的 `properties.rs` 维护共享控件交互：`ComponentEdit` 只汇总导航组件控件的结束信号；关节、物理等单选和共同面板使用共享字段手势。关节角度显示换算留在控件，连接坐标重建属于 Editor 的 `joints.rs` 命令。`PropertyGesture` 管理逐字段及多选编辑的文本草稿、取消和提交信号。两者不持有文档或运行世界，实际修改仍经过 Editor 命令与 Document 事务。
 

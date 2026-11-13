@@ -18,6 +18,7 @@ fn inspector_name_edit_commits_once_and_escape_restores_the_whole_preview() -> R
             editor,
             &mut assets,
             FrameContext {
+                gamepad: Default::default(),
                 number,
                 dt: 1. / 60.,
                 active: true,

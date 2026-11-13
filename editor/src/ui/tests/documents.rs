@@ -89,6 +89,7 @@ impl Case {
             &mut self.editor,
             &mut self.assets,
             FrameContext {
+                gamepad: Default::default(),
                 number,
                 dt: 1. / 60.,
                 active: true,

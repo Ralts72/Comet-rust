@@ -21,6 +21,7 @@ fn hierarchy_drag_reparents_and_root_drop_undoes_as_one_command() -> Result<()> 
             editor,
             &mut assets,
             FrameContext {
+                gamepad: Default::default(),
                 number,
                 dt: 1. / 60.,
                 active: true,
@@ -120,6 +121,7 @@ fn dragging_a_selected_member_reparents_the_whole_group_in_one_history_step() ->
             editor,
             &mut assets,
             FrameContext {
+                gamepad: Default::default(),
                 number,
                 dt: 1. / 60.,
                 active: true,

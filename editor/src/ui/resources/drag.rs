@@ -36,7 +36,7 @@ pub(in crate::ui) fn finish_drag(
         return;
     };
     view.pick = None;
-    view.actions = Default::default();
+    view.gameplay_input = false;
     editor.picking.clear();
     if !active || !view.response.enabled() || !drag.valid(editor, assets) {
         cancel_drag(ctx);

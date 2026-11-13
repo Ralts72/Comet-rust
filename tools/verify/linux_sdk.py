@@ -1,4 +1,4 @@
-"""Prepare the real ALSA SDK used by non-Linux Rust compile checks."""
+"""Prepare the real ALSA and udev SDKs used by non-Linux Rust compile checks."""
 import hashlib
 import io
 import json
@@ -13,10 +13,12 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "x86_64-unknown-linux-gnu"
 PACKAGES = (
-    ("libasound2-dev_1.2.8-1+b1_amd64.deb", "6eddd5b43c03cdd769f6b6f4506abcbc84c19d4bada2b3036d1fd921a9875d7a"),
-    ("libasound2_1.2.8-1+b1_amd64.deb", "44c77b076a7b11ae99712439022d822245b1994c435da564ebd320bb676faf4c"),
+    ("a/alsa-lib/libasound2-dev_1.2.8-1+b1_amd64.deb", "6eddd5b43c03cdd769f6b6f4506abcbc84c19d4bada2b3036d1fd921a9875d7a"),
+    ("a/alsa-lib/libasound2_1.2.8-1+b1_amd64.deb", "44c77b076a7b11ae99712439022d822245b1994c435da564ebd320bb676faf4c"),
+    ("s/systemd/libudev-dev_252.39-1~deb12u2_amd64.deb", "b8795a05b96799cb25ed3677eef8e8b1f1facdf07ad4527e06ef8f82ca164fbd"),
+    ("s/systemd/libudev1_252.39-1~deb12u2_amd64.deb", "6f7e08f11c4809d2e5998c775f7b423ab5ec2ce0309494b4a2615037052245e2"),
 )
-BASE_URL = "https://deb.debian.org/debian/pool/main/a/alsa-lib/"
+BASE_URL = "https://deb.debian.org/debian/pool/main/"
 MAX_DOWNLOAD = 4 * 1024 * 1024
 MAX_EXTRACTED = 16 * 1024 * 1024
 
@@ -47,7 +49,7 @@ def extract_data(data, destination):
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:*") as source:
         for count, member in enumerate(source):
             if count >= 4096:
-                raise ValueError("ALSA SDK contains too many files")
+                raise ValueError("Linux SDK contains too many files")
             relative = PurePosixPath(member.name)
             if relative.is_absolute() or ".." in relative.parts:
                 raise ValueError("SDK member escapes its destination")
@@ -61,7 +63,7 @@ def extract_data(data, destination):
             elif member.isfile():
                 total += member.size
                 if total > MAX_EXTRACTED:
-                    raise ValueError("ALSA SDK exceeds its extraction budget")
+                    raise ValueError("Linux SDK exceeds its extraction budget")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 contents = source.extractfile(member).read(member.size + 1)
                 if len(contents) != member.size:
@@ -97,14 +99,18 @@ def inventory(root):
 
 
 def verify_layout(root):
-    library = root / "usr/lib/x86_64-linux-gnu/libasound.so"
-    header = library.read_bytes()[:20]
-    if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != 62:
-        raise ValueError("ALSA SDK library is not an x86_64 ELF")
+    for name in ("libasound.so", "libudev.so"):
+        library = root / "usr/lib/x86_64-linux-gnu" / name
+        header = library.read_bytes()[:20]
+        if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != 62:
+            raise ValueError(f"Linux SDK library is not an x86_64 ELF: {name}")
     if not (root / "usr/include/alsa/asoundlib.h").is_file():
-        raise ValueError("ALSA SDK headers are missing")
-    if not (root / "usr/lib/x86_64-linux-gnu/pkgconfig/alsa.pc").is_file():
-        raise ValueError("ALSA SDK pkg-config metadata is missing")
+        raise ValueError("Linux SDK headers are missing")
+    if not (root / "usr/include/libudev.h").is_file():
+        raise ValueError("udev SDK headers are missing")
+    for name in ("alsa.pc", "libudev.pc"):
+        if not (root / "usr/lib/x86_64-linux-gnu/pkgconfig" / name).is_file():
+            raise ValueError(f"Linux SDK pkg-config metadata is missing: {name}")
 
 
 def valid_cache(root):
@@ -122,27 +128,27 @@ def prepare_sdk():
     parent = ROOT / "target/sysroots"
     parent.mkdir(parents=True, exist_ok=True)
     identity = hashlib.sha256(json.dumps(PACKAGES).encode()).hexdigest()[:16]
-    path = parent / f"alsa-amd64-{identity}"
+    path = parent / f"linux-amd64-{identity}"
     suffix = 0
     while path.exists():
         if valid_cache(path):
             return path
         suffix += 1
-        path = parent / f"alsa-amd64-{identity}-{suffix}"
-    candidate = Path(tempfile.mkdtemp(prefix=".alsa-", dir=parent))
+        path = parent / f"linux-amd64-{identity}-{suffix}"
+    candidate = Path(tempfile.mkdtemp(prefix=".linux-", dir=parent))
     try:
         for name, digest in PACKAGES:
             request = urllib.request.Request(BASE_URL + name, headers={"User-Agent": "Comet-verification"})
             with urllib.request.urlopen(request, timeout=60) as response:
                 contents = response.read(MAX_DOWNLOAD + 1)
             if len(contents) > MAX_DOWNLOAD or hashlib.sha256(contents).hexdigest() != digest:
-                raise ValueError(f"ALSA SDK package size or SHA256 mismatch: {name}")
+                raise ValueError(f"Linux SDK package size or SHA256 mismatch: {name}")
             extract_data(contents, candidate)
         verify_layout(candidate)
         receipt = {"packages": PACKAGES, "inventory": inventory(candidate)}
         (candidate / "sdk.json").write_text(json.dumps(receipt, indent=2) + "\n")
         if not valid_cache(candidate):
-            raise ValueError("ALSA SDK candidate failed validation")
+            raise ValueError("Linux SDK candidate failed validation")
         try:
             candidate.rename(path)
         except OSError:
@@ -161,7 +167,7 @@ def environment(target):
         return os.environ.copy()
     pkg_config = shutil.which("pkg-config")
     if not pkg_config:
-        raise RuntimeError("Linux 音频交叉检查需要 pkg-config；macOS 可用 brew install pkgconf 安装。")
+        raise RuntimeError("Linux 原生 SDK 交叉检查需要 pkg-config；macOS 可用 brew install pkgconf 安装。")
     sdk = prepare_sdk()
     result = os.environ.copy()
     result["PKG_CONFIG_ALLOW_CROSS"] = "1"

@@ -8,7 +8,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 BANNED = {"cc", "cmake", "cxx-build", "bindgen", "shaderc-sys", "glslang-sys", "spirv-reflect", "spirv-reflect-sys", "mlua-sys", "imgui-sys", "rmlui-sys", "recastnavigation-sys", "vk-mem", "jolt-sys", "wgpu", "wgpu-core", "rune"}
-CRITICAL = {"bevy_ecs", "rapier3d", "rerecast", "landmass", "rhai", "egui", "egui-winit", "arboard", "naga", "objc2-metal", "objc-sys", "ash", "winit"}
+CRITICAL = {"bevy_ecs", "rapier3d", "rerecast", "landmass", "rhai", "egui", "egui-winit", "arboard", "gilrs", "naga", "objc2-metal", "objc-sys", "ash", "winit"}
 
 def audit(target):
     args = ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target]

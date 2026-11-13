@@ -106,6 +106,7 @@ fn hud_views_preserve_primary_and_interact_input_authorization() -> Result<()> {
                     ui,
                     &mut assets,
                     &FrameContext {
+                        gamepad: Default::default(),
                         number,
                         dt: comet_runtime::FIXED_DELTA,
                         active,

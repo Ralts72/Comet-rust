@@ -62,6 +62,7 @@ fn project_shortcut_freezes_play_and_escape_cancels_a_focused_path_field() -> Re
     assert!(editor.documents.is_blocking());
     let steps = editor.play.as_ref().unwrap().steps();
     let context = |number| FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1.,
         active: true,
@@ -159,6 +160,7 @@ fn a_recent_project_menu_uses_the_existing_unsaved_confirmation_and_cancel_keeps
     }
     let mut number = 0;
     let context = |number| FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,

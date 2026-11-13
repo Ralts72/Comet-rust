@@ -205,6 +205,7 @@ fn close_modal_blocks_shortcuts_and_freezes_play_until_cancelled() -> Result<()>
         &mut editor,
         &mut assets,
         FrameContext {
+            gamepad: Default::default(),
             number: 1,
             dt: 1.,
             active: true,
@@ -226,6 +227,7 @@ fn close_modal_blocks_shortcuts_and_freezes_play_until_cancelled() -> Result<()>
         &mut editor,
         &mut assets,
         FrameContext {
+            gamepad: Default::default(),
             number: 2,
             dt: 1.,
             active: true,
@@ -293,6 +295,7 @@ fn frame(
         editor,
         assets,
         FrameContext {
+            gamepad: Default::default(),
             number,
             dt: 1. / 60.,
             active: true,
@@ -358,6 +361,7 @@ fn physics_parameter_drag_keeps_its_preview_and_commits_one_history_item() -> Re
     comet_application::configure_ui(&ctx);
     ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
     let context = |number| FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,
@@ -489,6 +493,7 @@ fn play_frames_share_fixed_time_input_and_host_pause_policy() -> Result<()> {
     let ctx = egui::Context::default();
     ctx.options_mut(|o| o.max_passes = 1.try_into().unwrap());
     let context = |dt, active| FrameContext {
+        gamepad: Default::default(),
         number: 0,
         dt,
         active,

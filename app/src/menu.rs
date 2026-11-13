@@ -34,6 +34,7 @@ pub(super) struct Menu {
     error: Option<String>,
     escape_held: bool,
     escape_blocked: bool,
+    gamepad_pause: comet_application::GamepadPauseInput,
     composing: bool,
     pointer_blocked: bool,
 }
@@ -63,11 +64,21 @@ impl Menu {
         accepted: &Settings,
         active: bool,
         activity_changed: bool,
+        gamepad: &comet_application::GamepadFrame,
     ) -> MenuFrame {
         let ctx = &viewport.ctx;
         let was_open = self.is_open();
         let active = active && ctx.input(|input| input.focused);
         let (escape, ime_captured) = self.escape(viewport, active, activity_changed);
+        let pause = self.gamepad_pause.sample(
+            ctx,
+            gamepad,
+            active
+                && !activity_changed
+                && !ime_captured
+                && (self.is_open() || comet_application::input_authorized(viewport, true)),
+        );
+        let escape = escape || pause;
         if !active || activity_changed {
             self.cancel_edit(ctx);
             self.pointer_blocked = true;

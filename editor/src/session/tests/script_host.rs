@@ -37,6 +37,7 @@ fn tick(editor: &mut Editor, assets: &mut AssetStore, number: u64) -> Result<()>
                 ui,
                 assets,
                 &FrameContext {
+                    gamepad: Default::default(),
                     number,
                     dt: 1. / 60.,
                     active: true,

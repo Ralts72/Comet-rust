@@ -7,12 +7,14 @@ pub fn navigate_camera(
     response: &egui::Response,
     active: bool,
     allow_pan: bool,
+    look_delta: [f32; 2],
 ) {
     if !active || !response.enabled() || !response.ctx.input(|input| input.focused) {
         return;
     }
-    let rotating = response.dragged_by(egui::PointerButton::Secondary)
-        && camera.projection == Projection::Perspective;
+    let mouse_rotating = response.dragged_by(egui::PointerButton::Secondary);
+    let rotating =
+        (mouse_rotating || look_delta != [0.; 2]) && camera.projection == Projection::Perspective;
     let panning = allow_pan && response.dragged_by(egui::PointerButton::Middle);
     let hovered = response.hovered();
     let (delta, scroll) = response.ctx.input(|input| {
@@ -25,7 +27,13 @@ pub fn navigate_camera(
             },
         )
     });
-    if !delta.is_finite()
+    let rotation_delta = if mouse_rotating {
+        delta
+    } else {
+        egui::Vec2::ZERO
+    } + egui::Vec2::from(look_delta);
+    if !rotation_delta.is_finite()
+        || !delta.is_finite()
         || !scroll.is_finite()
         || (!rotating && !panning && scroll == 0.)
         || camera.validate().is_err()
@@ -35,9 +43,9 @@ pub fn navigate_camera(
     let mut next = *camera;
     let mut offset = next.eye - next.target;
     if rotating {
-        offset = Quat::from_rotation_y(-delta.x * 0.006) * offset;
+        offset = Quat::from_rotation_y(-rotation_delta.x * 0.006) * offset;
         let right = offset.cross(Vec3::Y).normalize_or_zero();
-        let pitched = Quat::from_axis_angle(right, delta.y * 0.006) * offset;
+        let pitched = Quat::from_axis_angle(right, rotation_delta.y * 0.006) * offset;
         if pitched.normalize().dot(Vec3::Y).abs() < 0.96 {
             offset = pitched;
         }

@@ -54,6 +54,7 @@ pub struct Editor {
     pub(crate) navigation: crate::navigation::NavigationController,
     pub(crate) console: crate::console::ScriptConsole,
     checkpoint_input: comet_application::CheckpointInput,
+    gamepad_pause: comet_application::GamepadPauseInput,
     preview_checkpoint: Option<comet_core::Checkpoint>,
 }
 pub(crate) struct SnapSettings {
@@ -306,7 +307,7 @@ impl Application for Editor {
         let view = view.context("editor UI")??;
         let viewport = view.viewport;
         let pick = view.pick;
-        let actions = view.actions;
+
         if !self.is_busy() && !self.documents.is_blocking() {
             self.project
                 .show(ui.ctx(), &self.paths, assets, &self.sources);
@@ -324,11 +325,52 @@ impl Application for Editor {
         {
             self.export.fail(format!("{error:#}"));
         }
+        // Authorize after every panel and late modal has resolved, including hidden viewports.
+        let gameplay = active
+            && view.visible
+            && view.gameplay_input
+            && view.response.enabled()
+            && !self.is_busy()
+            && !self.documents.is_blocking();
+        let pause_changed = self.gamepad_pause.sample(
+            ui.ctx(),
+            &input.gamepad,
+            self.play.is_some()
+                && comet_application::input_authorized(&view.response, gameplay)
+                && !input.activity_changed,
+        );
+        if self.play.is_some() && gameplay && !pause_changed && !input.activity_changed {
+            let before = self.camera;
+            comet_application::navigate_camera(
+                &mut self.camera,
+                &view.response,
+                true,
+                false,
+                if comet_application::input_authorized(&view.response, gameplay) {
+                    input.gamepad.look_delta(input.dt)
+                } else {
+                    [0.; 2]
+                },
+            );
+            if before != self.camera {
+                self.picking.clear();
+            }
+        }
+        let actions = comet_application::sample_actions(
+            &view.response,
+            gameplay,
+            self.camera,
+            &input.gamepad,
+            input.dt,
+        );
         if let Some(play) = &mut self.play {
-            if previous_play != Some(play.world_id()) {
+            if pause_changed {
+                play.set_paused(!play.is_paused());
+            }
+            if previous_play != Some(play.world_id()) || pause_changed {
                 play.synchronize_host(active, true);
             }
-            let dt = if previous_play == Some(play.world_id()) {
+            let dt = if previous_play == Some(play.world_id()) && !pause_changed {
                 input.dt
             } else {
                 0.
@@ -524,6 +566,7 @@ pub(crate) fn open(
         navigation: Default::default(),
         console: Default::default(),
         checkpoint_input: Default::default(),
+        gamepad_pause: Default::default(),
         preview_checkpoint: None,
         workspace: Default::default(),
     };

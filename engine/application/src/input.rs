@@ -63,8 +63,9 @@ pub(crate) fn replace_paste_text(raw: &mut egui::RawInput, before: usize, text: 
     }
 }
 
-fn keyboard_authorized(response: &egui::Response, active: bool) -> bool {
+pub fn input_authorized(response: &egui::Response, active: bool) -> bool {
     active
+        && response.enabled()
         && (response.has_focus() || !response.ctx.egui_wants_keyboard_input())
         && response.ctx.input(|input| input.focused)
 }
@@ -90,7 +91,7 @@ impl CheckpointInput {
         active: bool,
         activity_changed: bool,
     ) -> Option<CheckpointAction> {
-        let authorized = keyboard_authorized(response, active) && !activity_changed;
+        let authorized = input_authorized(response, active) && !activity_changed;
         let frame = response.ctx.cumulative_frame_nr();
         let duplicate = self.frame.replace(frame) == Some(frame);
         response.ctx.input(|input| {
@@ -164,9 +165,11 @@ pub fn sample_actions(
     response: &egui::Response,
     active: bool,
     camera: crate::Camera,
+    gamepad: &crate::GamepadFrame,
+    dt: f64,
 ) -> ActionInput {
     let ctx = &response.ctx;
-    if !keyboard_authorized(response, active) {
+    if !input_authorized(response, active) {
         return ActionInput::default();
     }
     // Response queries may lock Context too; complete them before borrowing InputState.
@@ -248,6 +251,10 @@ pub fn sample_actions(
             events,
         }
     });
+    merge_device_actions(&mut actions, &gamepad.actions);
+    for (value, pad) in actions.look_delta.iter_mut().zip(gamepad.look_delta(dt)) {
+        *value += pad;
+    }
     // Runtime receives movement in world X / negative Z, independent of any camera API.
     let forward = (camera.target - camera.eye) * comet_core::math::Vec3::new(1., 0., 1.);
     let forward = forward
@@ -272,6 +279,42 @@ pub fn follow_target(
         let delta = current - previous;
         camera.eye += delta;
         camera.target += delta;
+    }
+}
+
+/// Emit edges of the logical OR, so overlapping keyboard/mouse/pad holds never retrigger.
+pub(crate) fn merge_device_actions(actions: &mut ActionInput, device: &ActionInput) {
+    if !device.enabled {
+        return;
+    }
+    let mut sources = [actions.held, device.held];
+    let keyboard = std::mem::take(&mut actions.events);
+    let batches = [keyboard.as_slice(), device.events.as_slice()];
+    for (held, events) in sources.iter_mut().zip(&batches) {
+        for event in events.iter().rev() {
+            held.set(event.action, !event.pressed);
+        }
+    }
+    for (source, events) in batches.into_iter().enumerate() {
+        for &event in events {
+            let before = sources.iter().any(|held| held.contains(event.action));
+            sources[source].set(event.action, event.pressed);
+            let after = sources.iter().any(|held| held.contains(event.action));
+            if before != after {
+                actions.events.push(ActionEvent {
+                    action: event.action,
+                    pressed: after,
+                });
+            }
+        }
+    }
+    for action in Action::ALL {
+        actions
+            .held
+            .set(action, sources.iter().any(|held| held.contains(action)));
+    }
+    for (value, pad) in actions.movement.iter_mut().zip(device.movement) {
+        *value = (*value + pad).clamp(-1., 1.);
     }
 }
 

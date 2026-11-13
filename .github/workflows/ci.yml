@@ -40,10 +40,10 @@ jobs:
           rustc --version
           cargo --version
 
-      - name: Install Linux audio SDK
+      - name: Install Linux native SDKs
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev
+          sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev libudev-dev
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

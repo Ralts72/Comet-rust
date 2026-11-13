@@ -242,6 +242,7 @@ fn move_and_rotation_share_space_controls_without_editing_scene_content() -> Res
     let before = editor.document.shared_source();
     let ctx = context();
     let input = |number| FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,

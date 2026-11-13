@@ -35,6 +35,7 @@ fn setup(editor: &mut Editor) -> Result<comet_core::EntityId> {
 
 fn context(number: u64) -> FrameContext {
     FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,

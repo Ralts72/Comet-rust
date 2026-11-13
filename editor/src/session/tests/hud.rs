@@ -36,6 +36,16 @@ fn frame(
     number: u64,
     events: Vec<egui::Event>,
 ) -> Result<ViewRequest> {
+    frame_with_pad(ctx, editor, assets, number, events, Default::default())
+}
+fn frame_with_pad(
+    ctx: &egui::Context,
+    editor: &mut Editor,
+    assets: &mut AssetStore,
+    number: u64,
+    events: Vec<egui::Event>,
+    gamepad: comet_application::GamepadFrame,
+) -> Result<ViewRequest> {
     let mut view = None;
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -51,6 +61,7 @@ fn frame(
                 ui,
                 assets,
                 &FrameContext {
+                    gamepad: gamepad.clone(),
                     number,
                     dt: comet_runtime::FIXED_DELTA,
                     active: true,
@@ -141,6 +152,128 @@ fn view_recovery_discards_play_hud_without_changing_authoring_or_its_saved_file(
         &author,
         &editor.document.shared_source()
     ));
+    assert_eq!(std::fs::read(&editor.source)?, bytes);
+    Ok(())
+}
+
+#[test]
+fn gamepad_play_merges_actions_moves_the_character_and_isolates_pause_and_late_modals() -> Result<()>
+{
+    use comet_application::GamepadFrame;
+    use comet_core::{Action, ActionEvent};
+    use comet_scene::{BodyMotion, ColliderShape};
+    let (_temp, mut editor, mut assets) = fixture()?;
+    editor.stop();
+    let mut source = editor.document.source();
+    let mut actor = EntityData::new("手柄角色");
+    actor.transform.translation = [0., 2., 0.];
+    actor.physics = Some(PhysicsBody {
+        motion: BodyMotion::Kinematic,
+        shape: ColliderShape::Capsule {
+            half_height: 0.5,
+            radius: 0.3,
+        },
+        ..Default::default()
+    });
+    actor.character = Some(Character::default());
+    source.base.entities.push(actor);
+    editor.document = Document::open_source(source)?;
+    editor.save(&mut assets)?;
+    editor.start(&mut assets)?;
+    let author = editor.document.shared_source();
+    let bytes = std::fs::read(&editor.source)?;
+    let ctx = egui::Context::default();
+    comet_application::configure_ui(&ctx);
+    ctx.options_mut(|options| options.max_passes = 1.try_into().unwrap());
+    frame(&ctx, &mut editor, &mut assets, 0, vec![])?;
+    let before = editor
+        .play
+        .as_ref()
+        .unwrap()
+        .player_character()
+        .unwrap()
+        .position;
+    let camera = editor.camera;
+    let mut pad = GamepadFrame {
+        look_rate: [90., 0.],
+        ..Default::default()
+    };
+    pad.actions.enabled = true;
+    pad.actions.movement = [0., 1.];
+    for action in [Action::Interact, Action::Primary] {
+        pad.actions.held.set(action, true);
+        pad.actions.events.push(ActionEvent {
+            action,
+            pressed: true,
+        });
+    }
+    let view = frame_with_pad(&ctx, &mut editor, &mut assets, 1, vec![], pad.clone())?;
+    assert_eq!(view.hud.unwrap().labels[0].text.as_ref(), "1/1");
+    assert_ne!(editor.camera, camera);
+    let after = editor
+        .play
+        .as_ref()
+        .unwrap()
+        .player_character()
+        .unwrap()
+        .position;
+    assert!((after[0] - before[0]).hypot(after[2] - before[2]) > 0.);
+    let keys = |pressed| {
+        [egui::Key::E, egui::Key::J]
+            .map(|key| egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Default::default(),
+            })
+            .to_vec()
+    };
+    pad.actions.events.clear();
+    let view = frame_with_pad(&ctx, &mut editor, &mut assets, 2, keys(true), pad.clone())?;
+    assert_eq!(view.hud.unwrap().labels[0].text.as_ref(), "1/1");
+    for action in [Action::Interact, Action::Primary] {
+        pad.actions.held.set(action, false);
+        pad.actions.events.push(ActionEvent {
+            action,
+            pressed: false,
+        });
+    }
+    frame_with_pad(&ctx, &mut editor, &mut assets, 3, vec![], pad.clone())?;
+    frame(&ctx, &mut editor, &mut assets, 4, keys(false))?;
+    let mut pause = GamepadFrame {
+        pause_down: true,
+        pause_pressed: true,
+        ..Default::default()
+    };
+    let steps = editor.play.as_ref().unwrap().steps();
+    frame_with_pad(&ctx, &mut editor, &mut assets, 5, vec![], pause.clone())?;
+    assert!(editor.play.as_ref().unwrap().is_paused());
+    assert_eq!(editor.play.as_ref().unwrap().steps(), steps);
+    pause.pause_pressed = false;
+    frame_with_pad(&ctx, &mut editor, &mut assets, 6, vec![], pause.clone())?;
+    assert!(editor.play.as_ref().unwrap().is_paused());
+    frame(&ctx, &mut editor, &mut assets, 7, vec![])?;
+    pause.pause_pressed = true;
+    frame_with_pad(&ctx, &mut editor, &mut assets, 8, vec![], pause.clone())?;
+    assert!(!editor.play.as_ref().unwrap().is_paused());
+    assert_eq!(editor.play.as_ref().unwrap().steps(), steps);
+    editor
+        .documents
+        .open_browser(crate::documents::BrowserMode::Open);
+    let camera = editor.camera;
+    pad.pause_down = true;
+    pad.pause_pressed = true;
+    frame_with_pad(&ctx, &mut editor, &mut assets, 9, vec![], pad.clone())?;
+    assert_eq!(editor.camera, camera);
+    assert_eq!(editor.play.as_ref().unwrap().steps(), steps);
+    assert!(!editor.play.as_ref().unwrap().is_paused());
+    editor.documents = Default::default();
+    pad.pause_pressed = false;
+    frame_with_pad(&ctx, &mut editor, &mut assets, 10, vec![], pad)?;
+    assert!(!editor.play.as_ref().unwrap().is_paused());
+    editor.stop();
+    assert_eq!(editor.document.shared_source(), author);
     assert_eq!(std::fs::read(&editor.source)?, bytes);
     Ok(())
 }

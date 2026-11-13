@@ -38,6 +38,7 @@ impl HostOptions {
 }
 pub struct FrameContext {
     pub number: u64,
+    pub gamepad: crate::GamepadFrame,
     pub dt: f64,
     pub active: bool,
     pub activity_changed: bool,
@@ -117,6 +118,7 @@ struct Host<A: Application> {
     window: Option<Arc<Window>>,
     state: Option<egui_winit::State>,
     clipboard: Option<arboard::Clipboard>,
+    gamepad: crate::gamepad::GamepadHost,
     options: HostOptions,
     app: A,
     assets: AssetStore,
@@ -145,6 +147,11 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         window: None,
         state: None,
         clipboard: None,
+        gamepad: if headless {
+            Default::default()
+        } else {
+            crate::gamepad::GamepadHost::open()
+        },
         options,
         app,
         assets,
@@ -180,6 +187,7 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         worker.close()?;
     }
     host.shutdown_audio();
+    host.gamepad.close();
     let audio = host
         .final_audio
         .take()
@@ -195,7 +203,7 @@ pub fn run<A: Application>(options: HostOptions, assets: AssetStore, app: A) -> 
         std::fs::write(
             report,
             serde_json::to_vec_pretty(
-                &serde_json::json!({"frames":host.feedback,"submitted_frames":host.number,"application":host.app.report(),"audio":audio,"audio_shutdown":audio_stopped.active_voices == 0 && audio_stopped.pending_voices == 0,"headless":headless}),
+                &serde_json::json!({"frames":host.feedback,"submitted_frames":host.number,"application":host.app.report(),"audio":audio,"audio_shutdown":audio_stopped.active_voices == 0 && audio_stopped.pending_voices == 0,"headless":headless,"gamepad":host.gamepad.report()}),
             )?,
         )?;
     }
@@ -296,6 +304,9 @@ impl<A: Application> Host<A> {
         };
         let input = FrameContext {
             number: self.number,
+            gamepad: self
+                .gamepad
+                .sample(active, activity_changed, self.options.smoke),
             dt,
             active,
             activity_changed,
@@ -505,6 +516,7 @@ impl<A: Application> ApplicationHandler for Host<A> {
     }
     fn exiting(&mut self, _: &ActiveEventLoop) {
         self.clipboard.take();
+        self.gamepad.close();
         self.shutdown_audio();
         if let Some(worker) = &mut self.worker
             && let Err(error) = worker.close()

@@ -84,6 +84,32 @@ impl Game {
         self.output = Some(output);
         Ok(view)
     }
+    fn pad(
+        &mut self,
+        gamepad: comet_application::GamepadFrame,
+        active: bool,
+        changed: bool,
+    ) -> Result<ViewRequest> {
+        let (view, output) = frame_output_with_context(
+            &self.ctx,
+            &mut self.app,
+            &mut self.assets,
+            FrameContext {
+                gamepad,
+                number: self.number,
+                dt: 1. / 60.,
+                active,
+                activity_changed: changed,
+                target_generation: 1,
+                size: [640, 480],
+                smoke: false,
+            },
+            vec![],
+        )?;
+        self.number += 1;
+        self.output = Some(output);
+        Ok(view)
+    }
     fn key(&mut self, pressed: bool) -> Result<ViewRequest> {
         self.draw(vec![egui::Event::Key {
             key: egui::Key::Escape,
@@ -138,6 +164,62 @@ impl Game {
             },
         ])
     }
+}
+
+#[test]
+fn gamepad_pause_blocks_simulation_and_rejects_held_start_after_host_restoration() -> Result<()> {
+    use comet_application::GamepadFrame;
+    let mut game = Game::new(false)?;
+    game.draw(vec![])?;
+    let steps = game.app.play.steps();
+    let camera = game.app.camera;
+    let pause = GamepadFrame {
+        pause_down: true,
+        pause_pressed: true,
+        look_rate: [600., 0.],
+        ..Default::default()
+    };
+    game.pad(pause.clone(), true, false)?;
+    assert!(game.app.menu.is_open());
+    assert_eq!(game.app.play.steps(), steps);
+    assert_eq!(game.app.camera, camera);
+    game.pad(
+        GamepadFrame {
+            pause_down: true,
+            ..Default::default()
+        },
+        true,
+        false,
+    )?;
+    assert!(game.app.menu.is_open());
+    game.pad(Default::default(), true, false)?;
+    game.pad(pause.clone(), true, false)?;
+    assert!(!game.app.menu.is_open());
+    assert_eq!(game.app.play.steps(), steps);
+    game.pad(pause.clone(), false, true)?;
+    game.pad(
+        GamepadFrame {
+            pause_down: true,
+            ..Default::default()
+        },
+        true,
+        true,
+    )?;
+    assert!(!game.app.menu.is_open());
+    game.pad(
+        GamepadFrame {
+            pause_down: true,
+            ..Default::default()
+        },
+        true,
+        false,
+    )?;
+    assert!(!game.app.menu.is_open());
+    game.pad(Default::default(), true, false)?;
+    game.pad(pause, true, false)?;
+    assert!(game.app.menu.is_open());
+    assert!(!game.app.play.is_paused());
+    Ok(())
 }
 
 #[test]

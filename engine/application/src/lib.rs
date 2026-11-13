@@ -5,8 +5,10 @@ mod hud;
 pub use comet_audio::AudioFrame;
 mod extract;
 mod fonts;
+mod gamepad;
 mod icon;
 mod input;
+pub use gamepad::{GamepadFrame, GamepadPauseInput};
 #[cfg(target_os = "macos")]
 mod macos;
 mod navigation;
@@ -16,5 +18,7 @@ pub use comet_render::{Camera, PickRequest, Projection};
 pub use comet_scene::world_transforms;
 pub use extract::{extract, selection_bounds};
 pub use fonts::configure_ui;
-pub use input::{CheckpointAction, CheckpointInput, follow_target, sample_actions};
+pub use input::{
+    CheckpointAction, CheckpointInput, follow_target, input_authorized, sample_actions,
+};
 pub use navigation::navigate_camera;

@@ -392,6 +392,7 @@ fn selecting_the_rotation_tool_and_its_snap_controls_keeps_authoring_unchanged()
     let before = editor.document.shared_source();
     let ctx = rotation_context();
     let context = |number| FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,

@@ -11,7 +11,7 @@ Editor Play 与 App 共用 60 Hz 固定步、暂停单步、失焦冻结及动�
 
 ## 开发与启动
 
-使用 `rust-toolchain.toml` 固定的 Rust 工具链、Edition 2024 和 `Cargo.lock`。启动与验证工具使用 Python 3 标准库。workspace 共用根 `target/`，编译并行配置在 `.cargo/config.toml`；macOS 最低为 14.2，需要 Xcode Command Line Tools 提供 SDK 与链接器；Linux 构建音频需要 `pkg-config` 和 ALSA 开发包（Debian/Ubuntu 为 `libasound2-dev`）。
+使用 `rust-toolchain.toml` 固定的 Rust 工具链、Edition 2024 和 `Cargo.lock`。启动与验证工具使用 Python 3 标准库。workspace 共用根 `target/`，编译并行配置在 `.cargo/config.toml`；macOS 最低为 14.2，需要 Xcode Command Line Tools 提供 SDK 与链接器；Linux 原生音频和手柄构建需要 `pkg-config`、ALSA 与 udev 开发包（Debian/Ubuntu 为 `libasound2-dev libudev-dev`）。
 
 日常只保留一个启动入口：
 
@@ -34,6 +34,10 @@ macOS 启动时自动准备带原版蓝色彗星图标的 `Comet Editor.app`；�
 准备好的 Editor 与 App 模板成套保存在 `target/launch/slot-*/programs/`，连续构建复用空闲槽，相同输入直接复用，源码变化时校验完整候选后替换。运行中的编辑器持有槽位锁，直到退出才允许复用；同时运行多个编辑器会使用独立槽，槽数量随同时使用量增长。模板记录源码/依赖/配置指纹、平台架构、协议版本和程序摘要；包含未提交源码，不以 Git commit 代替构建身份。身份只编入 Editor/App 入口，未修改的引擎库可复用 Cargo 缓存；测试目录和独立 `tests.rs` 不影响生产身份。修改程序源码后重新运行 `start.sh`，资源变化则由编辑器导出时重新构建。
 
 在编辑器中点击“运行”后，WASD 按相机方向移动，Space 跳跃、Shift 跑步，右键拖动环绕、滚轮缩放；相机跟随角色。Ctrl 控制胶囊蹲伏，低顶下松开仍保持蹲伏，离开障碍后再站起；属性面板可配置蹲伏速度和高度比例。默认主场景使用方块外观；`character.scene` 双关使用旧项目的人形模型，按实际移动、着地、上升和蹲伏状态切换动作；手柄和完整玩法仍待接入。
+
+Editor Play 和独立 App 共用基础手柄输入：左摇杆移动、右摇杆转动视角、South（A／Cross）跳跃、左肩键跑步、右肩键蹲伏、North（Y／Triangle）交互、West（X／Square）攻击。摇杆使用 0.15 径向死区并保留模拟幅度，键鼠与手柄同时使用时，同一动作在另一设备仍按住时不会重复触发。
+Start 在 Editor Play 中切换暂停，在 App 中打开／关闭暂停菜单；Select／Back 重开。旧示例的 Start 重开改为 Select，避免和暂停冲突。固定使用当前第一个手柄，断开后选择剩余设备；新连接、切换设备和窗口恢复时，按住的按钮须释放、偏转的摇杆须回中后再使用。
+文字输入、弹窗、后台任务和隐藏场景面板阻断游戏输入；App 菜单的保存、设置等按钮仍用键鼠操作。当前未提供改键、手柄选择、震动或 UI 方向键导航，实际控制器与三平台设备行为仍待实测。
 工具栏提供“新建场景”和“打开场景 / Prefab”，也可使用 Ctrl/Cmd-N、Ctrl/Cmd-O；保存按钮随当前文件显示“保存场景”或“保存 Prefab”。新建时指定 assets 内的 `.scene` 位置，立即保存空场景和稳定的 `.meta` 身份，不覆盖已有文件；打开列表包含场景和原生 `.prefab`。有未保存修改时，可保存后切换、放弃修改后切换或取消。候选加载失败保留当前文档与 Play，成功后使用独立撤销历史。打开场景会选中对应导出入口；打开 Prefab 保留有效的场景选择，项目没有场景时不能导出 App。
 
 项目面板按 `assets/` 目录浏览已构建的全部资源，模型旁的箭头可展开网格、材质等子资产。“搜索文件...”支持名称、相对路径和子资产名称，可配合类型筛选；右键可复制 UUID 或源路径。模型和 Prefab 可双击或点击“添加到场景”按源坐标添加；拖入场景画布则把资源原点放在鼠标对应的相机焦平面上，显示落点十字。多根、物理和嵌套实例保持相对位置，支持整体撤销；拖拽期间切换文档、资源或运行状态会取消本次操作。场景可双击打开，原生 `.prefab` 可选中后点击“编辑源”。新文件在“刷新资源”成功后列出；未构建文件、空目录、缩略图及文件移动、重命名、删除仍待接入。
@@ -54,7 +58,7 @@ macOS 启动时自动准备带原版蓝色彗星图标的 `Comet Editor.app`；�
 
 打开 `collect.scene` 并运行，用 WASD 走近金色方块：HUD 从 0/1 更新为 1/1，目标外观隐藏，旁边的蒙皮模型播放一次动作并响起提示音；离开再进入不会重复收集。等 HUD 提示动作完成，再重新按 E 前往现有第二关；提前按下或持续按住 E 不会自动换关。脚本显式记录已收集进度，继续时回到保存关卡起点，目标不重生，也不重播提示音或动作。R 恢复本次入关进度，正常新 Play 从空进度开始；停止 Play 保留作者文档。示例复用现有方块、SimpleSkin 产品和提示音；导出时需包含 `collect.scene`、`travel_second.scene` 及第二关返回的 `travel.scene`。
 
-运行 `./start.sh --scene character.scene` 可进入双关三目标玩法：人形角色支持待机/走路/跑步的一维混合、蹲伏/蹲行、跳跃与下落过渡，地面移动时由动画事件播放空间脚步提示音。每关收集三个目标，每个目标独立播放 SimpleSkin 动作和提示音；收到三个“动作完成”事件后，出口闸门连同碰撞体升起。走到出口重新按 E 前往另一关，持续按住 E 不会自动跳关。第一关含台阶与蹲伏通道，第二关含绕行墙；使用现有 WASD、Space、Shift、Ctrl 与鼠标相机操作。F5 保存、F9 继续会从保存关卡入口重建，已收集目标外观保持移除且不重播反馈；两关进度分别保留，R 恢复本次入关基线。导出时同时包含 `character.scene` 和 `character_second.scene`。资源来源见 [示例资源说明](demo/ASSET-CREDITS.txt)；分层动画、挂点、粒子、章节 UI、手柄和完整设置仍待迁移。
+运行 `./start.sh --scene character.scene` 可进入双关三目标玩法：人形角色支持待机/走路/跑步的一维混合、蹲伏/蹲行、跳跃与下落过渡，地面移动时由动画事件播放空间脚步提示音。每关收集三个目标，每个目标独立播放 SimpleSkin 动作和提示音；收到三个“动作完成”事件后，出口闸门连同碰撞体升起。走到出口重新按 E 前往另一关，持续按住 E 不会自动跳关。第一关含台阶与蹲伏通道，第二关含绕行墙；使用现有 WASD、Space、Shift、Ctrl 与鼠标相机操作。F5 保存、F9 继续会从保存关卡入口重建，已收集目标外观保持移除且不重播反馈；两关进度分别保留，R 恢复本次入关基线。导出时同时包含 `character.scene` 和 `character_second.scene`。资源来源见 [示例资源说明](demo/ASSET-CREDITS.txt)；分层动画、挂点、粒子、章节 UI 和完整设置仍待迁移。
 
 打开 `animation.scene` 并运行，可观察官方 SimpleSkin 蒙皮模型随骨骼弯曲；暂停、单步和 R 重开共用正常运行流程，导出包只读取构建产品。示例源在 `demo/assets/models/simple_skin/`，测试复用同一份资产。属性面板“动画”可选片段、循环、速度及骨骼绑定，“蒙皮”可选同骨架的动画实体；强引用仍有效时，缺失或过期的源绑定表可显式重建并撤销。支持 STEP/LINEAR/CUBICSPLINE 的单 Clip TRS 播放；脚本可重播、暂停、继续、设置速度并查询已发布的播放状态，示例见 `collect.scene`。动画片段支持由 glTF `animation.extras.comet_events` 定义的阶段事件，脚本通过 `on_animation_event(ctx, animator, name)` 消费；暂停、单步和重播共用固定步流程。同骨架的 `.ani` 动画控制器支持参数、条件转换、一维混合与可打断过渡；属性面板可选择控制器，运行时显示状态与过渡进度。根运动、分层、重定向和 IK 尚未接入。
 

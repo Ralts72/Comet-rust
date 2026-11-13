@@ -132,6 +132,7 @@ fn host<A: Application>(assets: AssetStore, app: A) -> Host<A> {
         window: None,
         state: None,
         clipboard: None,
+        gamepad: Default::default(),
         options: HostOptions::new("application view test"),
         app,
         assets,
@@ -160,6 +161,7 @@ fn prepare(host: &mut Host<impl Application>) -> Result<Option<FramePacket>> {
             ..Default::default()
         },
         &FrameContext {
+            gamepad: Default::default(),
             number: host.number,
             dt: 0.,
             active: true,
@@ -307,6 +309,7 @@ fn reused_draws_keep_the_current_camera_world_viewport_and_pick() -> Result<()> 
                 ..Default::default()
             },
             &FrameContext {
+                gamepad: Default::default(),
                 number: 2,
                 dt: 0.,
                 active: true,

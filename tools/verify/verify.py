@@ -44,6 +44,7 @@ def report(status):
                 unverified.append(f"{backend}: offscreen GPU execution")
             if checks.get("app-native", {}).get("status") != "passed":
                 unverified.append(f"{backend}: native window execution")
+    unverified.append("physical gamepad controls and reconnection on macOS, Windows and Linux (synthetic input regressions pass)")
     unverified.append("physical mouse drag (synthetic egui drag regression passes)")
     unverified.append("cross-application OS clipboard copy/paste (synthetic input isolation regression passes)")
     if sys.platform != "win32":
@@ -799,6 +800,15 @@ def main():
                     command.append("--headless")
                 run_capture(name, command, cwd=case)
                 inspect_frames(name, native)
+            gamepads = {}
+            for native in ([False, True] if args.native else [False]):
+                name = "editor-native" if native else "editor-headless"
+                device = json.loads((OUT / f"{name}.json").read_text())["gamepad"]
+                assert device["status"] == ("ready" if native else "disabled"), device
+                assert device["error"] is None and device["closed"] and device["overflow_frames"] == 0
+                gamepads[name] = device
+            checks["gamepad_host_evidence"] = {"status": "passed", "reports": gamepads,
+                "scope": "native API initialization/shutdown only; actual controller operations remain unverified"}
             run_capture("navigation-editor-headless", [editor, "--app-template", template, "--project", project,
                         "--products", products, "--scene", "navigation.scene", "--headless", "--smoke",
                         "--report", OUT / "navigation-editor-headless.json",

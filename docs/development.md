@@ -4,7 +4,7 @@
 
 ## 开发环境
 
-使用 `rust-toolchain.toml` 固定的 Rust 工具链及其 rustfmt、Clippy 组件；Cargo 依赖由 `Cargo.lock` 锁定。Python 工具只使用 Python 3 标准库。编译共用根 `target/`，并行配置由 `.cargo/config.toml` 管理。macOS 最低为 14.2，需要 Xcode Command Line Tools；`.cargo/config.toml` 与 Editor/App 的 Info.plist 使用同一最低版本。Windows 原生构建使用 MSVC 工具链和 Windows SDK；Windows/Linux 运行图形程序时需要系统 Vulkan loader 与驱动。声音输出分别使用 macOS CoreAudio、Windows WASAPI、Linux ALSA；Debian/Ubuntu 构建先安装 `pkg-config` 和 `libasound2-dev`，设备与权限需由目标环境提供。
+使用 `rust-toolchain.toml` 固定的 Rust 工具链及其 rustfmt、Clippy 组件；Cargo 依赖由 `Cargo.lock` 锁定。Python 工具只使用 Python 3 标准库。编译共用根 `target/`，并行配置由 `.cargo/config.toml` 管理。macOS 最低为 14.2，需要 Xcode Command Line Tools；`.cargo/config.toml` 与 Editor/App 的 Info.plist 使用同一最低版本。Windows 原生构建使用 MSVC 工具链和 Windows SDK；Windows/Linux 运行图形程序时需要系统 Vulkan loader 与驱动。声音输出分别使用 macOS CoreAudio、Windows WASAPI、Linux ALSA；Debian/Ubuntu 构建先安装 `pkg-config`、`libasound2-dev` 和 `libudev-dev`，设备与权限需由目标环境提供。
 二进制源资产使用 Git LFS，初次准备仓库时按 README 安装并拉取；不需要初始化 C++ 第三方子模块。
 
 ## 构建缓存维护
@@ -28,7 +28,7 @@ python3 tools/verify/verify.py --native --linux --windows
 `--smoke` 使用确定的 1/60 秒宿主帧时间，初始帧与宿主状态恢复帧为零；离屏 App 必须实际执行 7 个固定步。日常运行使用单调实时时间，烟测的确定时间不用于性能结论。
 `--linux` 对全部模块交叉编译和 Clippy，并检查目标平台的边界及依赖；需要安装对应标准库目标。它不代表已经在 Linux 上执行 GPU 工作。`--windows` 同样检查 x86_64-pc-windows-msvc 的全部模块、测试源码、Clippy、边界和依赖；不进行 Windows 链接，也不执行 Windows 程序。先运行 `rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-msvc` 准备目标标准库；在已有原生验证的平台上按需选择另一目标，避免重复相同检查。Windows 运行验证工具使用 `python tools/verify/verify.py`，启动由同一 Python 实现负责，不要求 POSIX Shell。
 
-macOS 运行 `--linux` 前使用 `brew install pkgconf` 准备 pkg-config。验证工具的 `linux_sdk.py` 自动下载固定版本和 SHA256 的真实 Debian ALSA 开发/运行包，在 `target/sysroots/` 校验、解包并复用，提供目标头文件、ELF 库及 pkg-config 元数据；首次需要联网。损坏缓存不会被复用。此 SDK 仅用于 ALSA 交叉检查；Linux 原生链接、设备与程序运行仍需对应环境验收。
+macOS 运行 `--linux` 前使用 `brew install pkgconf` 准备 pkg-config。验证工具的 `linux_sdk.py` 自动下载固定版本和 SHA256 的真实 Debian ALSA／udev 开发/运行包，在 `target/sysroots/` 校验、解包并复用，提供目标头文件、ELF 库及 pkg-config 元数据；首次需要联网。损坏缓存不会被复用。此 SDK 仅用于音频／手柄交叉检查；Linux 原生链接、设备与程序运行仍需对应环境验收。
 
 ## 依赖与模块审计
 
@@ -54,7 +54,7 @@ python3 tools/verify/check_boundaries.py
 
 ## GitHub CI
 
-[工作流](../.github/workflows/ci.yml) 仅运行 Linux，在 PR、`main/master` 推送及手动触发时执行；相同 PR 或分支的新运行会取消旧运行。使用 Ubuntu 24.04 x64，安装 `pkg-config` 与 `libasound2-dev`，覆盖 Linux 原生测试、Vulkan 后端编译与 Clippy、资产与独立包检查、Release 游戏和资产工具构建，并交叉检查 Windows MSVC 全工程。
+[工作流](../.github/workflows/ci.yml) 仅运行 Linux，在 PR、`main/master` 推送及手动触发时执行；相同 PR 或分支的新运行会取消旧运行。使用 Ubuntu 24.04 x64，安装 `pkg-config`、`libasound2-dev` 与 `libudev-dev`，覆盖 Linux 原生测试、Vulkan 后端编译与 Clippy、资产与独立包检查、Release 游戏和资产工具构建，并交叉检查 Windows MSVC 全工程。
 
 CI 复用 `python3 tools/verify/verify.py --windows`，包括格式、workspace 测试、Clippy、模块边界、依赖审计、Debug Editor/Release App 模板准备、编辑器后台导出及产品包隔离检查。Rust 版本、rustfmt 与 Clippy 由 `rust-toolchain.toml` 自动安装，Cargo 命令使用锁文件；checkout 拉取 Git LFS 资产，不初始化 C++ 第三方子模块。首次冷编译的测试、Clippy 与应用构建各允许 15 分钟，其余检查默认 5 分钟；单个 CI job 最长 30 分钟。
 
@@ -350,3 +350,10 @@ App 的 `--data-dir <目录>` 将存档与设置共同的根替换为显式目�
 “设置”页只修改草稿；点击“应用”成功后生效并保存，停留当前页，未再修改时按钮禁用。失败保留当前值和草稿供重试；返回或无编辑时按 Esc 会放弃未应用内容回主菜单。音量手势编辑中的 Esc 先取消该次修改，IME 输入中的 Esc 不关闭菜单。主音量为有限 0～1、默认 1，统一影响 2D/空间音效，不改各源音量或重播声音；方向光阴影默认开启，关闭后仍保留方向光照。此偏好不代表旧版 MSAA、渲染比例、TAA 或完整画质设置已迁移，Editor 也不加载这份 App 偏好。
 
 启动读取独立 settings.json，私有 v1 封装校验 GameId 和全部字段，最多 4 KiB；缺文件只使用默认值，不创建目录。坏、超限、未知版本或外来身份保留文件、使用默认设置并提示，应用也不会覆盖错误文件，需修复或移走后重试。设置与 checkpoint.json 共用同一 Store 的路径和原子写入边界，但文件独立；修改设置、R、换关或继续都不改变检查点的含义。存储与设置单元回归分别检查严格格式、大小上限、两槽隔离、坏文件/符号链接与失败保留；真实 egui 回归检查草稿、应用/返回、焦点和按键生命周期。Audio 的真实 Kira 离线 PCM 回归检查主音量比例及代次/缓存保持，原生设备进度和三平台人工试听继续单独验收，AudioReport.master_gain 只说明已接纳目标。
+
+
+### 手柄输入验收
+
+CPU 回归复用固定步和宿主授权，检查重连基线、按钮释放与摇杆回中、快速按下释放、设备重叠边沿、模拟幅度和文字输入隔离；Editor Play／App 回归检查真实角色移动、视角、暂停当帧及弹窗隔离。
+headless 不访问真实设备；原生窗口报告的 `gamepad` 区分 disabled、ready 和 unavailable，记录连接数量、事件溢出和关闭状态。`ready` 且零设备只表示原生 API 初始化完成，不能替代实际手柄操作。
+Linux 交叉 SDK 使用固定摘要的 ALSA／udev 包，CI 安装 `libasound2-dev libudev-dev`。Windows/Linux 原生设备及三平台实际按键、连接恢复仍待实测。

@@ -125,6 +125,30 @@ fn frame_output(
     activity_changed: bool,
     events: Vec<egui::Event>,
 ) -> Result<(ViewRequest, egui::FullOutput)> {
+    frame_output_with_context(
+        ctx,
+        app,
+        assets,
+        FrameContext {
+            gamepad: Default::default(),
+            number,
+            dt: 1. / 60.,
+            active,
+            activity_changed,
+            target_generation: 1,
+            size: [640, 480],
+            smoke: false,
+        },
+        events,
+    )
+}
+fn frame_output_with_context(
+    ctx: &egui::Context,
+    app: &mut App,
+    assets: &mut AssetStore,
+    input: FrameContext,
+    events: Vec<egui::Event>,
+) -> Result<(ViewRequest, egui::FullOutput)> {
     let mut view = None;
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -136,19 +160,7 @@ fn frame_output(
             ..Default::default()
         },
         |ui| {
-            view = Some(app.frame(
-                ui,
-                assets,
-                &FrameContext {
-                    number,
-                    dt: 1. / 60.,
-                    active,
-                    activity_changed,
-                    target_generation: 1,
-                    size: [640, 480],
-                    smoke: false,
-                },
-            ));
+            view = Some(app.frame(ui, assets, &input));
         },
     );
     output.textures_delta.clear();

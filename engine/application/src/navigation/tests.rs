@@ -25,7 +25,7 @@ impl Case {
                     egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800., 600.)),
                     egui::Sense::click_and_drag(),
                 );
-                navigate_camera(&mut self.camera, &response, active, pan);
+                navigate_camera(&mut self.camera, &response, active, pan, [0.; 2]);
             },
         );
         output.textures_delta.clear();

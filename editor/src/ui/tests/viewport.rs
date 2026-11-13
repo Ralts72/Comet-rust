@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 fn context(number: u64) -> FrameContext {
     FrameContext {
+        gamepad: Default::default(),
         number,
         dt: 1. / 60.,
         active: true,
